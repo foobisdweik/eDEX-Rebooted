@@ -2,6 +2,33 @@
 
 All notable changes to this fork will be documented in this file.
 
+## [3.0.0] - 2026-05-22
+
+### Changed
+- Replaced the Electron + Node runtime with a Tauri 2 + Rust native macOS app.
+- Retargeted the release to Apple Silicon macOS only (`aarch64-apple-darwin`).
+- Replaced the localhost WebSocket terminal channel with in-process Tauri IPC.
+- Replaced `node-pty` with Rust `portable-pty` for terminal process management.
+- Replaced the `systeminformation` worker model with Rust `sysinfo`/`battery` command handlers.
+- Replaced direct Node filesystem access in the renderer with Rust filesystem commands.
+- Vendored the frontend runtime assets under `src/assets/vendor/` so the shipped app does not include `node_modules/`.
+
+### Added
+- Tauri bundle configuration for `.app` and `.dmg` output.
+- Tauri command allow-list in `src-tauri/capabilities/default.json`.
+- Native settings/user-data initialization in Rust.
+- Production build verification for `cargo +stable tauri build --target aarch64-apple-darwin`.
+
+### Fixed
+- Removed the original terminal-control WebSocket attack surface entirely.
+- Reduced UI stalls by moving blocking sysinfo, filesystem, and PTY polling work onto Tauri/Tokio blocking tasks.
+- Fixed terminal font measurement races by loading bundled fonts before xterm starts and disabling ligature joining for non-ligature terminal themes.
+
+### Deferred
+- Network globe, connection list, PDF reader, and update checker are out of the v3.0.0 scope and remain v0.2 backlog items.
+- Code signing and notarization are not yet implemented.
+- Windows and Linux Tauri targets are not part of this release.
+
 ## [Unreleased] - 2025-10-05
 
 ### Updated Dependencies

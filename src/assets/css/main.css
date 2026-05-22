@@ -9,6 +9,8 @@ body {
     user-select: none !important;
     padding-top: 1.85vh;
     color: rgb(var(--color_r), var(--color_g), var(--color_b));
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
     display: flex;
     flex-direction: row;
     align-items: center;

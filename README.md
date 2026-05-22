@@ -28,8 +28,6 @@ Boots fullscreen, terminal echoes, multi-tab spawn (Ctrl+X then 2/3/4/5), filesy
 
 # Known issues / v0.2 backlog
 
-- Typing-latency stutter every 2–3 keystrokes in the terminal (under investigation).
-- Kerning artifacts in xterm output (likely a font-load race).
 - Network globe (`locationGlobe`), connection list (`conninfo`), PDF viewer (`docReader`), and GitHub update checker (`updateChecker`) are **not present** in v1 — they will return in v0.2 reimplemented against Rust commands.
 - `si_network_connections` returns an empty list (placeholder for v0.2).
 - `.app` is not yet code-signed or notarized.
@@ -53,21 +51,27 @@ Pre-built binaries from the original upstream repository still contain the WebSo
 - Xcode Command Line Tools (`xcode-select --install`)
 - Node.js is **only** required if you want to regenerate `src/assets/icons/file-icons.json` from the file-icons submodules. The app itself does not need Node to build or run.
 
+> [!IMPORTANT]
+> Use a current stable Rust toolchain. Older Cargo builds, including 1.81, cannot parse some current dependency metadata and fail before compiling the app.
+
 ## Run from source
 
 ```
 git clone https://github.com/theelderemo/eDEX-UI-security-patched.git
 cd eDEX-UI-security-patched
-cargo tauri dev
+cargo +stable tauri dev
 ```
 
 ## Produce a release `.app` / `.dmg`
 
 ```
-cargo tauri build --target aarch64-apple-darwin
+cargo +stable tauri build --target aarch64-apple-darwin
 ```
 
-Artifacts land in `src-tauri/target/aarch64-apple-darwin/release/bundle/`.
+Verified v3.0.0 artifacts land in:
+
+- `src-tauri/target/aarch64-apple-darwin/release/bundle/macos/eDEX-UI.app`
+- `src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/eDEX-UI_3.0.0_aarch64.dmg`
 
 ## (Optional) regenerate file-icons
 

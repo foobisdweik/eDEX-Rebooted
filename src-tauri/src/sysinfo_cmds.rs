@@ -1,13 +1,13 @@
 use serde_json::{json, Value};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use sysinfo::{Components, Disks, Networks, ProcessRefreshKind, RefreshKind, System};
-use tauri::State;
+use tauri::{async_runtime, State};
 
 pub struct SysinfoState {
-    pub sys: Mutex<System>,
-    pub disks: Mutex<Disks>,
-    pub networks: Mutex<Networks>,
-    pub components: Mutex<Components>,
+    pub sys: Arc<Mutex<System>>,
+    pub disks: Arc<Mutex<Disks>>,
+    pub networks: Arc<Mutex<Networks>>,
+    pub components: Arc<Mutex<Components>>,
 }
 
 impl SysinfoState {
@@ -15,122 +15,151 @@ impl SysinfoState {
         let mut sys = System::new_with_specifics(RefreshKind::everything());
         sys.refresh_all();
         Self {
-            sys: Mutex::new(sys),
-            disks: Mutex::new(Disks::new_with_refreshed_list()),
-            networks: Mutex::new(Networks::new_with_refreshed_list()),
-            components: Mutex::new(Components::new_with_refreshed_list()),
+            sys: Arc::new(Mutex::new(sys)),
+            disks: Arc::new(Mutex::new(Disks::new_with_refreshed_list())),
+            networks: Arc::new(Mutex::new(Networks::new_with_refreshed_list())),
+            components: Arc::new(Mutex::new(Components::new_with_refreshed_list())),
         }
     }
 }
 
-#[tauri::command]
-pub fn si_cpu(state: State<'_, SysinfoState>) -> Value {
-    let mut sys = state.sys.lock().unwrap();
-    sys.refresh_cpu_all();
-    let cpus = sys.cpus();
-    let (brand, freq) = cpus
-        .first()
-        .map(|c| (c.brand().to_string(), c.frequency()))
-        .unwrap_or_default();
-    let speed_ghz = (freq as f64) / 1000.0;
-
-    let (manufacturer, brand_only) = match brand.split_once(' ') {
-        Some((m, rest)) => (m.to_string(), rest.to_string()),
-        None => (String::new(), brand.clone()),
-    };
-
-    json!({
-        "manufacturer": manufacturer,
-        "brand": brand_only,
-        "cores": cpus.len(),
-        "physicalCores": sys.physical_core_count().unwrap_or(cpus.len()),
-        "speed": format!("{:.2}", speed_ghz),
-        "speedMax": format!("{:.2}", speed_ghz)
-    })
+async fn blocking_sysinfo<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn si_current_load(state: State<'_, SysinfoState>) -> Value {
-    let mut sys = state.sys.lock().unwrap();
-    sys.refresh_cpu_usage();
-    let cpus: Vec<Value> = sys
-        .cpus()
-        .iter()
-        .map(|c| json!({ "load": c.cpu_usage() as f64 }))
-        .collect();
-    let avg = if cpus.is_empty() {
-        0.0
-    } else {
-        sys.global_cpu_usage() as f64
-    };
-    json!({
-        "avgLoad": avg,
-        "currentLoad": avg,
-        "cpus": cpus
+pub async fn si_cpu(state: State<'_, SysinfoState>) -> Result<Value, String> {
+    let sys = Arc::clone(&state.sys);
+    blocking_sysinfo(move || {
+        let mut sys = sys
+            .lock()
+            .map_err(|_| "sysinfo lock poisoned".to_string())?;
+        sys.refresh_cpu_all();
+        let cpus = sys.cpus();
+        let (brand, freq) = cpus
+            .first()
+            .map(|c| (c.brand().to_string(), c.frequency()))
+            .unwrap_or_default();
+        let speed_ghz = (freq as f64) / 1000.0;
+
+        let (manufacturer, brand_only) = match brand.split_once(' ') {
+            Some((m, rest)) => (m.to_string(), rest.to_string()),
+            None => (String::new(), brand.clone()),
+        };
+
+        Ok(json!({
+            "manufacturer": manufacturer,
+            "brand": brand_only,
+            "cores": cpus.len(),
+            "physicalCores": sys.physical_core_count().unwrap_or(cpus.len()),
+            "speed": format!("{:.2}", speed_ghz),
+            "speedMax": format!("{:.2}", speed_ghz)
+        }))
     })
+    .await
 }
 
 #[tauri::command]
-pub fn si_cpu_temperature(state: State<'_, SysinfoState>) -> Value {
-    let mut comps = state.components.lock().unwrap();
-    comps.refresh();
-    let temps: Vec<f32> = comps
-        .iter()
-        .filter_map(|c| {
-            let label = c.label().to_lowercase();
-            if label.contains("cpu") || label.contains("core") || label.contains("package") {
-                Some(c.temperature())
-            } else {
-                None
-            }
-        })
-        .collect();
-    let max = temps
-        .iter()
-        .cloned()
-        .fold(f32::NEG_INFINITY, f32::max);
-    json!({
-        "main": if max.is_finite() { max as f64 } else { 0.0 },
-        "max": if max.is_finite() { max as f64 } else { 0.0 },
-        "cores": temps
+pub async fn si_current_load(state: State<'_, SysinfoState>) -> Result<Value, String> {
+    let sys = Arc::clone(&state.sys);
+    blocking_sysinfo(move || {
+        let mut sys = sys
+            .lock()
+            .map_err(|_| "sysinfo lock poisoned".to_string())?;
+        sys.refresh_cpu_usage();
+        let cpus: Vec<Value> = sys
+            .cpus()
+            .iter()
+            .map(|c| json!({ "load": c.cpu_usage() as f64 }))
+            .collect();
+        let avg = if cpus.is_empty() {
+            0.0
+        } else {
+            sys.global_cpu_usage() as f64
+        };
+        Ok(json!({
+            "avgLoad": avg,
+            "currentLoad": avg,
+            "cpus": cpus
+        }))
     })
+    .await
 }
 
 #[tauri::command]
-pub fn si_processes(state: State<'_, SysinfoState>) -> Value {
-    let mut sys = state.sys.lock().unwrap();
-    sys.refresh_processes_specifics(
-        sysinfo::ProcessesToUpdate::All,
-        true,
-        ProcessRefreshKind::everything(),
-    );
-    let total_mem = sys.total_memory() as f64;
-    let list: Vec<Value> = sys
-        .processes()
-        .iter()
-        .map(|(pid, p)| {
-            let started_secs = p.start_time();
-            let started_iso = chrono_like_iso(started_secs);
-            json!({
-                "pid": pid.as_u32(),
-                "name": p.name().to_string_lossy(),
-                "cpu": p.cpu_usage() as f64,
-                "mem": if total_mem > 0.0 { (p.memory() as f64) * 100.0 / total_mem } else { 0.0 },
-                "started": started_iso,
-                "state": format!("{:?}", p.status()),
-                "user": p.user_id().map(|u| u.to_string()).unwrap_or_default(),
-                "command": p.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect::<Vec<_>>().join(" ")
+pub async fn si_cpu_temperature(state: State<'_, SysinfoState>) -> Result<Value, String> {
+    let components = Arc::clone(&state.components);
+    blocking_sysinfo(move || {
+        let mut comps = components
+            .lock()
+            .map_err(|_| "components lock poisoned".to_string())?;
+        comps.refresh();
+        let temps: Vec<f32> = comps
+            .iter()
+            .filter_map(|c| {
+                let label = c.label().to_lowercase();
+                if label.contains("cpu") || label.contains("core") || label.contains("package") {
+                    Some(c.temperature())
+                } else {
+                    None
+                }
             })
-        })
-        .collect();
-
-    json!({
-        "all": list.len(),
-        "running": list.len(),
-        "blocked": 0,
-        "sleeping": 0,
-        "list": list
+            .collect();
+        let max = temps.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        Ok(json!({
+            "main": if max.is_finite() { max as f64 } else { 0.0 },
+            "max": if max.is_finite() { max as f64 } else { 0.0 },
+            "cores": temps
+        }))
     })
+    .await
+}
+
+#[tauri::command]
+pub async fn si_processes(state: State<'_, SysinfoState>) -> Result<Value, String> {
+    let sys = Arc::clone(&state.sys);
+    blocking_sysinfo(move || {
+        let mut sys = sys.lock().map_err(|_| "sysinfo lock poisoned".to_string())?;
+        sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::everything(),
+        );
+        let total_mem = sys.total_memory() as f64;
+        let list: Vec<Value> = sys
+            .processes()
+            .iter()
+            .map(|(pid, p)| {
+                let started_secs = p.start_time();
+                let started_iso = chrono_like_iso(started_secs);
+                json!({
+                    "pid": pid.as_u32(),
+                    "name": p.name().to_string_lossy(),
+                    "cpu": p.cpu_usage() as f64,
+                    "mem": if total_mem > 0.0 { (p.memory() as f64) * 100.0 / total_mem } else { 0.0 },
+                    "started": started_iso,
+                    "state": format!("{:?}", p.status()),
+                    "user": p.user_id().map(|u| u.to_string()).unwrap_or_default(),
+                    "command": p.cmd().iter().map(|s| s.to_string_lossy().to_string()).collect::<Vec<_>>().join(" ")
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "all": list.len(),
+            "running": list.len(),
+            "blocked": 0,
+            "sleeping": 0,
+            "list": list
+        }))
+    })
+    .await
 }
 
 fn chrono_like_iso(unix_secs: u64) -> String {
@@ -170,149 +199,174 @@ fn days_to_date(days_from_epoch: i64) -> (i32, u32, u32) {
 }
 
 #[tauri::command]
-pub fn si_mem(state: State<'_, SysinfoState>) -> Value {
-    let mut sys = state.sys.lock().unwrap();
-    sys.refresh_memory();
-    let total = sys.total_memory();
-    let used = sys.used_memory();
-    let free = sys.free_memory();
-    let available = sys.available_memory();
-    // The renderer expects free+used === total; sysinfo's "free" is strict free RAM. Use total-used.
-    let free_strict = total.saturating_sub(used);
-    json!({
-        "total": total,
-        "free": free_strict,
-        "used": used,
-        "active": used,
-        "available": available.max(free),
-        "buffers": 0u64,
-        "cached": 0u64,
-        "slab": 0u64,
-        "buffcache": 0u64,
-        "swaptotal": sys.total_swap(),
-        "swapused": sys.used_swap(),
-        "swapfree": sys.free_swap()
+pub async fn si_mem(state: State<'_, SysinfoState>) -> Result<Value, String> {
+    let sys = Arc::clone(&state.sys);
+    blocking_sysinfo(move || {
+        let mut sys = sys
+            .lock()
+            .map_err(|_| "sysinfo lock poisoned".to_string())?;
+        sys.refresh_memory();
+        let total = sys.total_memory();
+        let used = sys.used_memory();
+        let free = sys.free_memory();
+        let available = sys.available_memory();
+        // The renderer expects free+used === total; sysinfo's "free" is strict free RAM. Use total-used.
+        let free_strict = total.saturating_sub(used);
+        Ok(json!({
+            "total": total,
+            "free": free_strict,
+            "used": used,
+            "active": used,
+            "available": available.max(free),
+            "buffers": 0u64,
+            "cached": 0u64,
+            "slab": 0u64,
+            "buffcache": 0u64,
+            "swaptotal": sys.total_swap(),
+            "swapused": sys.used_swap(),
+            "swapfree": sys.free_swap()
+        }))
     })
+    .await
 }
 
 #[tauri::command]
-pub fn si_battery() -> Value {
-    match battery::Manager::new() {
-        Ok(manager) => match manager.batteries() {
-            Ok(mut iter) => {
-                if let Some(Ok(bat)) = iter.next() {
-                    let percent = (bat.state_of_charge().value * 100.0).round() as i64;
-                    let state = bat.state();
-                    let charging = matches!(state, battery::State::Charging);
-                    let ac = matches!(
-                        state,
-                        battery::State::Charging | battery::State::Full | battery::State::Unknown
-                    );
-                    return json!({
-                        "hasBattery": true,
-                        "cycleCount": bat.cycle_count().unwrap_or(0),
-                        "isCharging": charging,
-                        "designedCapacity": bat.energy_full_design().value as f64,
-                        "maxCapacity": bat.energy_full().value as f64,
-                        "currentCapacity": bat.energy().value as f64,
-                        "voltage": bat.voltage().value as f64,
-                        "capacityUnit": "Wh",
-                        "percent": percent,
-                        "timeRemaining": bat.time_to_empty().map(|t| t.value as i64).unwrap_or(-1),
-                        "acConnected": ac,
-                        "type": "Battery",
-                        "model": bat.model().unwrap_or("").to_string(),
-                        "manufacturer": bat.vendor().unwrap_or("").to_string(),
-                        "serial": bat.serial_number().unwrap_or("").to_string()
-                    });
+pub async fn si_battery() -> Result<Value, String> {
+    blocking_sysinfo(|| {
+        match battery::Manager::new() {
+            Ok(manager) => match manager.batteries() {
+                Ok(mut iter) => {
+                    if let Some(Ok(bat)) = iter.next() {
+                        let percent = (bat.state_of_charge().value * 100.0).round() as i64;
+                        let state = bat.state();
+                        let charging = matches!(state, battery::State::Charging);
+                        let ac = matches!(
+                            state,
+                            battery::State::Charging | battery::State::Full | battery::State::Unknown
+                        );
+                        return Ok(json!({
+                            "hasBattery": true,
+                            "cycleCount": bat.cycle_count().unwrap_or(0),
+                            "isCharging": charging,
+                            "designedCapacity": bat.energy_full_design().value as f64,
+                            "maxCapacity": bat.energy_full().value as f64,
+                            "currentCapacity": bat.energy().value as f64,
+                            "voltage": bat.voltage().value as f64,
+                            "capacityUnit": "Wh",
+                            "percent": percent,
+                            "timeRemaining": bat.time_to_empty().map(|t| t.value as i64).unwrap_or(-1),
+                            "acConnected": ac,
+                            "type": "Battery",
+                            "model": bat.model().unwrap_or("").to_string(),
+                            "manufacturer": bat.vendor().unwrap_or("").to_string(),
+                            "serial": bat.serial_number().unwrap_or("").to_string()
+                        }));
+                    }
+                }
+                Err(_) => {}
+            },
+            Err(_) => {}
+        }
+        Ok(json!({
+            "hasBattery": false,
+            "isCharging": false,
+            "acConnected": true,
+            "percent": 0
+        }))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn si_network_interfaces(state: State<'_, SysinfoState>) -> Result<Value, String> {
+    let networks = Arc::clone(&state.networks);
+    blocking_sysinfo(move || {
+        let mut nets = networks
+            .lock()
+            .map_err(|_| "networks lock poisoned".to_string())?;
+        nets.refresh();
+
+        // Pull /sbin/ifconfig parsing only if needed; sysinfo gives MAC + IP via ip_networks.
+        let mut list = Vec::new();
+        for (name, data) in nets.iter() {
+            let mut ip4 = String::new();
+            let mut ip6 = String::new();
+            for net in data.ip_networks() {
+                let ip = net.addr;
+                if ip.is_ipv4() && ip4.is_empty() {
+                    ip4 = ip.to_string();
+                } else if ip.is_ipv6() && ip6.is_empty() {
+                    ip6 = ip.to_string();
                 }
             }
-            Err(_) => {}
-        },
-        Err(_) => {}
-    }
-    json!({
-        "hasBattery": false,
-        "isCharging": false,
-        "acConnected": true,
-        "percent": 0
+            let internal =
+                name == "lo" || name == "lo0" || name.starts_with("utun") || ip4 == "127.0.0.1";
+            let operstate = if data.received() > 0 || data.transmitted() > 0 || !ip4.is_empty() {
+                "up"
+            } else {
+                "down"
+            };
+            list.push(json!({
+                "iface": name,
+                "ifaceName": name,
+                "default": false,
+                "ip4": ip4,
+                "ip6": ip6,
+                "mac": data.mac_address().to_string(),
+                "internal": internal,
+                "virtual": false,
+                "operstate": operstate,
+                "type": "wireless",
+                "duplex": "",
+                "mtu": 0,
+                "speed": -1,
+                "dhcp": false,
+                "dnsSuffix": "",
+                "ieee8021xAuth": "",
+                "ieee8021xState": "",
+                "carrierChanges": 0
+            }));
+        }
+        Ok(Value::Array(list))
     })
+    .await
 }
 
 #[tauri::command]
-pub fn si_network_interfaces(state: State<'_, SysinfoState>) -> Value {
-    let mut nets = state.networks.lock().unwrap();
-    nets.refresh();
-
-    // Pull /sbin/ifconfig parsing only if needed; sysinfo gives MAC + IP via ip_networks.
-    let mut list = Vec::new();
-    for (name, data) in nets.iter() {
-        let mut ip4 = String::new();
-        let mut ip6 = String::new();
-        for net in data.ip_networks() {
-            let ip = net.addr;
-            if ip.is_ipv4() && ip4.is_empty() {
-                ip4 = ip.to_string();
-            } else if ip.is_ipv6() && ip6.is_empty() {
-                ip6 = ip.to_string();
+pub async fn si_network_stats(
+    state: State<'_, SysinfoState>,
+    iface: Option<String>,
+) -> Result<Value, String> {
+    let networks = Arc::clone(&state.networks);
+    blocking_sysinfo(move || {
+        let mut nets = networks
+            .lock()
+            .map_err(|_| "networks lock poisoned".to_string())?;
+        nets.refresh();
+        let mut out = Vec::new();
+        for (name, data) in nets.iter() {
+            if let Some(filter) = &iface {
+                if name != filter {
+                    continue;
+                }
             }
+            out.push(json!({
+                "iface": name,
+                "operstate": "up",
+                "rx_bytes": data.total_received(),
+                "tx_bytes": data.total_transmitted(),
+                "rx_dropped": 0u64,
+                "tx_dropped": 0u64,
+                "rx_errors": 0u64,
+                "tx_errors": 0u64,
+                "rx_sec": data.received(),
+                "tx_sec": data.transmitted(),
+                "ms": 1000u64
+            }));
         }
-        let internal = name == "lo" || name == "lo0" || name.starts_with("utun") || ip4 == "127.0.0.1";
-        let operstate = if data.received() > 0 || data.transmitted() > 0 || !ip4.is_empty() {
-            "up"
-        } else {
-            "down"
-        };
-        list.push(json!({
-            "iface": name,
-            "ifaceName": name,
-            "default": false,
-            "ip4": ip4,
-            "ip6": ip6,
-            "mac": data.mac_address().to_string(),
-            "internal": internal,
-            "virtual": false,
-            "operstate": operstate,
-            "type": "wireless",
-            "duplex": "",
-            "mtu": 0,
-            "speed": -1,
-            "dhcp": false,
-            "dnsSuffix": "",
-            "ieee8021xAuth": "",
-            "ieee8021xState": "",
-            "carrierChanges": 0
-        }));
-    }
-    Value::Array(list)
-}
-
-#[tauri::command]
-pub fn si_network_stats(state: State<'_, SysinfoState>, iface: Option<String>) -> Value {
-    let mut nets = state.networks.lock().unwrap();
-    nets.refresh();
-    let mut out = Vec::new();
-    for (name, data) in nets.iter() {
-        if let Some(filter) = &iface {
-            if name != filter {
-                continue;
-            }
-        }
-        out.push(json!({
-            "iface": name,
-            "operstate": "up",
-            "rx_bytes": data.total_received(),
-            "tx_bytes": data.total_transmitted(),
-            "rx_dropped": 0u64,
-            "tx_dropped": 0u64,
-            "rx_errors": 0u64,
-            "tx_errors": 0u64,
-            "rx_sec": data.received(),
-            "tx_sec": data.transmitted(),
-            "ms": 1000u64
-        }));
-    }
-    Value::Array(out)
+        Ok(Value::Array(out))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -322,56 +376,68 @@ pub fn si_network_connections() -> Value {
 }
 
 #[tauri::command]
-pub fn si_fs_size(state: State<'_, SysinfoState>) -> Value {
-    let mut disks = state.disks.lock().unwrap();
-    disks.refresh();
-    let list: Vec<Value> = disks
-        .iter()
-        .map(|d| {
-            let total = d.total_space();
-            let avail = d.available_space();
-            let used = total.saturating_sub(avail);
-            json!({
-                "fs": d.name().to_string_lossy(),
-                "type": format!("{:?}", d.kind()),
-                "size": total,
-                "used": used,
-                "available": avail,
-                "use": if total > 0 { (used as f64) * 100.0 / (total as f64) } else { 0.0 },
-                "mount": d.mount_point().to_string_lossy()
+pub async fn si_fs_size(state: State<'_, SysinfoState>) -> Result<Value, String> {
+    let disks = Arc::clone(&state.disks);
+    blocking_sysinfo(move || {
+        let mut disks = disks
+            .lock()
+            .map_err(|_| "disks lock poisoned".to_string())?;
+        disks.refresh();
+        let list: Vec<Value> = disks
+            .iter()
+            .map(|d| {
+                let total = d.total_space();
+                let avail = d.available_space();
+                let used = total.saturating_sub(avail);
+                json!({
+                    "fs": d.name().to_string_lossy(),
+                    "type": format!("{:?}", d.kind()),
+                    "size": total,
+                    "used": used,
+                    "available": avail,
+                    "use": if total > 0 { (used as f64) * 100.0 / (total as f64) } else { 0.0 },
+                    "mount": d.mount_point().to_string_lossy()
+                })
             })
-        })
-        .collect();
-    Value::Array(list)
+            .collect();
+        Ok(Value::Array(list))
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn si_block_devices(state: State<'_, SysinfoState>) -> Value {
-    let mut disks = state.disks.lock().unwrap();
-    disks.refresh();
-    let list: Vec<Value> = disks
-        .iter()
-        .map(|d| {
-            let mount = d.mount_point().to_string_lossy().to_string();
-            let name = d.name().to_string_lossy().to_string();
-            let removable = d.is_removable();
-            json!({
-                "name": name,
-                "type": if removable { "usb" } else { "disk" },
-                "fsType": format!("{:?}", d.file_system().to_string_lossy()),
-                "mount": mount,
-                "size": d.total_space(),
-                "physical": "SSD",
-                "uuid": "",
-                "label": "",
-                "model": "",
-                "serial": "",
-                "removable": removable,
-                "protocol": ""
+pub async fn si_block_devices(state: State<'_, SysinfoState>) -> Result<Value, String> {
+    let disks = Arc::clone(&state.disks);
+    blocking_sysinfo(move || {
+        let mut disks = disks
+            .lock()
+            .map_err(|_| "disks lock poisoned".to_string())?;
+        disks.refresh();
+        let list: Vec<Value> = disks
+            .iter()
+            .map(|d| {
+                let mount = d.mount_point().to_string_lossy().to_string();
+                let name = d.name().to_string_lossy().to_string();
+                let removable = d.is_removable();
+                json!({
+                    "name": name,
+                    "type": if removable { "usb" } else { "disk" },
+                    "fsType": format!("{:?}", d.file_system().to_string_lossy()),
+                    "mount": mount,
+                    "size": d.total_space(),
+                    "physical": "SSD",
+                    "uuid": "",
+                    "label": "",
+                    "model": "",
+                    "serial": "",
+                    "removable": removable,
+                    "protocol": ""
+                })
             })
-        })
-        .collect();
-    Value::Array(list)
+            .collect();
+        Ok(Value::Array(list))
+    })
+    .await
 }
 
 #[tauri::command]

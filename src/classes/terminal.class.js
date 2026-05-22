@@ -82,7 +82,9 @@ class Terminal {
         this.term.open(document.getElementById(opts.parentId));
         try { if (WebglAddon) this.term.loadAddon(new WebglAddon()); }
         catch (e) { console.warn("WebGL addon failed:", e); }
-        try { if (LigaturesAddon) this.term.loadAddon(new LigaturesAddon()); }
+        const ligaturesEnabled = window.theme.terminal.ligatures === true
+            || /fira code/i.test(window.theme.terminal.fontFamily || "");
+        try { if (LigaturesAddon && ligaturesEnabled) this.term.loadAddon(new LigaturesAddon()); }
         catch (e) { console.warn("Ligatures addon failed:", e); }
 
         this.term.attachCustomKeyEventHandler(e => {

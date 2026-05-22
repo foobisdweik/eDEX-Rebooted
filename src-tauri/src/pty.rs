@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{async_runtime, AppHandle, Emitter, State};
 
 pub struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
@@ -25,6 +25,16 @@ impl PtyManager {
             next_id: Arc::new(Mutex::new(1)),
         }
     }
+}
+
+async fn blocking_pty<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,10 +82,7 @@ pub fn pty_spawn(
     let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     let pid = child.process_id().unwrap_or(0);
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-    let mut reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|e| e.to_string())?;
+    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
     let id = {
         let mut n = state.next_id.lock().unwrap();
@@ -155,47 +162,56 @@ pub fn pty_kill(state: State<'_, PtyManager>, id: u32) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn pty_cwd(state: State<'_, PtyManager>, id: u32) -> Result<Option<String>, String> {
-    let pid = {
-        let map = state.inner.lock().unwrap();
-        map.get(&id).map(|h| h.pid).ok_or("pty not found")?
-    };
-    // Lifted from terminal.class.js:332 — macOS only.
-    let out = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!(
-            "lsof -a -d cwd -p {} | tail -1 | awk '{{ for (i=9; i<=NF; i++) printf \"%s \", $i }}'",
-            pid
-        ))
-        .output()
-        .map_err(|e| e.to_string())?;
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(s))
-    }
+pub async fn pty_cwd(state: State<'_, PtyManager>, id: u32) -> Result<Option<String>, String> {
+    let inner = Arc::clone(&state.inner);
+    blocking_pty(move || {
+        let pid = {
+            let map = inner
+                .lock()
+                .map_err(|_| "pty manager lock poisoned".to_string())?;
+            map.get(&id).map(|h| h.pid).ok_or("pty not found")?
+        };
+        // Lifted from terminal.class.js:332 — macOS only.
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "lsof -a -d cwd -p {} | tail -1 | awk '{{ for (i=9; i<=NF; i++) printf \"%s \", $i }}'",
+                pid
+            ))
+            .output()
+            .map_err(|e| e.to_string())?;
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(s))
+        }
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn pty_process(state: State<'_, PtyManager>, id: u32) -> Result<Option<String>, String> {
-    let pid = {
-        let map = state.inner.lock().unwrap();
-        map.get(&id).map(|h| h.pid).ok_or("pty not found")?
-    };
-    // Lifted from terminal.class.js:351
-    let out = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!(
-            "ps -o comm= -g {} 2>/dev/null | tail -1",
-            pid
-        ))
-        .output()
-        .map_err(|e| e.to_string())?;
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(s))
-    }
+pub async fn pty_process(state: State<'_, PtyManager>, id: u32) -> Result<Option<String>, String> {
+    let inner = Arc::clone(&state.inner);
+    blocking_pty(move || {
+        let pid = {
+            let map = inner
+                .lock()
+                .map_err(|_| "pty manager lock poisoned".to_string())?;
+            map.get(&id).map(|h| h.pid).ok_or("pty not found")?
+        };
+        // Lifted from terminal.class.js:351
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("ps -o comm= -g {} 2>/dev/null | tail -1", pid))
+            .output()
+            .map_err(|e| e.to_string())?;
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if s.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(s))
+        }
+    })
+    .await
 }

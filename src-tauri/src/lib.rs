@@ -6,7 +6,6 @@ mod sysinfo_cmds;
 use pty::PtyManager;
 use settings::OverrideState;
 use sysinfo_cmds::SysinfoState;
-use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

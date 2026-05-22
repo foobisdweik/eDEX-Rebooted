@@ -78,19 +78,41 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.settings.nointroOverride = true;
     }
 
-    window._loadTheme = theme => {
+    function fontFileName(fontFamily) {
+        return `${fontFamily.toLowerCase().replace(/ /g, "_")}.woff2`;
+    }
+
+    async function loadFontFamily(fontFamily) {
+        const fileName = fontFileName(fontFamily);
+        const sources = [`assets/fonts/${fileName}`];
+
+        if (tauri.core.convertFileSrc) {
+            sources.push(tauri.core.convertFileSrc(pathJoin(fontsDir, fileName)));
+        }
+
+        for (const source of sources) {
+            try {
+                const face = new FontFace(fontFamily, `url("${source}")`);
+                await face.load();
+                document.fonts.add(face);
+                return;
+            } catch (_) {}
+        }
+
+        console.warn(`Font load failed for ${fontFamily}; falling back to system fonts.`);
+    }
+
+    window._loadTheme = async theme => {
         if (document.querySelector("style.theming")) {
             document.querySelector("style.theming").remove();
         }
-        const mainFont = new FontFace(theme.cssvars.font_main, `url("${pathJoin(fontsDir, theme.cssvars.font_main.toLowerCase().replace(/ /g, '_') + '.woff2')}")`);
-        const lightFont = new FontFace(theme.cssvars.font_main_light, `url("${pathJoin(fontsDir, theme.cssvars.font_main_light.toLowerCase().replace(/ /g, '_') + '.woff2')}")`);
-        const termFont = new FontFace(theme.terminal.fontFamily, `url("${pathJoin(fontsDir, theme.terminal.fontFamily.toLowerCase().replace(/ /g, '_') + '.woff2')}")`);
-        document.fonts.add(mainFont);
-        document.fonts.load("12px " + theme.cssvars.font_main);
-        document.fonts.add(lightFont);
-        document.fonts.load("12px " + theme.cssvars.font_main_light);
-        document.fonts.add(termFont);
-        document.fonts.load("12px " + theme.terminal.fontFamily);
+        await Promise.all(
+            Array.from(new Set([
+                theme.cssvars.font_main,
+                theme.cssvars.font_main_light,
+                theme.terminal.fontFamily
+            ])).map(loadFontFamily)
+        );
 
         document.querySelector("head").innerHTML += `<style class="theming">
         :root {
@@ -123,7 +145,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     };
 
     const theme = await invoke("get_theme", { name: window.settings.theme });
-    window._loadTheme(theme);
+    await window._loadTheme(theme);
 
     function initGraphicalErrorHandling() {
         window.edexErrorsModals = [];
@@ -139,23 +161,8 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     }
 
     function waitForFonts() {
-        return new Promise(resolve => {
-            if (document.readyState !== "complete" || document.fonts.status !== "loaded") {
-                document.addEventListener("readystatechange", () => {
-                    if (document.readyState === "complete") {
-                        if (document.fonts.status === "loaded") {
-                            resolve();
-                        } else {
-                            document.fonts.onloadingdone = () => {
-                                if (document.fonts.status === "loaded") resolve();
-                            };
-                        }
-                    }
-                });
-            } else {
-                resolve();
-            }
-        });
+        if (!document.fonts) return Promise.resolve();
+        return document.fonts.ready;
     }
 
     // window.si — Tauri shim replacing the IPC round-trip from the legacy
