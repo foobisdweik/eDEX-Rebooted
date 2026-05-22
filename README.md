@@ -1,5 +1,3 @@
-
-
 <p align="center">
   <br>
   <img alt="Logo" src="media/logo.png">
@@ -7,160 +5,98 @@
   <br><br><br>
 </p>
 
-eDEX-UI is a fullscreen, cross-platform terminal emulator and system monitor that looks and feels like a sci-fi computer interface.
+eDEX-UI is a fullscreen terminal emulator and system monitor that looks and feels like a sci-fi computer interface.
 
-This is a community-driven fork of the original eDEX-UI, which was archived in October 2021. This fork aims to revive the project, apply security patches, and continue its development.
+This is a community-driven fork of the original eDEX-UI (archived October 2021). **v3.0.0 is a native rewrite on Tauri 2 + Rust**, replacing the original Electron + Node stack. The WebSocket-based terminal control channel that motivated this fork's security patches has been removed entirely — terminal I/O now flows through Tauri's in-process IPC, with no listening socket.
 
 > [!NOTE]
-> Check out my android port of edex [here](https://github.com/theelderemo/Edex-UI-android)
+> Android port: [Edex-UI-android](https://github.com/theelderemo/Edex-UI-android)
 
-# 🛡️ Security Fix Information
-- CVE: Not assigned (discovered post-archive)
-- Severity: Critical
-- Impact: Remote Command Execution via WebSocket hijacking
+# What's new in v3.0.0
 
-## Vulnerability Details
-The original eDEX-UI contained a security vulnerability where malicious websites could connect to the internal terminal control WebSocket and execute arbitrary shell commands on the user's system.
+- **Tauri 2 + Rust backend.** No Electron, no Node runtime at runtime, no `node_modules/` shipped.
+- **macOS Apple Silicon only.** Target: `aarch64-apple-darwin`. Windows and Linux are out of scope for this release; they may return in a later version.
+- **Native PTY** via the Rust `portable-pty` crate (replacing `node-pty`).
+- **Native system info** via the Rust `sysinfo` crate (replacing the `systeminformation` npm package).
+- **Vendored frontend payload.** xterm + addons (fit/ligatures/webgl), augmented-ui, howler, and smoothie are checked into `src/assets/vendor/` as UMD bundles — no install step for the frontend.
+- **WKWebView renderer** instead of a bundled Chromium. Smaller, faster cold start, lower memory.
+- **Security posture.** No localhost WebSocket. Tauri capabilities allow-list every backend command the frontend can invoke (`src-tauri/capabilities/default.json`).
 
-## The Fix
-This fork implements proper origin validation for WebSocket connections:
-- Only accepts connections from the local Electron application (file:// protocol)
-- Rejects all web-based connection attempts (http://, https://)
-- Logs rejected connection attempts for security monitoring
-- Fixed in: `src/classes/terminal.class.js`
+# What works in v1 (this release)
 
-## Recent Updates (October 2025)
+Boots fullscreen, terminal echoes, multi-tab spawn (Ctrl+X then 2/3/4/5), filesystem panel navigates, sysinfo/cpuinfo/ramwatcher/toplist panels populate, hardware inspector renders, on-screen keyboard renders and swaps layouts, theme swap (Ctrl+Shift+S), settings modal opens, audio cues fire.
 
-This fork has been updated with modern versions of all dependencies:
+# Known issues / v0.2 backlog
 
-- **Electron**: Upgraded from v12.1.0 to v37.6.0 (latest stable)
-- **Node.js**: Now requires v20.x LTS (previously v16)
-- **Dependencies**: All dependencies updated to latest stable versions
-- **Security**: All known vulnerabilities patched (0 vulnerabilities)
-- **xterm**: Migrated to modern @xterm/* packages (v5.5.0)
-- **Build system**: Modernized to work with current Node.js and Python versions
+- Typing-latency stutter every 2–3 keystrokes in the terminal (under investigation).
+- Kerning artifacts in xterm output (likely a font-load race).
+- Network globe (`locationGlobe`), connection list (`conninfo`), PDF viewer (`docReader`), and GitHub update checker (`updateChecker`) are **not present** in v1 — they will return in v0.2 reimplemented against Rust commands.
+- `si_network_connections` returns an empty list (placeholder for v0.2).
+- `.app` is not yet code-signed or notarized.
 
----
+# Security history
 
-# ⚠️ Important Notes
+This fork originated to patch a critical RCE in the upstream Electron build: malicious websites could connect to the internal terminal control WebSocket and execute arbitrary shell commands. The v2.x patch added strict `file://` origin validation on the WebSocket. **v3.0.0 removes the WebSocket entirely** — terminal I/O is now in-process Tauri IPC, so the class of vulnerability no longer exists in this codebase.
 
-This is a fork of the original eDEX-UI, which is no longer actively maintained. While this fork addresses a critical security vulnerability, it should be considered a work in progress. Community contributions are welcome to help revive and improve the project. Please use this software "as-is" and take appropriate security measures when running any terminal emulator with network capabilities.
+Pre-built binaries from the original upstream repository still contain the WebSocket vulnerability. Use builds from this fork only.
 
+# Build from source
 
-# Installation
+## Requirements
 
-## Pre-built Binaries
+- macOS 11+ on Apple Silicon (`aarch64-apple-darwin`)
+- Rust toolchain (stable)
+- `tauri-cli` v2:
+  ```
+  cargo install tauri-cli --version "^2.0" --locked
+  ```
+- Xcode Command Line Tools (`xcode-select --install`)
+- Node.js is **only** required if you want to regenerate `src/assets/icons/file-icons.json` from the file-icons submodules. The app itself does not need Node to build or run.
 
-⚠️ **Note: Pre-built binaries from the original repository contain the vulnerability. Only use builds from this fork or build from source.**
+## Run from source
 
-Head over to releases and download the correct prebuild
+```
+git clone https://github.com/theelderemo/eDEX-UI-security-patched.git
+cd eDEX-UI-security-patched
+cargo tauri dev
+```
 
-## Building from Source (Recommended for Security)
+## Produce a release `.app` / `.dmg`
 
-This fork has been updated with modern versions of all dependencies. Following these steps will ensure you have a working, patched version with up-to-date components.
+```
+cargo tauri build --target aarch64-apple-darwin
+```
 
-### 1. Environment Setup (Linux/Ubuntu)
+Artifacts land in `src-tauri/target/aarch64-apple-darwin/release/bundle/`.
 
-The build process requires modern versions of Node.js and Python.
+## (Optional) regenerate file-icons
 
--   **Install `nvm` (Node Version Manager):** This is the best way to manage Node.js versions.
-    
-    
-    ```
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    source ~/.bashrc
-    
-    ```
-    
--   **Install and Use Node.js v20 LTS:** This project now requires Node.js v20 LTS for the latest Electron version.
-    
-    
-    
-    ```
-    nvm install 20
-    nvm use 20
-    
-    ```
-    
--   **Install Python 3:** The build scripts require Python 3 (3.8 or later recommended).
-    
-    
-    ```
-    sudo apt update
-    sudo apt install -y python3 python3-pip
-    
-    ```
-    
--   **Install Build Tools:**
-    
-    
-    
-    ```
-    sudo apt install -y build-essential git
-    
-    ```
-    
+```
+npm run init-file-icons
+npm run update-file-icons
+```
 
-### 2. Clone and Build the Application
+# Project layout
 
-Now, with the correct environment set up, you can clone and build the project.
+```
+src-tauri/         Rust backend — Tauri commands, PTY, sysinfo, filesystem, settings
+src/               WKWebView frontend — ui.html + classes/*.class.js + vendored assets
+media/             Icons, logo
+file-icons/        File-icons source (git submodules; content, not code)
+```
 
--   **Clone  repository:**
-    
-    
-    ```
-    git clone https://github.com/theelderemo/eDEX-UI-security-patched.git
-    cd eDEX-UI-security-patched
-    
-    ```
-    
--   **Install dependencies:**
-        
-    ```
-    npm run install-linux
-    
-    ```
-    
-    This will install all dependencies and rebuild native modules (like node-pty) for the current Electron version.
-    
--   **Build the binary:**
-        
-    ```
-    npm run build-linux
-    
-    ```
-    
-
-After the build completes, you will find the installable `.AppImage` and `.deb` files in the `dist/` directory.
-
-### Troubleshooting
-
-If you encounter issues with native modules not building:
-- Ensure you have build-essential installed: `sudo apt install build-essential`
-- Make sure Python 3 is available: `which python3`
-- Try rebuilding manually: `cd src && npx @electron/rebuild`
+See `CLAUDE.md` for the full architecture map and per-module notes.
 
 # Contributing
 
-Community contributions are highly encouraged! If you'd like to help, please feel free to:
--   **Report bugs:** Open an issue to report any bugs you find.
--   **Suggest features:** Open an issue to suggest new features or enhancements.
--   **Submit pull requests:** If you've made a change you'd like to contribute, please submit a pull request.
+Bug reports and PRs are welcome. Please target `master`. If you're working on a v0.2-backlog module, open an issue first so we can sync on the design.
 
-# Original Credits
+# Credits
 
-eDEX-UI was created by [GitSquared (Gabriel Saillard)](https://github.com/GitSquared).
+eDEX-UI was created by [GitSquared (Gabriel Saillard)](https://github.com/GitSquared). Sound effects by [IceWolf](https://soundcloud.com/iamicewolf). Original globe visualization by [Rob "Arscan" Scanlon](https://github.com/arscan).
 
-Sound effects by [IceWolf](https://soundcloud.com/iamicewolf).
-
-Globe visualization by [Rob "Arscan" Scanlon](https://github.com/arscan).
-
-# Security Fork Maintainer
-
-This security-patched fork is maintained by [theelderemo](https://github.com/theelderemo).
-
-If you discover any additional security issues, please report them by opening an issue in this repository.
+This security-patched fork and the v3.0.0 Tauri port are maintained by [theelderemo](https://github.com/theelderemo).
 
 # License
 
-Licensed under the [GPLv3.0](https://github.com/GitSquared/edex-ui/blob/master/LICENSE), the same as the original project.
+[GPLv3.0](https://github.com/GitSquared/edex-ui/blob/master/LICENSE), same as the original project.
