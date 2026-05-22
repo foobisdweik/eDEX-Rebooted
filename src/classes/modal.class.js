@@ -5,9 +5,10 @@ class Modal {
         if (!options || !options.type) throw "Missing parameters";
 
         this.type = options.type;
-        this.id = require("nanoid").nanoid();
+        // Tauri port: nanoid was Node-only; crypto.randomUUID is built into WKWebView.
+        this.id = crypto.randomUUID();
         while (typeof window.modals[this.id] !== "undefined") {
-            this.id = require("nanoid")();
+            this.id = crypto.randomUUID();
         }
         this.title = options.title || options.type || "Modal window";
         this.message = options.message || "Lorem ipsum dolor sit amet.";

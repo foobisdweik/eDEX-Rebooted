@@ -43,7 +43,7 @@ pub fn si_cpu(state: State<'_, SysinfoState>) -> Value {
         "manufacturer": manufacturer,
         "brand": brand_only,
         "cores": cpus.len(),
-        "physicalCores": System::physical_core_count().unwrap_or(cpus.len()),
+        "physicalCores": sys.physical_core_count().unwrap_or(cpus.len()),
         "speed": format!("{:.2}", speed_ghz),
         "speedMax": format!("{:.2}", speed_ghz)
     })
@@ -73,13 +73,13 @@ pub fn si_current_load(state: State<'_, SysinfoState>) -> Value {
 #[tauri::command]
 pub fn si_cpu_temperature(state: State<'_, SysinfoState>) -> Value {
     let mut comps = state.components.lock().unwrap();
-    comps.refresh(true);
+    comps.refresh();
     let temps: Vec<f32> = comps
         .iter()
         .filter_map(|c| {
             let label = c.label().to_lowercase();
             if label.contains("cpu") || label.contains("core") || label.contains("package") {
-                c.temperature()
+                Some(c.temperature())
             } else {
                 None
             }
@@ -242,7 +242,7 @@ pub fn si_battery() -> Value {
 #[tauri::command]
 pub fn si_network_interfaces(state: State<'_, SysinfoState>) -> Value {
     let mut nets = state.networks.lock().unwrap();
-    nets.refresh(true);
+    nets.refresh();
 
     // Pull /sbin/ifconfig parsing only if needed; sysinfo gives MAC + IP via ip_networks.
     let mut list = Vec::new();
@@ -275,7 +275,7 @@ pub fn si_network_interfaces(state: State<'_, SysinfoState>) -> Value {
             "operstate": operstate,
             "type": "wireless",
             "duplex": "",
-            "mtu": data.mtu(),
+            "mtu": 0,
             "speed": -1,
             "dhcp": false,
             "dnsSuffix": "",
@@ -290,7 +290,7 @@ pub fn si_network_interfaces(state: State<'_, SysinfoState>) -> Value {
 #[tauri::command]
 pub fn si_network_stats(state: State<'_, SysinfoState>, iface: Option<String>) -> Value {
     let mut nets = state.networks.lock().unwrap();
-    nets.refresh(true);
+    nets.refresh();
     let mut out = Vec::new();
     for (name, data) in nets.iter() {
         if let Some(filter) = &iface {
@@ -324,7 +324,7 @@ pub fn si_network_connections() -> Value {
 #[tauri::command]
 pub fn si_fs_size(state: State<'_, SysinfoState>) -> Value {
     let mut disks = state.disks.lock().unwrap();
-    disks.refresh(true);
+    disks.refresh();
     let list: Vec<Value> = disks
         .iter()
         .map(|d| {
@@ -348,7 +348,7 @@ pub fn si_fs_size(state: State<'_, SysinfoState>) -> Value {
 #[tauri::command]
 pub fn si_block_devices(state: State<'_, SysinfoState>) -> Value {
     let mut disks = state.disks.lock().unwrap();
-    disks.refresh(true);
+    disks.refresh();
     let list: Vec<Value> = disks
         .iter()
         .map(|d| {
@@ -384,6 +384,12 @@ pub fn si_system() -> Value {
         "uuid": "",
         "sku": ""
     })
+}
+
+#[tauri::command]
+pub fn si_uptime() -> u64 {
+    // Seconds since boot, used by the sysinfo panel for the UPTIME D:H:M display.
+    System::uptime()
 }
 
 #[tauri::command]

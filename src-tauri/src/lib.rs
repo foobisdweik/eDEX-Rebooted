@@ -43,6 +43,7 @@ pub fn run() {
             sysinfo_cmds::si_block_devices,
             sysinfo_cmds::si_system,
             sysinfo_cmds::si_chassis,
+            sysinfo_cmds::si_uptime,
             // fs
             fs_cmds::fs_readdir,
             fs_cmds::fs_stat,

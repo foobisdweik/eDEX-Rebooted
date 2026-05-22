@@ -8,9 +8,10 @@ class Cpuinfo {
         </div>`;
         this.container = document.getElementById("mod_cpuinfo");
 
-        // Init Smoothie
-        let TimeSeries = require("smoothie").TimeSeries;
-        let SmoothieChart = require("smoothie").SmoothieChart;
+        // Tauri port: smoothie is vendored at assets/vendor/smoothie.js and
+        // attaches SmoothieChart + TimeSeries to the global scope.
+        const TimeSeries = window.TimeSeries;
+        const SmoothieChart = window.SmoothieChart;
 
         this.series = [];
         this.charts = [];
@@ -37,8 +38,8 @@ class Cpuinfo {
                 </div>
                 <div>
                     <div>
-                        <h1>${(process.platform === "win32") ? "CORES" : "TEMP"}<br>
-                        <i id="mod_cpuinfo_temp">${(process.platform === "win32") ? data.cores : "--°C"}</i></h1>
+                        <h1>TEMP<br>
+                        <i id="mod_cpuinfo_temp">--°C</i></h1>
                     </div>
                     <div>
                         <h1>SPD<br>
@@ -99,7 +100,8 @@ class Cpuinfo {
             // Init updater
             this.updatingCPUload = false;
             this.updateCPUload();
-            if (process.platform !== "win32") {this.updateCPUtemp();}
+            // Tauri port (macOS-only): process.platform branches dropped.
+            this.updateCPUtemp();
             this.updatingCPUspeed = false;
             this.updateCPUspeed();
             this.updatingCPUtasks = false;
@@ -107,11 +109,9 @@ class Cpuinfo {
             this.loadUpdater = setInterval(() => {
                 this.updateCPUload();
             }, 500);
-            if (process.platform !== "win32") {
-                this.tempUpdater = setInterval(() => {
-                    this.updateCPUtemp();
-                }, 2000);
-            }
+            this.tempUpdater = setInterval(() => {
+                this.updateCPUtemp();
+            }, 2000);
             this.speedUpdater = setInterval(() => {
                 this.updateCPUspeed();
             }, 1000);

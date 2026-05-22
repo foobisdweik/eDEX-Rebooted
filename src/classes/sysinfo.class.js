@@ -2,18 +2,9 @@ class Sysinfo {
     constructor(parentId) {
         if (!parentId) throw "Missing parameters";
 
-        // See #255
-        let os;
-        switch (require("os").platform()) {
-            case "darwin":
-                os = "macOS";
-                break;
-            case "win32":
-                os = "win";
-                break;
-            default:
-                os = require("os").platform();
-        }
+        // Tauri port targets aarch64-apple-darwin exclusively (per ULTRAPLAN);
+        // require("os") is gone with Node. v0.2 may reintroduce platform branches.
+        const os = "macOS";
 
         // Create DOM
         this.parent = document.getElementById(parentId);
@@ -97,9 +88,11 @@ class Sysinfo {
             this.updateDate();
         }, timeToNewDay);
     }
-    updateUptime() {
+    async updateUptime() {
+        // Tauri port: require("os").uptime() replaced by the si_uptime invoke
+        // (window.si.uptime → snake_case-mapped by the renderer Proxy).
         let uptime = {
-            raw: Math.floor(require("os").uptime()),
+            raw: Math.floor(await window.si.uptime()),
             days: 0,
             hours: 0,
             minutes: 0

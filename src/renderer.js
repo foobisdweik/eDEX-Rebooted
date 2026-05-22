@@ -314,8 +314,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         </section>
         <section id="keyboard" style="opacity:0;">
         </section>`;
+        const kbLayout = await invoke("get_keyboard_layout", { name: window.settings.keyboard });
         window.keyboard = new Keyboard({
-            layout: pathJoin(keyboardsDir, window.settings.keyboard + ".json"),
+            layout: kbLayout,
             container: "keyboard"
         });
 
@@ -343,7 +344,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         await window._delay(400);
         greeter.remove();
 
-        // Modules — UpdateChecker / LocationGlobe / Conninfo deferred to v0.2.
+        // Modules — UpdateChecker / LocationGlobe / Conninfo / Netstat deferred
+        // to v0.2. (Netstat needs Rust-side HTTPS + ping commands before it can
+        // be reinstated; the `iface` setting still persists for forward compat.)
         window.mods = {};
         window.mods.clock = new Clock("mod_column_left");
         window.mods.sysinfo = new Sysinfo("mod_column_left");
@@ -351,7 +354,6 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.mods.cpuinfo = new Cpuinfo("mod_column_left");
         window.mods.ramwatcher = new RAMwatcher("mod_column_left");
         window.mods.toplist = new Toplist("mod_column_left");
-        window.mods.netstat = new Netstat("mod_column_right");
 
         document.querySelectorAll(".mod_column").forEach(e => {
             e.setAttribute("class", "mod_column activated");
@@ -439,8 +441,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
 
     window.remakeKeyboard = async layout => {
         document.getElementById("keyboard").innerHTML = "";
+        const kbLayout = await invoke("get_keyboard_layout", { name: layout || window.settings.keyboard });
         window.keyboard = new Keyboard({
-            layout: pathJoin(keyboardsDir, (layout || window.settings.keyboard) + ".json"),
+            layout: kbLayout,
             container: "keyboard"
         });
         await invoke("set_kb_override", { layout });
@@ -515,8 +518,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         });
         let ifaces = "";
         const nets = await window.si.networkInterfaces();
+        const currentIface = window.settings.iface || (nets[0] && nets[0].iface) || "";
         nets.forEach(net => {
-            if (net.iface !== window.mods.netstat.iface) ifaces += `<option>${net.iface}</option>`;
+            if (net.iface !== currentIface) ifaces += `<option>${net.iface}</option>`;
         });
 
         window.keyboard.detach();
@@ -541,7 +545,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
                         <tr><td>monitor</td><td>Which monitor to spawn the UI in</td><td><select id="settingsEditor-monitor">${(typeof window.settings.monitor !== "undefined") ? "<option>" + window.settings.monitor + "</option>" : ""}${monitors}</select></td></tr>
                         <tr><td>nointro</td><td>Skip the intro boot log and logo</td><td><select id="settingsEditor-nointro"><option>${window.settings.nointro}</option><option>${!window.settings.nointro}</option></select></td></tr>
                         <tr><td>nocursor</td><td>Hide the mouse cursor</td><td><select id="settingsEditor-nocursor"><option>${window.settings.nocursor}</option><option>${!window.settings.nocursor}</option></select></td></tr>
-                        <tr><td>iface</td><td>Override the interface used for network monitoring</td><td><select id="settingsEditor-iface"><option>${window.mods.netstat.iface}</option>${ifaces}</select></td></tr>
+                        <tr><td>iface</td><td>Override the interface used for network monitoring (Netstat deferred to v0.2; setting persists)</td><td><select id="settingsEditor-iface"><option>${currentIface}</option>${ifaces}</select></td></tr>
                         <tr><td>allowWindowed</td><td>Allow F11 to enter windowed mode</td><td><select id="settingsEditor-allowWindowed"><option>${window.settings.allowWindowed}</option><option>${!window.settings.allowWindowed}</option></select></td></tr>
                         <tr><td>keepGeometry</td><td>Keep 16:9 aspect ratio in windowed mode</td><td><select id="settingsEditor-keepGeometry"><option>${(window.settings.keepGeometry === false) ? 'false' : 'true'}</option><option>${(window.settings.keepGeometry === false) ? 'true' : 'false'}</option></select></td></tr>
                         <tr><td>excludeThreadsFromToplist</td><td>Display threads in the top processes list</td><td><select id="settingsEditor-excludeThreadsFromToplist"><option>${window.settings.excludeThreadsFromToplist}</option><option>${!window.settings.excludeThreadsFromToplist}</option></select></td></tr>

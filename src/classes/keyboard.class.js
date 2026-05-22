@@ -2,7 +2,10 @@ class Keyboard {
     constructor(opts) {
         if (!opts.layout || !opts.container) throw "Missing options";
 
-        const layout = JSON.parse(require("fs").readFileSync(opts.layout, {encoding: "utf-8"}));
+        // Tauri port: opts.layout is now the pre-parsed layout object (loaded
+        // by the renderer via invoke("get_keyboard_layout", ...) before
+        // constructing). The legacy Node fs.readFileSync path is gone.
+        const layout = opts.layout;
         this.ctrlseq = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
         this.container = document.getElementById(opts.container);
 

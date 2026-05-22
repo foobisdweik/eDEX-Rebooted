@@ -1,73 +1,40 @@
+// Tauri port: `require("howler")` and `__dirname` are gone. Howl/Howler come
+// from the UMD bundle loaded in ui.html; WAV paths are document-relative URLs
+// resolved by the WKWebView against the Tauri-served frontend root.
 class AudioManager {
     constructor() {
-        const path = require("path");
-        const {Howl, Howler} = require("howler");
+        const audioUrl = name => `assets/audio/${name}.wav`;
 
         if (window.settings.audio === true) {
-            if(window.settings.disableFeedbackAudio === false) {
-                this.stdout = new Howl({
-                    src: [path.join(__dirname, "assets", "audio", "stdout.wav")],
-                    volume: 0.4
-                });
-                this.stdin = new Howl({
-                    src: [path.join(__dirname, "assets", "audio", "stdin.wav")],
-                    volume: 0.4
-                });
-                this.folder = new Howl({
-                    src: [path.join(__dirname, "assets", "audio", "folder.wav")]
-                });
-                this.granted = new Howl({
-                    src: [path.join(__dirname, "assets", "audio", "granted.wav")]
-                });
+            if (window.settings.disableFeedbackAudio === false) {
+                this.stdout  = new Howl({ src: [audioUrl("stdout")],  volume: 0.4 });
+                this.stdin   = new Howl({ src: [audioUrl("stdin")],   volume: 0.4 });
+                this.folder  = new Howl({ src: [audioUrl("folder")] });
+                this.granted = new Howl({ src: [audioUrl("granted")] });
             }
-            this.keyboard = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "keyboard.wav")]
-            });
-            this.theme = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "theme.wav")]
-            });
-            this.expand = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "expand.wav")]
-            });
-            this.panels = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "panels.wav")]
-            });
-            this.scan = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "scan.wav")]
-            });
-            this.denied = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "denied.wav")]
-            });
-            this.info = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "info.wav")]
-            });
-            this.alarm = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "alarm.wav")]
-            });
-            this.error = new Howl({
-                src: [path.join(__dirname, "assets", "audio", "error.wav")]
-            });
+            this.keyboard = new Howl({ src: [audioUrl("keyboard")] });
+            this.theme    = new Howl({ src: [audioUrl("theme")] });
+            this.expand   = new Howl({ src: [audioUrl("expand")] });
+            this.panels   = new Howl({ src: [audioUrl("panels")] });
+            this.scan     = new Howl({ src: [audioUrl("scan")] });
+            this.denied   = new Howl({ src: [audioUrl("denied")] });
+            this.info     = new Howl({ src: [audioUrl("info")] });
+            this.alarm    = new Howl({ src: [audioUrl("alarm")] });
+            this.error    = new Howl({ src: [audioUrl("error")] });
 
             Howler.volume(window.settings.audioVolume);
         } else {
             Howler.volume(0.0);
         }
 
-        // Return a proxy to avoid errors if sounds aren't loaded
+        // Proxy so missing/unloaded sounds resolve to a no-op `.play()`.
         return new Proxy(this, {
             get: (target, sound) => {
                 if (sound in target) {
                     return target[sound];
-                } else {
-                    return {
-                        play: () => {return true;}
-                    }
                 }
+                return { play: () => true };
             }
         });
     }
 }
-
-module.exports = {
-    AudioManager
-};
