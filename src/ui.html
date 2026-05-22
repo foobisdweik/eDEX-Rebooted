@@ -2,65 +2,85 @@
 <html>
     <head>
         <meta charset="utf-8" />
-        <meta http-equiv="Content-Security-Policy" content="default-src file: 'unsafe-inline'; img-src file: data:; media-src file:; connect-src ws: file:">
+        <!-- Tauri 2 injects its own CSP via tauri.conf.json security.csp. -->
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>eDEX-UI</title>
 
-        <!-- Load dependency css -->
+        <!-- Vendored CSS (augmented-ui) lives in node_modules during dev; copy
+             into assets/css/ before bundling a production .app. -->
         <link rel="stylesheet" href="node_modules/augmented-ui/augmented.css" />
-        <!-- Load main css -->
+        <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
+
         <link rel="stylesheet" href="assets/css/main.css" />
         <link rel="stylesheet" href="assets/css/modal.css" />
         <link rel="stylesheet" href="assets/css/boot_screen.css" />
         <link rel="stylesheet" href="assets/css/media_player.css" />
-        <!-- Load main modules css -->
         <link rel="stylesheet" href="assets/css/main_shell.css" />
         <link rel="stylesheet" href="assets/css/filesystem.css" />
         <link rel="stylesheet" href="assets/css/keyboard.css" />
-        <!-- Load secondary modules css -->
         <link rel="stylesheet" href="assets/css/mod_column.css" />
         <link rel="stylesheet" href="assets/css/mod_clock.css" />
         <link rel="stylesheet" href="assets/css/mod_sysinfo.css" />
         <link rel="stylesheet" href="assets/css/mod_hardwareInspector.css" />
         <link rel="stylesheet" href="assets/css/mod_cpuinfo.css" />
         <link rel="stylesheet" href="assets/css/mod_netstat.css" />
-        <link rel="stylesheet" href="assets/css/mod_conninfo.css" />
-        <link rel="stylesheet" href="assets/css/mod_globe.css" />
         <link rel="stylesheet" href="assets/css/mod_ramwatcher.css" />
         <link rel="stylesheet" href="assets/css/mod_toplist.css" />
         <link rel="stylesheet" href="assets/css/mod_fuzzyFinder.css" />
         <link rel="stylesheet" href="assets/css/mod_processlist.css" />
-        <!-- Load extra CSS -->
         <link rel="stylesheet" href="assets/css/extra_ratios.css" />
 
-        <!-- Load dependency js -->
-        <script src="node_modules/pdfjs-dist/build/pdf.js"></script>
-        <!-- Load main modules classes -->
+        <!-- xterm + addons (UMD). Each script attaches a global; the inline
+             aliasing scripts capture under window.__XTERM*__ so our own
+             terminal.class.js's `class Terminal` doesn't collide with xterm's. -->
+        <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
+        <script>
+            if (window.Terminal) { window.__XTERM__ = window.Terminal; delete window.Terminal; }
+        </script>
+        <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+        <script>
+            if (window.FitAddon) { window.__XTERM_FIT__ = window.FitAddon.FitAddon || window.FitAddon; delete window.FitAddon; }
+        </script>
+        <script src="node_modules/@xterm/addon-ligatures/lib/addon-ligatures.js"></script>
+        <script>
+            if (window.LigaturesAddon) { window.__XTERM_LIGATURES__ = window.LigaturesAddon.LigaturesAddon || window.LigaturesAddon; delete window.LigaturesAddon; }
+        </script>
+        <script src="node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+        <script>
+            if (window.WebglAddon) { window.__XTERM_WEBGL__ = window.WebglAddon.WebglAddon || window.WebglAddon; delete window.WebglAddon; }
+        </script>
+
+        <!-- file-icons-match.js is a `module.exports = matchIcon` CommonJS
+             module. Shim window.module so the assignment captures into a
+             global, then immediately move it onto __FILE_ICONS_MATCHER__. -->
+        <script>window.module = { exports: null };</script>
+        <script src="assets/misc/file-icons-match.js"></script>
+        <script>
+            window.__FILE_ICONS_MATCHER__ = window.module.exports;
+            delete window.module;
+        </script>
+
+        <!-- Main classes. UpdateChecker / LocationGlobe / Conninfo / DocReader
+             are deferred to v0.2 of the Tauri port and not loaded. -->
         <script src="classes/modal.class.js"></script>
         <script src="classes/terminal.class.js"></script>
-        <script src="classes/docReader.class.js"></script>
         <script src="classes/mediaPlayer.class.js"></script>
         <script src="classes/filesystem.class.js"></script>
         <script src="classes/keyboard.class.js"></script>
-        <script src="classes/updateChecker.class.js"></script>
-        <!-- Load secondary modules classes -->
         <script src="classes/clock.class.js"></script>
         <script src="classes/sysinfo.class.js"></script>
         <script src="classes/hardwareInspector.class.js"></script>
         <script src="classes/cpuinfo.class.js"></script>
         <script src="classes/netstat.class.js"></script>
-        <script src="classes/conninfo.class.js"></script>
-        <script src="classes/locationGlobe.class.js"></script>
         <script src="classes/ramwatcher.class.js"></script>
         <script src="classes/toplist.class.js"></script>
         <script src="classes/fuzzyFinder.class.js"></script>
-        <!-- Load extra classes -->
         <script src="classes/audiofx.class.js"></script>
     </head>
     <body class="solidBackground">
         <section id="boot_screen">
         </section>
 
-        <script src="_renderer.js"></script>
+        <script src="renderer.js"></script>
     </body>
 </html>

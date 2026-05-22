@@ -1,39 +1,90 @@
+// Tauri/Rust port: Node fs / path / mime-types / electron.shell calls all go
+// through invoke() against the fs_* and (for opening externally) shell plugin.
+//
+// Dependencies (set up by ui.html):
+//   - window.__FILE_ICONS_MATCHER__ : function(filename) -> iconName, exported
+//     by assets/misc/file-icons-match.js via a module.exports shim
+//   - window.__FILE_ICONS__         : the JSON contents of
+//     assets/icons/file-icons.json, fetched at boot
+//
+// Tiny mime detection replaces the `mime-types` npm package (CommonJS-only).
+const MIME_EXT = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+    webp: "image/webp", svg: "image/svg+xml", bmp: "image/bmp", ico: "image/x-icon",
+    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", flac: "audio/flac", m4a: "audio/mp4",
+    mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", mkv: "video/x-matroska",
+    pdf: "application/pdf",
+    txt: "text/plain", md: "text/markdown", json: "application/json", xml: "text/xml",
+    js: "text/javascript", ts: "text/typescript", html: "text/html", css: "text/css",
+    py: "text/x-python", rs: "text/x-rust", go: "text/x-go", c: "text/x-c", cpp: "text/x-c++",
+    rb: "text/x-ruby", sh: "text/x-sh", yaml: "text/yaml", yml: "text/yaml", toml: "text/toml",
+    log: "text/plain", csv: "text/csv", ini: "text/plain", conf: "text/plain"
+};
+function _fsMimeLookup(ext) {
+    if (!ext) return false;
+    return MIME_EXT[String(ext).toLowerCase()] || false;
+}
+function _fsMimeIsText(t) {
+    if (!t) return false;
+    return t.startsWith("text/") || t === "application/json" || t === "application/xml";
+}
+function _fsPathJoin(...parts) {
+    return parts.filter(Boolean).join("/").replace(/\/+/g, "/");
+}
+function _fsPathResolve(base, ...rest) {
+    // POSIX-style normalisation, macOS-only.
+    let parts = _fsPathJoin(base, ...rest).split("/");
+    const out = [];
+    for (const p of parts) {
+        if (p === "" || p === ".") continue;
+        if (p === "..") { out.pop(); continue; }
+        out.push(p);
+    }
+    return "/" + out.join("/");
+}
+function _fsPathBasename(p) {
+    if (!p) return "";
+    const stripped = p.replace(/\/+$/, "");
+    const i = stripped.lastIndexOf("/");
+    return i === -1 ? stripped : stripped.slice(i + 1);
+}
+
 class FilesystemDisplay {
     constructor(opts) {
         if (!opts.parentId) throw "Missing options";
 
-        const fs = require("fs");
-        const path = require("path");
+        const { invoke } = window.__TAURI__.core;
+        const paths = window.__USER_DATA__ || {};
+        const settingsDir = paths.userData;
+        const themesDir = paths.themesDir;
+        const keyboardsDir = paths.keyboardsDir;
+
         this.cwd = [];
         this.cwd_path = null;
         this.iconcolor = `rgb(${window.theme.r}, ${window.theme.g}, ${window.theme.b})`;
-        this._formatBytes = (a,b) => {if(0==a)return"0 Bytes";var c=1024,d=b||2,e=["Bytes","KB","MB","GB","TB","PB","EB","ZB","YB"],f=Math.floor(Math.log(a)/Math.log(c));return parseFloat((a/Math.pow(c,f)).toFixed(d))+" "+e[f]};
-        this.fileIconsMatcher = require("./assets/misc/file-icons-match.js");
-        this.icons = require("./assets/icons/file-icons.json");
+        this._formatBytes = (a, b) => { if (0 == a) return "0 Bytes"; var c = 1024, d = b || 2, e = ["Bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"], f = Math.floor(Math.log(a) / Math.log(c)); return parseFloat((a / Math.pow(c, f)).toFixed(d)) + " " + e[f] };
+
+        this.fileIconsMatcher = window.__FILE_ICONS_MATCHER__ || (() => "file");
+        this.icons = window.__FILE_ICONS__ || {};
         this.edexIcons = {
             theme: {
-                width: 24,
-                height: 24,
+                width: 24, height: 24,
                 svg: '<path d="M 17.9994,3.99805L 17.9994,2.99805C 17.9994,2.44604 17.5514,1.99805 16.9994,1.99805L 4.9994,1.99805C 4.4474,1.99805 3.9994,2.44604 3.9994,2.99805L 3.9994,6.99805C 3.9994,7.55005 4.4474,7.99805 4.9994,7.99805L 16.9994,7.99805C 17.5514,7.99805 17.9994,7.55005 17.9994,6.99805L 17.9994,5.99805L 18.9994,5.99805L 18.9994,9.99805L 8.9994,9.99805L 8.9994,20.998C 8.9994,21.55 9.4474,21.998 9.9994,21.998L 11.9994,21.998C 12.5514,21.998 12.9994,21.55 12.9994,20.998L 12.9994,11.998L 20.9994,11.998L 20.9994,3.99805L 17.9994,3.99805 Z"/>'
             },
             themesDir: {
-                width: 24,
-                height: 24,
+                width: 24, height: 24,
                 svg: `<path d="m9.9994 3.9981h-6c-1.105 0-1.99 0.896-1.99 2l-0.01 12c0 1.104 0.895 2 2 2h16c1.104 0 2-0.896 2-2v-9.9999c0-1.104-0.896-2-2-2h-8l-1.9996-2z" stroke-width=".2"/><path stroke-linejoin="round" d="m18.8 9.3628v-0.43111c0-0.23797-0.19314-0.43111-0.43111-0.43111h-5.173c-0.23797 0-0.43111 0.19313-0.43111 0.43111v1.7244c0 0.23797 0.19314 0.43111 0.43111 0.43111h5.1733c0.23797 0 0.43111-0.19314 0.43111-0.43111v-0.43111h0.43111v1.7244h-4.3111v4.7422c0 0.23797 0.19314 0.43111 0.43111 0.43111h0.86221c0.23797 0 0.43111-0.19314 0.43111-0.43111v-3.879h3.449v-3.4492z" stroke-width=".086221" fill="${window.theme.colors.light_black}"/>`
             },
             kblayout: {
-                width: 24,
-                height: 24,
+                width: 24, height: 24,
                 svg: '<path d="M 18.9994,9.99807L 16.9994,9.99807L 16.9994,7.99807L 18.9994,7.99807M 18.9994,12.9981L 16.9994,12.9981L 16.9994,10.9981L 18.9994,10.9981M 15.9994,9.99807L 13.9994,9.99807L 13.9994,7.99807L 15.9994,7.99807M 15.9994,12.9981L 13.9994,12.9981L 13.9994,10.9981L 15.9994,10.9981M 15.9994,16.9981L 7.99941,16.9981L 7.99941,14.9981L 15.9994,14.9981M 6.99941,9.99807L 4.99941,9.99807L 4.99941,7.99807L 6.99941,7.99807M 6.99941,12.9981L 4.99941,12.9981L 4.99941,10.9981L 6.99941,10.9981M 7.99941,10.9981L 9.99941,10.9981L 9.99941,12.9981L 7.99941,12.9981M 7.99941,7.99807L 9.99941,7.99807L 9.99941,9.99807L 7.99941,9.99807M 10.9994,10.9981L 12.9994,10.9981L 12.9994,12.9981L 10.9994,12.9981M 10.9994,7.99807L 12.9994,7.99807L 12.9994,9.99807L 10.9994,9.99807M 19.9994,4.99807L 3.99941,4.99807C 2.89441,4.99807 2.0094,5.89406 2.0094,6.99807L 1.99941,16.9981C 1.99941,18.1021 2.89441,18.9981 3.99941,18.9981L 19.9994,18.9981C 21.1034,18.9981 21.9994,18.1021 21.9994,16.9981L 21.9994,6.99807C 21.9994,5.89406 21.1034,4.99807 19.9994,4.99807 Z"/>'
             },
             kblayoutsDir: {
-                width: 24,
-                height: 24,
+                width: 24, height: 24,
                 svg: `<path d="m9.9994 3.9981h-6c-1.105 0-1.99 0.896-1.99 2l-0.01 12c0 1.104 0.895 2 2 2h16c1.104 0 2-0.896 2-2v-9.9999c0-1.104-0.896-2-2-2h-8l-1.9996-2z" stroke-width=".2"/><path stroke-linejoin="round" d="m17.48 11.949h-1.14v-1.14h1.14m0 2.8499h-1.14v-1.14h1.14m-1.7099-0.56999h-1.14v-1.14h1.14m0 2.8499h-1.14v-1.14h1.14m0 3.4199h-4.56v-1.14h4.56m-5.13-2.85h-1.1399v-1.14h1.14m0 2.8499h-1.1399v-1.14h1.14m0.56998 0h1.14v1.14h-1.14m0-2.8499h1.14v1.14h-1.14m1.7099 0.56999h1.14v1.14h-1.14m0-2.8499h1.14v1.14h-1.14m5.13-2.8494h-9.1199c-0.62982 0-1.1343 0.51069-1.1343 1.14l-0.0057 5.6998c0 0.62925 0.51013 1.14 1.14 1.14h9.1196c0.62925 0 1.14-0.5107 1.14-1.14v-5.6998c0-0.62926-0.5107-1.14-1.14-1.14z" stroke-width="0.114" fill="${window.theme.colors.light_black}"/>`
             },
             settings: {
-                width: 24,
-                height: 24,
+                width: 24, height: 24,
                 svg: '<path d="M 11.9994,15.498C 10.0664,15.498 8.49939,13.931 8.49939,11.998C 8.49939,10.0651 10.0664,8.49805 11.9994,8.49805C 13.9324,8.49805 15.4994,10.0651 15.4994,11.998C 15.4994,13.931 13.9324,15.498 11.9994,15.498 Z M 19.4284,12.9741C 19.4704,12.6531 19.4984,12.329 19.4984,11.998C 19.4984,11.6671 19.4704,11.343 19.4284,11.022L 21.5414,9.36804C 21.7294,9.21606 21.7844,8.94604 21.6594,8.73004L 19.6594,5.26605C 19.5354,5.05005 19.2734,4.96204 19.0474,5.04907L 16.5584,6.05206C 16.0424,5.65607 15.4774,5.32104 14.8684,5.06903L 14.4934,2.41907C 14.4554,2.18103 14.2484,1.99805 13.9994,1.99805L 9.99939,1.99805C 9.74939,1.99805 9.5434,2.18103 9.5054,2.41907L 9.1304,5.06805C 8.52039,5.32104 7.95538,5.65607 7.43939,6.05206L 4.95139,5.04907C 4.7254,4.96204 4.46338,5.05005 4.33939,5.26605L 2.33939,8.73004C 2.21439,8.94604 2.26938,9.21606 2.4574,9.36804L 4.5694,11.022C 4.5274,11.342 4.49939,11.6671 4.49939,11.998C 4.49939,12.329 4.5274,12.6541 4.5694,12.9741L 2.4574,14.6271C 2.26938,14.78 2.21439,15.05 2.33939,15.2661L 4.33939,18.73C 4.46338,18.946 4.7254,19.0341 4.95139,18.947L 7.4404,17.944C 7.95639,18.34 8.52139,18.675 9.1304,18.9271L 9.5054,21.577C 9.5434,21.8151 9.74939,21.998 9.99939,21.998L 13.9994,21.998C 14.2484,21.998 14.4554,21.8151 14.4934,21.577L 14.8684,18.9271C 15.4764,18.6741 16.0414,18.34 16.5574,17.9431L 19.0474,18.947C 19.2734,19.0341 19.5354,18.946 19.6594,18.73L 21.6594,15.2661C 21.7844,15.05 21.7294,14.78 21.5414,14.6271L 19.4284,12.9741 Z"/>'
             }
         };
@@ -59,6 +110,9 @@ class FilesystemDisplay {
         this._runNextTick = false;
         this._reading = false;
 
+        // Periodic re-read trigger. The legacy code had fs.watch() set
+        // _runNextTick on change events; Tauri lacks a notify-style watcher in
+        // v1, so this acts as a manual refresh hook (e.g. on CWD change).
         this._timer = setInterval(() => {
             if (this._runNextTick === true) {
                 this._runNextTick = false;
@@ -66,24 +120,9 @@ class FilesystemDisplay {
             }
         }, 1000);
 
-        this._asyncFSwrapper = new Proxy(fs, {
-            get: function(fs, prop) {
-                if (prop in fs) {
-                    return function(...args) {
-                        return new Promise((resolve, reject) => {
-                            fs[prop](...args, (err, d) => {
-                                if (typeof err !== "undefined" && err !== null) reject(err);
-                                if (typeof d !== "undefined") resolve(d);
-                                if (typeof d === "undefined" && typeof err === "undefined") resolve();
-                            });
-                        });
-                    }
-                }
-            },
-            set: function() {
-                return false;
-            }
-        });
+        this.openExternal = path => {
+            invoke("fs_open_external", { path }).catch(e => console.warn("open_external:", e));
+        };
 
         this.setFailedState = () => {
             this.failed = true;
@@ -93,42 +132,22 @@ class FilesystemDisplay {
         };
 
         this.followTab = () => {
-            // Don't follow tabs when running in detached mode, see #432
             if (this._noTracking) return false;
-
-            let num = window.currentTerm;
-
+            const num = window.currentTerm;
             window.term[num].oncwdchange = cwd => {
-                // See #501
                 if (this._noTracking) return false;
-
                 if (cwd && cwd !== this.cwd_path && window.currentTerm === num) {
                     this.cwd_path = cwd;
-                    if (this._fsWatcher) {
-                        this._fsWatcher.close();
-                    }
                     if (cwd.startsWith("FALLBACK |-- ")) {
                         this.readFS(cwd.slice(13));
                         this._noTracking = true;
                     } else {
                         this.readFS(cwd);
-                        this.watchFS(cwd);
                     }
                 }
             };
         };
         this.followTab();
-
-        this.watchFS = dir => {
-            if (this._fsWatcher) {
-                this._fsWatcher.close();
-            }
-            this._fsWatcher = fs.watch(dir, (eventType, filename) => {
-                if (eventType != "change") { // #758 - Don't refresh file view if only file contents have changed.
-                    this._runNextTick = true;
-                }
-            });
-        };
 
         this.toggleHidedotfiles = () => {
             if (window.settings.hideDotfiles) {
@@ -161,102 +180,71 @@ class FilesystemDisplay {
                 document.querySelector("section#filesystem > h3.title > p:first-of-type").innerText = "FILESYSTEM - TRACKING FAILED, RUNNING DETACHED FROM TTY";
             }
 
-            if (process.platform === "win32" && dir.endsWith(":")) dir = dir+"\\";
-            let tcwd = dir;
-            let content = await this._asyncFSwrapper.readdir(tcwd).catch(err => {
+            const tcwd = dir;
+            let entries;
+            try {
+                entries = await invoke("fs_readdir", { path: tcwd });
+            } catch (err) {
                 console.warn(err);
-                if (this._noTracking === true && this.dirpath) { // #262
+                if (this._noTracking === true && this.dirpath) {
                     this.setFailedState();
-                    setTimeout(() => {
-                        this.readFS(this.dirpath);
-                    }, 1000);
+                    setTimeout(() => this.readFS(this.dirpath), 1000);
                 } else {
                     this.setFailedState();
                 }
-            });
+                this._reading = false;
+                return false;
+            }
 
             this.reCalculateDiskUsage(tcwd);
-
             this.cwd = [];
 
-            await new Promise((resolve, reject) => {
-                if (content.length === 0) resolve();
+            for (const entry of entries) {
+                const file = entry.name;
+                const fullPath = _fsPathResolve(tcwd, file);
+                const e = {
+                    name: window._escapeHtml(file),
+                    path: fullPath,
+                    type: "other",
+                    category: "other",
+                    hidden: entry.hidden
+                };
 
-                content.forEach(async (file, i) => {
-                    let fstat = await this._asyncFSwrapper.lstat(path.join(tcwd, file)).catch(e => {
-                        if (!e.message.includes("EPERM") && !e.message.includes("EBUSY")) {
-                            reject();
-                        }
-                    });
+                // fs_readdir returns category/size/type from the Rust side.
+                if (entry.category === "dir") {
+                    e.category = "dir";
+                    e.type = "dir";
+                    if (tcwd === settingsDir && file === "themes") e.type = "edex-themesDir";
+                    if (tcwd === settingsDir && file === "keyboards") e.type = "edex-kblayoutsDir";
+                } else if (entry.category === "symlink") {
+                    e.category = "symlink";
+                    e.type = "symlink";
+                } else if (entry.category === "file") {
+                    e.category = "file";
+                    e.type = "file";
+                    e.size = entry.size;
+                }
 
-                    let e = {
-                        name: window._escapeHtml(file),
-                        path: path.resolve(tcwd, file),
-                        type: "other",
-                        category: "other",
-                        hidden: false
-                    };
+                if (e.category === "file" && tcwd === themesDir && file.endsWith(".json")) e.type = "edex-theme";
+                if (e.category === "file" && tcwd === keyboardsDir && file.endsWith(".json")) e.type = "edex-kblayout";
+                if (e.category === "file" && tcwd === settingsDir && file === "settings.json") e.type = "edex-settings";
+                if (e.category === "file" && tcwd === settingsDir && file === "shortcuts.json") e.type = "edex-shortcuts";
 
-                    if (typeof fstat !== "undefined") {
-                        e.lastAccessed = fstat.mtime.getTime();
+                // mtime is not surfaced by fs_readdir; lastAccessed left blank.
+                this.cwd.push(e);
+            }
 
-                        if (fstat.isDirectory()) {
-                            e.category = "dir";
-                            e.type = "dir";
-                        }
-                        if (e.category === "dir" && tcwd === settingsDir && file === "themes") e.type="edex-themesDir";
-                        if (e.category === "dir" && tcwd === settingsDir && file === "keyboards") e.type = "edex-kblayoutsDir";
+            if (this.failed) {
+                this._reading = false;
+                return false;
+            }
 
-                        if (fstat.isSymbolicLink()) {
-                            e.category = "symlink";
-                            e.type = "symlink";
-                        }
+            const ordering = { dir: 0, symlink: 1, file: 2, other: 3 };
+            this.cwd.sort((a, b) => ordering[a.category] - ordering[b.category] || a.name.localeCompare(b.name));
 
-                        if (fstat.isFile()) {
-                            e.category = "file";
-                            e.type = "file";
-                            e.size = fstat.size;
-                        }
-                    } else {
-                        e.type = "system";
-                        e.hidden = true;
-                    }
-
-                    if (e.category === "file" && tcwd === themesDir && file.endsWith(".json")) e.type = "edex-theme";
-                    if (e.category === "file" && tcwd === keyboardsDir && file.endsWith(".json")) e.type = "edex-kblayout";
-                    if (e.category === "file" && tcwd === settingsDir && file === "settings.json") e.type = "edex-settings";
-                    if (e.category === "file" && tcwd === settingsDir && file === "shortcuts.json") e.type = "edex-shortcuts";
-
-                    if (file.startsWith(".")) e.hidden = true;
-
-                    this.cwd.push(e);
-                    if (i === content.length-1) resolve();
-                });
-            }).catch(() => { this.setFailedState() });
-
-            if (this.failed) return false;
-
-            let ordering = {
-                dir: 0,
-                symlink: 1,
-                file: 2,
-                other: 3
-            };
-
-            this.cwd.sort((a, b) => {
-                return (ordering[a.category] - ordering[b.category] || a.name.localeCompare(b.name));
-            });
-
-            this.cwd.splice(0, 0, {
-                name: "Show disks",
-                type: "showDisks"
-            });
-
-            if (tcwd !== "/" && /^[A-Z]:\\$/i.test(tcwd) === false) {
-                this.cwd.splice(1, 0, {
-                    name: "Go up",
-                    type: "up"
-                });
+            this.cwd.splice(0, 0, { name: "Show disks", type: "showDisks" });
+            if (tcwd !== "/") {
+                this.cwd.splice(1, 0, { name: "Go up", type: "up" });
             }
 
             this.dirpath = tcwd;
@@ -266,31 +254,26 @@ class FilesystemDisplay {
 
         this.readDevices = async () => {
             if (this.failed === true) return false;
-
-            let blocks = await window.si.blockDevices();
-            let devices = [];
-            blocks.forEach(block => {
-                if (fs.existsSync(block.mount)) {
+            const blocks = await window.si.blockDevices();
+            const devices = [];
+            for (const block of blocks) {
+                let exists = false;
+                try { exists = await invoke("fs_exists", { path: block.mount }); } catch (_) {}
+                if (exists) {
                     let type = (block.type === "rom") ? "rom" : "disk";
-                    if (block.removable && block.type !== "rom") {
-                        type = "usb";
-                    }
-
+                    if (block.removable && block.type !== "rom") type = "usb";
                     devices.push({
-                        name: (block.label !== "") ? `${block.label} (${block.name})` : `${block.mount} (${block.name})`,
+                        name: (block.label && block.label !== "") ? `${block.label} (${block.name})` : `${block.mount} (${block.name})`,
                         type,
                         path: block.mount
                     });
                 }
-            });
-
+            }
             this.render(devices, true);
         };
 
         this.render = async (originBlockList, isDiskView) => {
-            // Work on a clone of the blocklist to avoid altering fsDisp.cwd
-            let blockList = JSON.parse(JSON.stringify(originBlockList));
-
+            const blockList = JSON.parse(JSON.stringify(originBlockList));
             if (this.failed === true) return false;
 
             if (isDiskView) {
@@ -306,18 +289,15 @@ class FilesystemDisplay {
 
             let filesDOM = ``;
             blockList.forEach((e, blockIndex) => {
-                let hidden = e.hidden ? " hidden" : "";
+                const hidden = e.hidden ? " hidden" : "";
 
                 let cmdPrefix = `if (window.keyboard.container.dataset.isCtrlOn == "true") {
-                                electron.shell.openPath(fsDisp.cwd[${blockIndex}].path);
-                                electronWin.minimize();
-                            } else if (window.keyboard.container.dataset.isShiftOn == "true") {
-                                window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"");
-                            } else {
-                          `.replace(/\n+ */g, ''); // Minify
-
+                                    window.fsDisp.openExternal(fsDisp.cwd[${blockIndex}].path);
+                                } else if (window.keyboard.container.dataset.isShiftOn == "true") {
+                                    window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"");
+                                } else {
+                              `.replace(/\n+ */g, '');
                 let cmdSuffix = `}`;
-
                 let cmd;
 
                 if (!this._noTracking) {
@@ -326,11 +306,7 @@ class FilesystemDisplay {
                     } else if (e.type === "up") {
                         cmd = `window.term[window.currentTerm].writelr("cd ..")`;
                     } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
-                        if (process.platform === "win32") {
-                            cmd = `window.term[window.currentTerm].writelr("${e.path.replace(/\\/g, '')}")`;
-                        } else {
-                            cmd = `window.term[window.currentTerm].writelr("cd \\"${e.path.replace(/\\/g, '')}\\"")`;
-                        }
+                        cmd = `window.term[window.currentTerm].writelr("cd \\"${e.path.replace(/\\/g, '')}\\"")`;
                     } else {
                         cmd = `window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"")`;
                     }
@@ -338,7 +314,7 @@ class FilesystemDisplay {
                     if (e.type === "dir" || e.type.endsWith("Dir")) {
                         cmd = `window.fsDisp.readFS(fsDisp.cwd[${blockIndex}].path)`;
                     } else if (e.type === "up") {
-                        cmd = `window.fsDisp.readFS(path.resolve(window.fsDisp.dirpath, ".."))`;
+                        cmd = `window.fsDisp.readFS("${_fsPathResolve(this.dirpath, "..")}")`;
                     } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
                         cmd = `window.fsDisp.readFS("${e.path.replace(/\\/g, '')}")`;
                     } else {
@@ -346,127 +322,61 @@ class FilesystemDisplay {
                     }
                 }
 
-                if (e.type === "file") {
-                    cmd = `window.fsDisp.openFile(${blockIndex})`;
-                }
-
-                if (e.type === "system") {
-                    cmd = "";
-                }
-
-                if (e.type === "showDisks") {
-                    cmd = `window.fsDisp.readDevices()`;
-                    cmdPrefix = '';
-                    cmdSuffix = '';
-                }
-
-                if (e.type === "up") {
-                    // cmd is OS-specific and defined above
-                    cmdPrefix = '';
-                    cmdSuffix = '';
-                }
-
-                if (e.type === "edex-theme") {
-                    cmd = `window.themeChanger("${e.name.slice(0, -5)}")`;
-                }
-                if (e.type === "edex-kblayout") {
-                    cmd = `window.remakeKeyboard("${e.name.slice(0, -5)}")`;
-                }
-                if (e.type === "edex-settings") {
-                    cmd = `window.openSettings()`;
-                }
-                if (e.type === "edex-shortcuts") {
-                    cmd = `window.openShortcutsHelp()`;
-                }
+                if (e.type === "file") cmd = `window.fsDisp.openFile(${blockIndex})`;
+                if (e.type === "system") cmd = "";
+                if (e.type === "showDisks") { cmd = `window.fsDisp.readDevices()`; cmdPrefix = ''; cmdSuffix = ''; }
+                if (e.type === "up") { cmdPrefix = ''; cmdSuffix = ''; }
+                if (e.type === "edex-theme") cmd = `window.themeChanger("${e.name.slice(0, -5)}")`;
+                if (e.type === "edex-kblayout") cmd = `window.remakeKeyboard("${e.name.slice(0, -5)}")`;
+                if (e.type === "edex-settings") cmd = `window.openSettings()`;
+                if (e.type === "edex-shortcuts") cmd = `window.openShortcutsHelp()`;
 
                 let icon = "";
                 let type = "";
-                switch(e.type) {
-                    case "showDisks":
-                        icon = this.icons.showDisks;
-                        type = "--";
-                        e.category = "showDisks";
-                        break;
-                    case "up":
-                        icon = this.icons.up;
-                        type = "--";
-                        e.category = "up";
-                        break;
-                    case "symlink":
-                        icon = this.icons.symlink;
-                        break;
-                    case "disk":
-                        icon = this.icons.disk;
-                        break;
-                    case "rom":
-                        icon = this.icons.rom;
-                        break;
-                    case "usb":
-                        icon = this.icons.usb;
-                        break;
-                    case "edex-theme":
-                        icon = this.edexIcons.theme;
-                        type = "eDEX-UI theme";
-                        break;
-                    case "edex-kblayout":
-                        icon = this.edexIcons.kblayout;
-                        type = "eDEX-UI keyboard layout";
-                        break;
+                switch (e.type) {
+                    case "showDisks": icon = this.icons.showDisks; type = "--"; e.category = "showDisks"; break;
+                    case "up": icon = this.icons.up; type = "--"; e.category = "up"; break;
+                    case "symlink": icon = this.icons.symlink; break;
+                    case "disk": icon = this.icons.disk; break;
+                    case "rom": icon = this.icons.rom; break;
+                    case "usb": icon = this.icons.usb; break;
+                    case "edex-theme": icon = this.edexIcons.theme; type = "eDEX-UI theme"; break;
+                    case "edex-kblayout": icon = this.edexIcons.kblayout; type = "eDEX-UI keyboard layout"; break;
                     case "edex-settings":
-                    case "edex-shortcuts":
-                        icon = this.edexIcons.settings;
-                        type = "eDEX-UI config file";
-                        break;
-                    case "system":
-                        icon = this.edexIcons.settings;
-                        break;
-                    case "edex-themesDir":
-                        icon = this.edexIcons.themesDir;
-                        type = "eDEX-UI themes folder";
-                        break;
-                    case "edex-kblayoutsDir":
-                        icon = this.edexIcons.kblayoutsDir;
-                        type = "eDEX-UI keyboards folder";
-                        break;
-                    default:
-                        let iconName = this.fileIconsMatcher(e.name);
+                    case "edex-shortcuts": icon = this.edexIcons.settings; type = "eDEX-UI config file"; break;
+                    case "system": icon = this.edexIcons.settings; break;
+                    case "edex-themesDir": icon = this.edexIcons.themesDir; type = "eDEX-UI themes folder"; break;
+                    case "edex-kblayoutsDir": icon = this.edexIcons.kblayoutsDir; type = "eDEX-UI keyboards folder"; break;
+                    default: {
+                        const iconName = this.fileIconsMatcher(e.name);
                         icon = this.icons[iconName];
                         if (typeof icon === "undefined") {
                             if (e.type === "file") icon = this.icons.file;
-                            if (e.type === "dir") {
-                                icon = this.icons.dir;
-                                type = "folder";
-                            }
+                            if (e.type === "dir") { icon = this.icons.dir; type = "folder"; }
                             if (typeof icon === "undefined") icon = this.icons.other;
                         } else if (e.category !== "dir") {
-                            type = iconName.replace("icon-", "");
+                            type = (iconName || "").replace("icon-", "");
                         } else {
                             type = "special folder";
                         }
                         break;
+                    }
                 }
 
                 if (type === "") type = e.type;
                 e.type = type;
 
-                // Handle displayable media
                 if (e.type === 'video' || e.type === 'audio' || e.type === 'image') {
                     this.cwd[blockIndex].type = e.type;
                     cmd = `window.fsDisp.openMedia(${blockIndex})`;
                 }
 
-                if (typeof e.size === "number") {
-                    e.size = this._formatBytes(e.size);
-                } else {
-                    e.size = "--";
-                }
-                if (typeof e.lastAccessed === "number") {
-                    e.lastAccessed = new Date(e.lastAccessed).toLocaleString();
-                } else {
-                    e.lastAccessed = "--";
-                }
+                if (typeof e.size === "number") e.size = this._formatBytes(e.size); else e.size = "--";
+                e.lastAccessed = "--";
 
-                filesDOM += `<div class="fs_disp_${e.type}${hidden} animationWait" onclick='${cmdPrefix+cmd+cmdSuffix}'>
+                if (!icon) icon = { width: 24, height: 24, svg: "" };
+
+                filesDOM += `<div class="fs_disp_${e.type}${hidden} animationWait" onclick='${cmdPrefix + cmd + cmdSuffix}'>
                                 <svg viewBox="0 0 ${icon.width} ${icon.height}" fill="${this.iconcolor}">
                                     ${icon.svg}
                                 </svg>
@@ -484,17 +394,14 @@ class FilesystemDisplay {
                 document.getElementById("fs_space_bar").setAttribute("onclick", "");
             }
 
-            // Render animation
             let id = 0;
             while (this.filesContainer.childNodes[id]) {
-                let e = this.filesContainer.childNodes[id];
-                e.setAttribute("class", e.className.replace(" animationWait", ""));
-
-                if (window.settings.hideDotfiles !== true || e.className.indexOf("hidden") === -1) {
+                const el = this.filesContainer.childNodes[id];
+                el.setAttribute("class", el.className.replace(" animationWait", ""));
+                if (window.settings.hideDotfiles !== true || el.className.indexOf("hidden") === -1) {
                     window.audioManager.folder.play();
-                    await _delay(30);
+                    await window._delay(30);
                 }
-
                 id++;
             }
         };
@@ -508,10 +415,9 @@ class FilesystemDisplay {
                 this.space_bar.text.innerHTML = "Could not calculate mountpoint usage.";
                 this.space_bar.bar.value = 100;
             }).then(d => {
+                if (!d) return;
                 d.forEach(fsBlock => {
-                    if (path.startsWith(fsBlock.mount)) {
-                        this.fsBlock = fsBlock;
-                    }
+                    if (path.startsWith(fsBlock.mount)) this.fsBlock = fsBlock;
                 });
                 this.renderDiskUsage(this.fsBlock);
             });
@@ -519,17 +425,14 @@ class FilesystemDisplay {
 
         this.renderDiskUsage = async fsBlock => {
             if (document.getElementById("fs_space_bar").getAttribute("onclick") !== "" || fsBlock === null) return;
+            const splitter = "/";
+            const displayMount = (fsBlock.mount.length < 18) ? fsBlock.mount : "..." + splitter + fsBlock.mount.split(splitter).pop();
 
-            let splitter = (process.platform === "win32") ? "\\" : "/";
-            let displayMount = (fsBlock.mount.length < 18) ? fsBlock.mount : "..."+splitter+fsBlock.mount.split(splitter).pop();
-
-            // See #226
             if (!isNaN(fsBlock.use)) {
                 this.space_bar.text.innerHTML = `Mount <strong>${displayMount}</strong> used <strong>${Math.round(fsBlock.use)}%</strong>`;
                 this.space_bar.bar.value = Math.round(fsBlock.use);
             } else if (!isNaN((fsBlock.size / fsBlock.used) * 100)) {
-                let usage = Math.round((fsBlock.size / fsBlock.used) * 100);
-
+                const usage = Math.round((fsBlock.size / fsBlock.used) * 100);
                 this.space_bar.text.innerHTML = `Mount <strong>${displayMount}</strong> used <strong>${usage}%</strong>`;
                 this.space_bar.bar.value = usage;
             } else {
@@ -538,144 +441,88 @@ class FilesystemDisplay {
             }
         };
 
-        // Automatically start indexing supposed beginning CWD
-        // See #365
-        // ...except if we're hot-reloading, in which case this can mess up the rendering
-        // See #392
-        if (window.performance.navigation.type === 0) {
+        if (window.performance.navigation && window.performance.navigation.type === 0) {
             this.readFS(window.term[window.currentTerm].cwd || window.settings.cwd);
         }
 
-        this.openFile = (name, path, type) => { //Might add text formatting at some point, not now though - Surge
+        this.openFile = async (name) => {
             let block;
-
             if (typeof name === "number") {
                 block = this.cwd[name];
                 name = block.name;
             }
+            if (!block) return;
 
-            let mime = require("mime-types");
+            const extParts = name.split(".");
+            const ext = extParts[extParts.length - 1];
+            const filetype = _fsMimeLookup(ext);
 
-            block.path = block.path.replace(/\\/g, "/");
-
-            let filetype = mime.lookup(name.split(".")[name.split(".").length - 1]);
-            switch (filetype) {
-                case "application/pdf":
-                    let html = `<div>
-                        <div class="pdf_options">
-                            <button class="zoom_in">
-                                <svg viewBox="0 0 ${this.icons["zoom-in"].width} ${this.icons["zoom-in"].height}" fill="${this.iconcolor}">
-                                    ${this.icons["zoom-in"].svg}
-                                </svg>
-                            </button>
-                            <button class="zoom_out">
-                                <svg viewBox="0 0 ${this.icons["zoom-out"].width} ${this.icons["zoom-out"].height}" fill="${this.iconcolor}">
-                                    ${this.icons["zoom-out"].svg}
-                                </svg>
-                            </button>
-                            <button class="previous_page">
-                                <svg viewBox="0 0 ${this.icons["backwards"].width} ${this.icons["backwards"].height}" fill="${this.iconcolor}">
-                                    ${this.icons["backwards"].svg}
-                                </svg>
-                            </button>
-                            <span>Page: <span class="page_num"/></span><span>/</span> <span class="page_count"></span></span>
-                            <button class="next_page">
-                                <svg viewBox="0 0 ${this.icons["forwards"].width} ${this.icons["forwards"].height}" fill="${this.iconcolor}">
-                                    ${this.icons["forwards"].svg}
-                                </svg>
-                            </button>
-                        </div>
-                        <div class="pdf_container fsDisp_mediaDisp">
-                            <canvas class="pdf_canvas" />
-                        </div>
-                    </div>`;
-                    const newModal = new Modal(
-                        {
-                            type: "custom",
-                            title: _escapeHtml(name),
-                            html: html
-                        }
-                    );
-                    new DocReader(
-                        {
-                            modalId: newModal.id,
-                            path: block.path
-                        }
-                    );
-                    break;
-                default:
-                    if (mime.charset(filetype) === "UTF-8") {
-                        fs.readFile(block.path, 'utf-8', (err, data) => {
-                            if (err) {
-                                new Modal({
-                                    type: "info",
-                                    title: "Failed to load file: " + block.path,
-                                    html: err
-                                });
-                                console.log(err);
-                            };
-                            window.keyboard.detach();
-                            new Modal(
-                                {
-                                    type: "custom",
-                                    title: _escapeHtml(name),
-                                    html: `<textarea id="fileEdit" rows="40" cols="150" spellcheck="false">${data}</textarea><p id="fedit-status"></p>`,
-                                    buttons: [
-                                        {label:"Save to Disk",action:`window.writeFile('${block.path}')`}
-                                    ]
-                                }, () => {
-                                    window.keyboard.attach();
-                                    window.term[window.currentTerm].term.focus();
-                                }
-                            );
-                        });
-                   break;
-                }
+            if (filetype === "application/pdf") {
+                // DocReader + pdfjs-dist are deferred to v0.2.
+                new Modal({
+                    type: "info",
+                    title: window._escapeHtml(name),
+                    message: "PDF preview is deferred to v0.2 of the Tauri port."
+                });
+                return;
             }
+
+            if (_fsMimeIsText(filetype)) {
+                let data;
+                try {
+                    data = await invoke("fs_readfile", { path: block.path });
+                } catch (err) {
+                    new Modal({
+                        type: "info",
+                        title: "Failed to load file: " + block.path,
+                        html: String(err)
+                    });
+                    return;
+                }
+                window.keyboard.detach();
+                new Modal({
+                    type: "custom",
+                    title: window._escapeHtml(name),
+                    html: `<textarea id="fileEdit" rows="40" cols="150" spellcheck="false">${window._escapeHtml(data)}</textarea><p id="fedit-status"></p>`,
+                    buttons: [{ label: "Save to Disk", action: `window.writeFile('${block.path.replace(/'/g, "\\'")}')` }]
+                }, () => {
+                    window.keyboard.attach();
+                    window.term[window.currentTerm].term.focus();
+                });
+                return;
+            }
+
+            // Non-text, non-PDF: open in the host's default app.
+            this.openExternal(block.path);
         };
 
-        this.openMedia = (name, path, type) => {
+        this.openMedia = (name) => {
             let block, html;
-
             if (typeof name === "number") {
                 block = this.cwd[name];
                 name = block.name;
             }
+            if (!block) return;
 
-            block.path = block.path.replace(/\\/g, "/");
-
-            switch (type || block.type) {
+            switch (block.type) {
                 case "image":
-                    html = `<img class="fsDisp_mediaDisp" src="${window._encodePathURI(path || block.path)}" ondragstart="return false;">`;
+                    html = `<img class="fsDisp_mediaDisp" src="${window._encodePathURI(block.path)}" ondragstart="return false;">`;
                     break;
                 case "audio":
                     html = `<div>
                                 <div class="media_container" data-fullscreen="false">
                                     <audio class="media fsDisp_mediaDisp" preload="auto">
-                                        <source src="${window._encodePathURI(path || block.path)}">
+                                        <source src="${window._encodePathURI(block.path)}">
                                         Unsupported audio format!
                                     </audio>
                                     <div class="media_controls" data-state="hidden">
                                         <div class="playpause media_button" data-state="play">
-                                            <svg viewBox="0 0 ${this.icons["play"].width} ${this.icons["play"].height}" fill="${this.iconcolor}">
-                                                ${this.icons["play"].svg}
-                                            </svg>
+                                            <svg viewBox="0 0 ${this.icons["play"].width} ${this.icons["play"].height}" fill="${this.iconcolor}">${this.icons["play"].svg}</svg>
                                         </div>
-                                        <div class="progress_container">
-                                            <div class="progress">
-                                                <span class="progress_bar"></span>
-                                            </div>
-                                        </div>
+                                        <div class="progress_container"><div class="progress"><span class="progress_bar"></span></div></div>
                                         <div class="media_time">00:00:00</div>
-                                        <div class="volume_icon">
-                                            <svg viewBox="0 0 ${this.icons["volume"].width} ${this.icons["volume"].height}" fill="${this.iconcolor}">
-                                                ${this.icons["volume"].svg}
-                                            </svg>
-                                        </div>
-                                        <div class="volume">
-                                            <div class="volume_bkg"></div>
-                                            <div class="volume_bar"></div>
-                                        </div>
+                                        <div class="volume_icon"><svg viewBox="0 0 ${this.icons["volume"].width} ${this.icons["volume"].height}" fill="${this.iconcolor}">${this.icons["volume"].svg}</svg></div>
+                                        <div class="volume"><div class="volume_bkg"></div><div class="volume_bar"></div></div>
                                     </div>
                                 </div>
                             </div>`;
@@ -684,59 +531,36 @@ class FilesystemDisplay {
                     html = `<div>
                                 <div class="media_container" data-fullscreen="false">
                                     <video class="media fsDisp_mediaDisp" preload="auto">
-                                        <source src="${window._encodePathURI(path || block.path)}">
+                                        <source src="${window._encodePathURI(block.path)}">
                                         Unsupported video format!
                                     </video>
                                     <div class="media_controls" data-state="hidden">
                                         <div class="playpause media_button" data-state="play">
-                                            <svg viewBox="0 0 ${this.icons["play"].width} ${this.icons["play"].height}" fill="${this.iconcolor}">
-                                                ${this.icons["play"].svg}
-                                            </svg>
+                                            <svg viewBox="0 0 ${this.icons["play"].width} ${this.icons["play"].height}" fill="${this.iconcolor}">${this.icons["play"].svg}</svg>
                                         </div>
-                                        <div class="progress_container">
-                                            <div class="progress">
-                                                <span class="progress_bar"></span>
-                                            </div>
-                                        </div>
+                                        <div class="progress_container"><div class="progress"><span class="progress_bar"></span></div></div>
                                         <div class="media_time">00:00:00</div>
-                                        <div class="volume_icon">
-                                            <svg viewBox="0 0 ${this.icons["volume"].width} ${this.icons["volume"].height}" fill="${this.iconcolor}">
-                                                ${this.icons["volume"].svg}
-                                            </svg>
-                                        </div>
-                                        <div class="volume">
-                                            <div class="volume_bkg"></div>
-                                            <div class="volume_bar"></div>
-                                        </div>
+                                        <div class="volume_icon"><svg viewBox="0 0 ${this.icons["volume"].width} ${this.icons["volume"].height}" fill="${this.iconcolor}">${this.icons["volume"].svg}</svg></div>
+                                        <div class="volume"><div class="volume_bkg"></div><div class="volume_bar"></div></div>
                                         <div class="fs media_button" data-state="go-fullscreen">
-                                            <svg viewBox="0 0 ${this.icons["fullscreen"].width} ${this.icons["fullscreen"].height}" fill="${this.iconcolor}">
-                                                ${this.icons["fullscreen"].svg}
-                                            </svg>
+                                            <svg viewBox="0 0 ${this.icons["fullscreen"].width} ${this.icons["fullscreen"].height}" fill="${this.iconcolor}">${this.icons["fullscreen"].svg}</svg>
                                         </div>
                                     </div>
                                 </div>
                             </div>`;
                     break;
                 default:
-                    throw new Error("fsDisp media displayer: unknown type " + (type || block.type));
+                    throw new Error("fsDisp media displayer: unknown type " + block.type);
             }
 
-            const newModal = new Modal({
-                type: "custom",
-                title: _escapeHtml(name),
-                html
-            });
+            const newModal = new Modal({ type: "custom", title: window._escapeHtml(name), html });
             if (block.type === "audio" || block.type === "video") {
-                new MediaPlayer({
-                    modalId: newModal.id,
-                    path: block.path,
-                    type: block.type
-                });
+                new MediaPlayer({ modalId: newModal.id, path: block.path, type: block.type });
             }
         };
     }
 }
 
-module.exports = {
-    FilesystemDisplay
-};
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = { FilesystemDisplay };
+}

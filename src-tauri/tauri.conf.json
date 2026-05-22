@@ -21,8 +21,9 @@
       }
     ],
     "macOSPrivateApi": true,
+    "withGlobalTauri": true,
     "security": {
-      "csp": "default-src 'self' tauri: asset: 'unsafe-inline' 'unsafe-eval'; img-src 'self' tauri: asset: data:; media-src 'self' tauri: asset: data:; connect-src ipc: http://ipc.localhost asset: https://ipc.localhost"
+      "csp": "default-src 'self' tauri: asset: 'unsafe-inline' 'unsafe-eval'; img-src 'self' tauri: asset: data:; media-src 'self' tauri: asset: data:; font-src 'self' tauri: asset: data:; connect-src ipc: http://ipc.localhost asset: https://ipc.localhost"
     }
   },
   "bundle": {
