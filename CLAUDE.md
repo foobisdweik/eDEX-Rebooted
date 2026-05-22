@@ -4,66 +4,87 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This is the security-patched fork of eDEX-UI (v2.2.8), modernized to Electron 37 / Node 20 / `@xterm/*` 5.5.0 in October 2025. The README, CHANGELOG, and current build pipeline all describe an actively-maintained Electron application.
+This is eDEX-UI **v3.0.0**, a Tauri 2 + Rust native port of the historical Electron-based fork, targeting **`aarch64-apple-darwin` only**. The Electron + Node-pty + systeminformation stack is gone. The migration was executed in commits `9f61a60` → `6b2380e` → `5b9b273` → `1ddb5ec`; `ULTRAPLAN.md` at the repo root is the (historical) plan that was followed. Treat ULTRAPLAN as a record, not a TODO — its checklist is done.
 
-**Active direction:** the project is being migrated off Electron to **Tauri + Rust**, targeting native `aarch64-apple-darwin` (Apple Silicon). The current de-jure plan lives at `~/Desktop/eDex-refactor-plan-draft.md`. **This plan is expected to be superseded shortly by an `ultraplan` output** — once that lands, treat the ultraplan as authoritative and this section as stale.
+v1 is "core proven": app boots fullscreen, terminal echoes, the visual panels populate (clock/sysinfo/cpuinfo/hardwareInspector/ramwatcher/toplist), keyboard renders, settings modal opens, audio cues fire. See the **v0.2 backlog** at the end for known issues and deferred modules.
 
-### Migration phases (per the de-jure draft)
+## Architecture
 
-1. **Isolate the modernized frontend.** Preserve `src/ui.html`, all of `src/assets/`, and the visual-only classes (`mediaPlayer.class.js`, `modal.class.js`, `audiofx.class.js`).
-2. **Scorched-earth deletion of Electron/Node bindings.** Remove `src/_boot.js`, `src/_multithread.js`, `src/_renderer.js`, and the system-scraping classes (`sysinfo`, `cpuinfo`, `netstat`, `ramwatcher`, `filesystem`). Strip `terminal.class.js` down to the xterm DOM-mount only.
-3. **Tauri + Apple Silicon swap.** `cargo tauri init`; replace node-pty with the `portable-pty` Rust crate; replace systeminformation with the `sysinfo` Rust crate (per-core polling for M-series perf/efficiency cores); replace Node `fs` with `#[tauri::command]` wrappers over `std::fs`.
-4. **Build for `aarch64-apple-darwin`** via `cargo tauri build --target aarch64-apple-darwin`.
+```
+src-tauri/                          src/
+  Cargo.toml + tauri.conf.json        ui.html  (script tags, no bundler)
+  capabilities/default.json           renderer.js  (boot IIFE, Tauri globals)
+  src/                                classes/  (xterm shell + visual panels)
+    main.rs   → lib::run()              terminal, filesystem, modal,
+    lib.rs    → invoke_handler[..],     mediaPlayer, keyboard, clock,
+                .manage() state,        sysinfo, hardwareInspector,
+                .setup() ensures        cpuinfo, ramwatcher, toplist,
+                userData dir            fuzzyFinder, audiofx,
+    pty.rs    → portable-pty per id,    netstat (loaded? no — v0.2)
+                tokio reader task,    assets/
+                emits pty://{id}/data    css/      themes/  keyboards/
+    sysinfo_cmds.rs → si_* (cpu,        fonts/    audio/   icons/
+                load, temp, mem,        misc/file-icons-match.js
+                processes, net,         vendor/   ← xterm/howler/smoothie/
+                disks, system,                       augmented-ui (all UMD,
+                chassis, uptime)                     no node_modules at runtime)
+    fs_cmds.rs → fs_* (readdir,
+                stat, readfile,
+                writefile, exists,
+                open_external)
+    settings.rs → get/write_* for
+                settings/shortcuts/
+                window_state +
+                theme/kb overrides +
+                paths/displays/
+                username
+```
 
-### Migration ground rules (load-bearing)
+**IPC model:** every renderer↔backend call goes through Tauri `invoke()` (in-process — no socket, no sidecar). PTY data flows back via `listen("pty://{id}/data", …)` events. `window.si` in `renderer.js` is a `Proxy` that maps `window.si.networkInterfaces()` → `invoke("si_network_interfaces")` (camelCase → snake_case). All visual classes consume that Proxy, so they don't know they're talking to Rust.
 
-- **Phase 2 is destructive and irreversible** beyond `git restore`. Confirm with the user before deleting any file in the Phase 2 list, even though the migration direction is approved.
-- **Do not strip the WebSocket `file://` origin check in `terminal.class.js` (the `verifyClient` block) until it's being replaced by Tauri IPC in the same change.** Removing it standalone re-introduces the critical RCE this fork was created to fix.
-- **`file-icons-generator.js` + the `file-icons/` git submodules + `src/assets/icons/file-icons.json` + `src/assets/misc/file-icons-match.js`** are content, not legacy plumbing — keep them through the migration.
-- Until Phase 3 lands, the Electron build must still work; treat `src/_boot.js` etc. as live code, not a graveyard.
+**Frontend payload is fully vendored under `src/assets/vendor/`:** xterm UMD + addon-fit/ligatures/webgl, augmented-ui CSS, howler, smoothie. There's no runtime `node_modules/` and no `npm install` in the build path — `src/package.json` exists only as version-pinning documentation. The vendored UMD scripts attach globals; `ui.html` aliases the xterm globals to `window.__XTERM*__` so the project's own `class Terminal` doesn't collide.
 
-## Current Electron architecture (what the migration acts on)
+**Settings storage:** `~/Library/Application Support/eDEX-UI/{settings.json,shortcuts.json,lastWindowState.json,themes/,keyboards/,fonts/}`. `settings.rs::ensure_userdata` mirrors bundled themes/keyboards/fonts/boot_log into that dir on every `setup()`; built-ins overwrite, custom files survive.
 
-The app boots into Electron, which spawns one or more `node-pty` PTYs and exposes each over a local WebSocket. The renderer (a single `BrowserWindow` loading `src/ui.html`) connects back via `ws://127.0.0.1:<port>` using `@xterm/addon-attach`. The renderer has full Node integration; there is no sandboxed bridge.
-
-- **`src/_boot.js`** — Electron main. Single-instance lock, settings/themes/keyboards/fonts mirrored from `src/assets/*` into `electron.app.getPath("userData")/` on **every** startup (built-ins overwrite user copies; custom files survive). Creates the main `Terminal({role:"server"})` on `settings.port` (default 3000) and allocates up to 4 extra TTYs on `port+2 … port+5` (note: `port+1` is skipped — see `basePort = Number(basePort) + 2`).
-- **`src/_multithread.js`** — Node `cluster`-based worker pool for `systeminformation` calls. Spawns `min(os.cpus().length - 1, 7)` workers. The renderer's `window.si` is a Proxy that round-trips `systeminformation-call` IPC → master → worker → reply, keyed by a `nanoid`. Calls with >1 arg or zero workers fall back to in-process.
-- **`src/_renderer.js`** — Loaded by `ui.html` as the last script. Disables `eval`, defines `_escapeHtml`/`_purifyCSS`/`_encodePathURI` as the only sanitizers, boots the UI, instantiates every `window.mods.*` (clock/sysinfo/cpuinfo/ramwatcher/toplist/netstat/globe/conninfo) and the per-tab `window.term[0..4]`. Settings/shortcuts editor + the global-shortcut registration live here.
-- **`src/classes/terminal.class.js`** — Dual-role class. **`role:"server"`** spawns `node-pty`, opens a `ws.Server` (with the load-bearing `verifyClient` origin gate at lines ~422-436), tracks CWD via `/proc/<pid>/cwd` on Linux and `lsof -a -d cwd -p <pid>` on macOS (Windows hits "Unsupported OS" and falls back), and tracks the foreground process via `ps -o comm`. **`role:"client"`** mounts `@xterm/xterm` with WebGL + ligatures + fit addons, applies the theme's `colorFilter` chain via the `color` library, and bridges xterm ↔ WebSocket.
-- **IPC channel naming convention:** `terminal_channel-<port>` for renderer↔main TTY messages; `systeminformation-call` / `systeminformation-reply-<nanoid>` for the worker pool; `getThemeOverride` / `setThemeOverride` / `getKbOverride` / `setKbOverride` / `ttyspawn` for live config swaps.
-- **`src/ui.html`** — Plain script tags, no bundler. CSP is permissive: `default-src file: 'unsafe-inline'; connect-src ws: file:`. Order of `<script>` tags matters because classes are registered onto `window`.
-- **Renderer security model:** `nodeIntegration: true`, `contextIsolation: false`, `@electron/remote` enabled. Do not "modernize" this in isolation — the entire renderer would need porting. It's also moot post-Phase-3 since Tauri replaces the model wholesale.
+**File-icons content stays content, not code:** `file-icons-generator.js` (root), the `file-icons/` git submodules, `src/assets/icons/file-icons.json`, and `src/assets/misc/file-icons-match.js` are all preserved. `npm run update-file-icons` regenerates the JSON from the submodules.
 
 ## Build & dev commands
 
-There is no test framework. `npm test` runs `snyk` against a fresh `prebuild-src/`. Manual verification only.
-
 ```bash
-# Install (Linux / Windows have their own scripts because of native rebuilds)
-npm run install-linux              # npm i && cd src && npm i && electron-rebuild -f -w node-pty
-npm run install-windows            # same, Windows paths
+# Run from source (file watcher rebuilds on changes in src-tauri/ only;
+# frontend edits in src/ are picked up by reloading the WKWebView via Cmd+R)
+cargo tauri dev
 
-# macOS has no install script; run the equivalent manually:
-npm install && cd src && npm install && ../node_modules/.bin/electron-rebuild -f -w node-pty
+# Production build → src-tauri/target/aarch64-apple-darwin/release/bundle/
+#   .app and .dmg artifacts
+cargo tauri build --target aarch64-apple-darwin
 
-# Run the app from source
-npm start                          # electron src --nointro
-
-# Prebuild pipeline (rsync src/ → prebuild-src/, minify in-place, then `npm install` inside prebuild-src)
-npm run prebuild-linux             # or prebuild-darwin / prebuild-windows
-npm run build-linux                # or build-darwin / build-windows — electron-builder, output → dist/
-
-# File-icons regeneration (submodule-driven, edits src/assets/icons/file-icons.json + file-icons-match.js)
-npm run init-file-icons            # git submodule update --init
-npm run update-file-icons          # pull submodules + run file-icons-generator.js
+# File-icons regeneration (Node-side tool, uses cson-parser)
+npm run init-file-icons              # git submodule update --init
+npm run update-file-icons            # pull submodules + run file-icons-generator.js
 ```
 
-### Non-obvious gotchas
+There is **no test framework**. Smoke-test changes by running `cargo tauri dev` and exercising the affected feature — terminal I/O, theme swap (Ctrl+Shift+S), keyboard swap, multi-tab spawn (Ctrl+X then 2/3/4/5), filesystem panel navigation, the sysinfo/cpuinfo/ramwatcher/toplist panels.
 
-- **Two `package.json` files.** Root is build orchestration (electron, electron-builder, terser, clean-css). `src/package.json` is the runtime app deps (xterm, node-pty, systeminformation, ws, @electron/remote). Production builds use `prebuild-src/` as the app dir (`build.directories.app`), not `src/`.
-- **`prebuild-minify.js` mutates files in place** inside `prebuild-src/` — never run it against `src/`. It skips `*.json` except `*icons.json`, and skips `file-icons-match.js`.
-- **macOS build target is x64 only** (`build.mac.target.arch: ["x64"]`). Apple Silicon currently runs under Rosetta — fixing this is one motivation for the Tauri migration.
-- **node-pty must be rebuilt against Electron's ABI** after any dep change. If the app crashes on terminal spawn, that's usually it.
-- **Single-instance lock** silently exits the second launch (`app.requestSingleInstanceLock()`). If "the app won't start", check for an existing process.
-- **Settings live in Electron's userData**, not the repo. On macOS: `~/Library/Application Support/eDEX-UI/{settings.json,shortcuts.json,themes/,keyboards/,fonts/}`. Built-in themes/keyboards/fonts are re-mirrored every boot.
-- **No automated tests.** Verify changes by running `npm start` and exercising the affected feature — terminal I/O, theme swap, keyboard swap, multi-tab spawn (Ctrl+X then 2/3/4/5), filesystem panel, system-info graphs.
+## Non-obvious gotchas
+
+- **`cargo tauri dev`'s file watcher only watches `src-tauri/`.** Frontend edits under `src/` don't trigger a rebuild — reload the WKWebView with `Cmd+R` to pick them up. Restart the dev process when you change `tauri.conf.json` or capabilities.
+- **The `module.exports = {...}` line at the bottom of every `src/classes/*.class.js` throws a silent `ReferenceError` in WKWebView** (no Node = no `module`). The class declarations above it already register on the global scope, so this is harmless — leftover from the Electron era. You'll see these errors in devtools and can ignore them.
+- **`generate_context!()` requires an RGBA `src-tauri/icons/icon.png`** even when only `.icns` is configured. If you swap the icon, extract a fresh RGBA PNG (`iconutil -c iconset media/icon.icns -o /tmp/icon.iconset && cp /tmp/icon.iconset/icon_512x512.png src-tauri/icons/icon.png`).
+- **sysinfo crate API drifts between point releases.** Pinned at `0.32` in `Cargo.toml`. `Components/Networks/Disks::refresh()` take no args; `Component::temperature() -> f32` (not Option); `System::physical_core_count(&self)` is an instance method; `NetworkData` has no `mtu()` in 0.32. If you bump the crate, re-check `sysinfo_cmds.rs`.
+- **Capabilities are allow-listed in `src-tauri/capabilities/default.json`.** New `invoke`-side APIs that touch core plugins (window, webview, shell, process, global-shortcut) need their permission added there, or Tauri 2 rejects the call at runtime with no friendly message. `core:window:allow-get-size` was renamed in Tauri 2 → use `allow-inner-size` / `allow-outer-size`.
+- **macOS-only.** All `process.platform === "win32"` branches were removed. Don't reintroduce them — v0.2 may add Windows/Linux targets, and the cross-platform forks belong in Rust commands, not in the WKWebView.
+- **`tauri-cli` lives at `~/.cargo/bin/cargo-tauri`** (install via `cargo install tauri-cli --version "^2.0" --locked`). If `cargo tauri` reports `no such command`, that's a missing install — not a config problem.
+
+## v0.2 backlog
+
+Tracked here so future sessions don't re-discover them.
+
+- **Typing-latency stutter every 2–3 keystrokes** in the terminal. Suspected causes: per-keystroke `audioManager.stdin.play()` blocking the JS thread, per-write base64 decode on the main thread in `terminal.class.js`, or WebGL + ligatures contention. First diagnostic: disable audio (`window.settings.audio = false`) and see whether the stutter goes away.
+- **Kerning artifacts in xterm output** — likely a font-loading race (xterm initialized before the eDEX custom font is ready) or a ligatures-addon interaction. Try `await document.fonts.ready` before `term.open()` in `terminal.class.js`.
+- **`netstat.class.js`** silenced, file retained for porting. Constructor calls `require("https")`/`require("net")` for external-IP + ping; v0.2 wires both through Rust commands.
+- **`si_network_connections` returns `[]`** (placeholder). v0.2 should source from the `netstat2` crate or `lsof`-shellout to populate the globe.
+- **Deleted in v1, restored in v0.2:** `locationGlobe.class.js` (3D globe + geolite2), `conninfo.class.js` (external-IP + connection list), `docReader.class.js` (PDF viewer), `updateChecker.class.js` (GitHub release polling).
+- **`src/assets/vendor/encom-globe.js`** (997 KB) is an orphan now that locationGlobe is gone. Delete it as part of the v0.2 globe rework.
+- **Code signing + notarization** for the production `.app` is unwired. Add to `tauri.conf.json` `bundle.macOS` once you have a Developer ID Application certificate.
+- **Windows + Linux Tauri targets** are out of scope — every `#[cfg]` and shellout in `pty.rs` / `sysinfo_cmds.rs` assumes macOS.
