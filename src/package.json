@@ -1,54 +1,34 @@
 {
-  "name": "edex-ui",
+  "name": "edex-ui-frontend",
   "productName": "eDEX-UI",
-  "version": "2.2.8",
-  "description": "eDEX-UI sci-fi interface",
+  "version": "3.0.0",
+  "description": "eDEX-UI sci-fi interface (Tauri frontend payload).",
   "keywords": [
     "desktop",
     "sci-fi",
     "gui",
-    "portable",
     "tty",
     "terminal"
   ],
-  "main": "_boot.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GitSquared/edex-ui.git"
+    "url": "git+https://github.com/theelderemo/edex-ui-security-patched.git"
   },
   "author": "Gabriel 'Squared' SAILLARD <gabriel@saillard.dev> (https://gaby.dev)",
   "license": "GPL-3.0",
   "bugs": {
-    "url": "https://github.com/GitSquared/edex-ui/issues"
+    "url": "https://github.com/theelderemo/edex-ui-security-patched/issues"
   },
-  "homepage": "https://github.com/GitSquared/edex-ui#readme",
+  "homepage": "https://github.com/theelderemo/edex-ui-security-patched#readme",
+  "comment": "Frontend dependencies are vendored into src/assets/vendor/ at the pinned versions below; this manifest records the source-of-truth versions and is not installed via npm.",
   "dependencies": {
-    "@electron/remote": "^2.1.3",
-    "@xterm/addon-attach": "^0.11.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-ligatures": "^0.9.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
     "augmented-ui": "^2.0.0",
     "color": "^4.2.3",
-    "geolite2-redist": "^3.0.3",
     "howler": "^2.2.4",
-    "maxmind": "^4.3.29",
-    "mime-types": "^2.1.35",
-    "nanoid": "^3.3.8",
-    "node-pty": "^1.0.0",
-    "pdfjs-dist": "^4.9.296",
-    "pretty-bytes": "^5.6.0",
-    "shell-env": "^3.0.1",
-    "signale": "^1.4.0",
-    "smoothie": "^1.36.1",
-    "systeminformation": "^5.27.11",
-    "tail": "^2.2.6",
-    "username": "^5.1.0",
-    "which": "^5.0.0",
-    "ws": "^8.18.3"
-  },
-  "optionalDependencies": {
-    "osx-temperature-sensor": "1.0.7"
+    "smoothie": "^1.36.1"
   }
 }
