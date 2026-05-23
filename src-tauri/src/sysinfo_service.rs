@@ -204,27 +204,8 @@ impl SysinfoService {
         }
 
         state.sys.refresh_memory();
-        let total = state.sys.total_memory();
-        let used = state.sys.used_memory();
-        let free = state.sys.free_memory();
-        let available = state.sys.available_memory();
-        let free_strict = total.saturating_sub(used);
 
-        Ok(MemStats {
-            total,
-            free: free_strict,
-            used,
-            active: used,
-            available: available.max(free),
-            buffers: 0,
-            cached: 0,
-            slab: 0,
-            buffcache: 0,
-            swaptotal: state.sys.total_swap(),
-            swapused: state.sys.used_swap(),
-            swapfree: state.sys.free_swap(),
-        })
-        .inspect(|mem| state.mem.store(mem.clone(), now))
+        Ok(mem_stats_from_system(&state.sys)).inspect(|mem| state.mem.store(mem.clone(), now))
     }
 
     pub fn battery(&self) -> Result<BatteryInfo, String> {
