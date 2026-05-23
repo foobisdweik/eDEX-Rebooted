@@ -233,39 +233,35 @@ pub async fn si_mem(state: State<'_, SysinfoState>) -> Result<Value, String> {
 #[tauri::command]
 pub async fn si_battery() -> Result<Value, String> {
     blocking_sysinfo(|| {
-        match battery::Manager::new() {
-            Ok(manager) => match manager.batteries() {
-                Ok(mut iter) => {
-                    if let Some(Ok(bat)) = iter.next() {
-                        let percent = (bat.state_of_charge().value * 100.0).round() as i64;
-                        let state = bat.state();
-                        let charging = matches!(state, battery::State::Charging);
-                        let ac = matches!(
-                            state,
-                            battery::State::Charging | battery::State::Full | battery::State::Unknown
-                        );
-                        return Ok(json!({
-                            "hasBattery": true,
-                            "cycleCount": bat.cycle_count().unwrap_or(0),
-                            "isCharging": charging,
-                            "designedCapacity": bat.energy_full_design().value as f64,
-                            "maxCapacity": bat.energy_full().value as f64,
-                            "currentCapacity": bat.energy().value as f64,
-                            "voltage": bat.voltage().value as f64,
-                            "capacityUnit": "Wh",
-                            "percent": percent,
-                            "timeRemaining": bat.time_to_empty().map(|t| t.value as i64).unwrap_or(-1),
-                            "acConnected": ac,
-                            "type": "Battery",
-                            "model": bat.model().unwrap_or("").to_string(),
-                            "manufacturer": bat.vendor().unwrap_or("").to_string(),
-                            "serial": bat.serial_number().unwrap_or("").to_string()
-                        }));
-                    }
+        if let Ok(manager) = battery::Manager::new() {
+            if let Ok(mut iter) = manager.batteries() {
+                if let Some(Ok(bat)) = iter.next() {
+                    let percent = (bat.state_of_charge().value * 100.0).round() as i64;
+                    let state = bat.state();
+                    let charging = matches!(state, battery::State::Charging);
+                    let ac = matches!(
+                        state,
+                        battery::State::Charging | battery::State::Full | battery::State::Unknown
+                    );
+                    return Ok(json!({
+                        "hasBattery": true,
+                        "cycleCount": bat.cycle_count().unwrap_or(0),
+                        "isCharging": charging,
+                        "designedCapacity": bat.energy_full_design().value as f64,
+                        "maxCapacity": bat.energy_full().value as f64,
+                        "currentCapacity": bat.energy().value as f64,
+                        "voltage": bat.voltage().value as f64,
+                        "capacityUnit": "Wh",
+                        "percent": percent,
+                        "timeRemaining": bat.time_to_empty().map(|t| t.value as i64).unwrap_or(-1),
+                        "acConnected": ac,
+                        "type": "Battery",
+                        "model": bat.model().unwrap_or("").to_string(),
+                        "manufacturer": bat.vendor().unwrap_or("").to_string(),
+                        "serial": bat.serial_number().unwrap_or("").to_string()
+                    }));
                 }
-                Err(_) => {}
-            },
-            Err(_) => {}
+            }
         }
         Ok(json!({
             "hasBattery": false,

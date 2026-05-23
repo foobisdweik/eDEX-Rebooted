@@ -17,7 +17,7 @@ pub fn run() {
         .manage(OverrideState::default())
         .manage(SysinfoState::new())
         .setup(|app| {
-            settings::ensure_userdata(&app.handle())?;
+            settings::ensure_userdata(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
