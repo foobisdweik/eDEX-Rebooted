@@ -1,8 +1,8 @@
 // Tauri/Rust port of the eDEX-UI terminal client. The legacy file had a dual
 // role:"client" / role:"server" implementation tied to node-pty + ws.Server.
 // Under Tauri, PTY lifecycle is owned by src-tauri/src/pty.rs and the JS side
-// only acts as a client: invoke() to spawn/write/resize/kill, and event listen
-// for the data stream emitted on the `pty://{id}/data` channel.
+// only acts as a client: invoke() to spawn/write/resize/kill, a Tauri Channel
+// for raw PTY output bytes, and an event listen for `pty://{id}/exit`.
 //
 // Dependencies:
 //   - window.__XTERM__          : xterm.Terminal constructor
@@ -20,7 +20,7 @@ class Terminal {
         }
         if (!opts.parentId) throw "Missing options";
 
-        const { invoke } = window.__TAURI__.core;
+        const { invoke, Channel } = window.__TAURI__.core;
         const { listen } = window.__TAURI__.event;
 
         const XTerm = window.__XTERM__;
@@ -97,7 +97,7 @@ class Terminal {
         this.ptyId = null;
         this.lastSoundFX = Date.now();
         this.lastRefit = Date.now();
-        this._unlistenData = null;
+        this._onDataChannel = null;
         this._unlistenExit = null;
         this._lastProc = null;
         this._disposed = false;
@@ -121,6 +121,22 @@ class Terminal {
                 TERM_PROGRAM_VERSION: window.appVersion || ""
             }, window.settings.env || {});
 
+            const onData = new Channel();
+            onData.onmessage = chunk => {
+                const now = Date.now();
+                if (now - this.lastSoundFX > 30) {
+                    if (window.passwordMode == "false") window.audioManager.stdout.play();
+                    this.lastSoundFX = now;
+                }
+                if (now - this.lastRefit > 10000) this.fit();
+                if (chunk instanceof Uint8Array) {
+                    this.term.write(chunk);
+                } else if (typeof chunk === "string") {
+                    this.term.write(chunk);
+                }
+            };
+            this._onDataChannel = onData;
+
             const id = await invoke("pty_spawn", {
                 opts: {
                     shell: opts.shell || window.__SHELL_BIN__ || "/bin/zsh",
@@ -129,19 +145,10 @@ class Terminal {
                     env,
                     cols: this.term.cols,
                     rows: this.term.rows
-                }
+                },
+                onData
             });
             this.ptyId = id;
-
-            this._unlistenData = await listen(`pty://${id}/data`, e => {
-                const now = Date.now();
-                if (now - this.lastSoundFX > 30) {
-                    if (window.passwordMode == "false") window.audioManager.stdout.play();
-                    this.lastSoundFX = now;
-                }
-                if (now - this.lastRefit > 10000) this.fit();
-                this.term.write(atob(e.payload));
-            });
 
             this._unlistenExit = await listen(`pty://${id}/exit`, () => {
                 if (this.onclose) this.onclose();
@@ -290,7 +297,7 @@ class Terminal {
 
         this.close = async () => {
             if (this._poll) { clearInterval(this._poll); this._poll = null; }
-            if (this._unlistenData) { this._unlistenData(); this._unlistenData = null; }
+            this._onDataChannel = null;
             if (this._unlistenExit) { this._unlistenExit(); this._unlistenExit = null; }
             if (this.ptyId !== null) {
                 try { await invoke("pty_kill", { id: this.ptyId }); } catch (_) {}
