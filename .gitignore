@@ -39,6 +39,13 @@ jspm_packages
 # JetBrains IDE project folder (e.g. WebStorm)
 .idea
 
+# AI / agent assistant scratch space (per-user, not part of the project)
+.claude/
+.codex/
+.cursor/
+.gemini/
+.DS_Store
+
 dist
 prebuild-src
 src/node_modules

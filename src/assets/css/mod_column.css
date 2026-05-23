@@ -58,3 +58,22 @@ section#mod_column_right {
 section#mod_column_right > h3.title {
     right: 0.555vh;
 }
+
+/* Slice 1 native-mount seam.
+
+   Toggled by Slice 1b once a sibling NSView/CAMetalLayer for the
+   native gpui panel column is inserted into the Tauri NSWindow and
+   sized from #mod_column_left's bounding rect.
+
+   Inactive in Slice 1: nothing toggles `body.native-left-active`,
+   so JS panels render unchanged. Removing or renaming
+   #mod_column_left will break Slice 1b's geometry source; do not
+   touch until Slice 1c retires it.
+
+   Specificity (1,1,1) beats this file's `section#mod_column_left`
+   rule at (1,0,1) and unprefixed selectors in extra_ratios.css.
+*/
+body.native-left-active #mod_column_left {
+    visibility: hidden;
+    pointer-events: none;
+}
