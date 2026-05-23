@@ -75,3 +75,31 @@ There is **no test framework**. Smoke-test changes by running `cargo tauri dev` 
 - **Capabilities are allow-listed in `src-tauri/capabilities/default.json`.** New `invoke`-side APIs that touch core plugins (window, webview, shell, process, global-shortcut) need their permission added there, or Tauri 2 rejects the call at runtime with no friendly message. `core:window:allow-get-size` was renamed in Tauri 2 → use `allow-inner-size` / `allow-outer-size`.
 - **macOS-only.** All `process.platform === "win32"` branches were removed. Don't reintroduce them — v0.2 may add Windows/Linux targets, and the cross-platform forks belong in Rust commands, not in the WKWebView.
 - **`tauri-cli` lives at `~/.cargo/bin/cargo-tauri`** (install via `cargo install tauri-cli --version "^2.0" --locked`). If `cargo tauri` reports `no such command`, that's a missing install — not a config problem.
+
+## Cursor Cloud specific instructions
+
+This is a **macOS-only** Tauri 2 desktop app. The Cloud Agent VM runs Linux (x86_64), so full compilation (`cargo check`, `cargo clippy`, `cargo test`, `cargo build`, `cargo tauri dev`) is **not possible** — the crate unconditionally depends on macOS frameworks (`cocoa`, `objc`, `core-graphics`, `core-foundation`, `dispatch`) and the `macos-private-api` Tauri feature.
+
+### What works on Linux (Cloud Agent)
+
+| Check | Command | Notes |
+|-------|---------|-------|
+| Rust formatting | `cargo fmt --check` (in `src-tauri/`) | Does not compile — just checks syntax/style |
+| JS unit tests | `find src -name '*.test.js' -print0 \| xargs -0 node --test` | 30 tests covering bridge, sysinfo proxy, terminal tabs |
+| npm deps | `npm install` (root) | Only `cson-parser` for file-icons generator |
+
+### What does NOT work on Linux
+
+- `cargo check` / `cargo clippy` — fails at `core-graphics-types` (`link(kind = "framework")` is Apple-only)
+- `cargo test` — same compilation failure; the `sysinfo_contract.rs` integration test imports `edex_ui_lib` which pulls in the macOS crates
+- `cargo tauri dev` / `cargo tauri build` — requires macOS + GUI
+
+### Workflow for code changes
+
+1. **Rust backend changes:** Run `cargo fmt --check` to validate formatting. Rely on CI (macOS runners) for clippy/test/build verification.
+2. **Frontend JS changes:** Run the JS test suite locally. Reload changes in the running app with Cmd+R (macOS dev only).
+3. **Both:** Push to a PR branch and let CI run the full matrix (`rust-fmt`, `rust-clippy`, `rust-test`, `js-tests`, `tauri-build`) on macOS.
+
+### System packages pre-installed
+
+GTK3 and WebKit2GTK dev headers are installed (`libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, etc.) to allow partial Cargo dependency resolution. These do not enable full compilation but prevent early `pkg-config` failures during dependency downloads.
