@@ -66,6 +66,17 @@
             delete window.module;
         </script>
 
+        <!-- Bridge layer. These run before any class is defined so that
+             classes (and future native callers) can read state, send
+             audio cues, subscribe to events, and reach sysinfo through
+             one stable surface. The terminal slice (last of the
+             post-web-runtime port) flips these from JS-global shims
+             into FFI calls without consumers changing. -->
+        <script src="bridge/state.js"></script>
+        <script src="bridge/audio.js"></script>
+        <script src="bridge/events.js"></script>
+        <script src="bridge/sysinfo.js"></script>
+
         <!-- Main classes. UpdateChecker / LocationGlobe / Conninfo / DocReader /
              Netstat are deferred to v0.2 of the Tauri port and not loaded.
              Netstat's constructor still calls `require("https")`/`require("net")`
