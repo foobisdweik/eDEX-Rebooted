@@ -848,22 +848,17 @@ fn process_list_from_rows(list: Vec<ProcessRow>) -> ProcessList {
     }
 }
 
-/// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
-fn collapse_process_rows_by_name(rows: Vec<ProcessRow>) -> Vec<ProcessRow> {
-    let mut collapsed: HashMap<String, ProcessRow> = HashMap::new();
+/// Group rows by `name`; on collision, callers merge via `merge` (typically sum cpu/mem, lowest pid wins).
+fn collapse_named_rows<T>(
+    rows: Vec<T>,
+    name_key: impl Fn(&T) -> String,
+    mut merge: impl FnMut(&mut T, T),
+) -> Vec<T> {
+    let mut collapsed: HashMap<String, T> = HashMap::new();
     for row in rows {
-        match collapsed.entry(row.name.clone()) {
+        match collapsed.entry(name_key(&row)) {
             Entry::Occupied(mut slot) => {
-                let slot = slot.get_mut();
-                if slot.pid > row.pid {
-                    slot.pid = row.pid;
-                    slot.started = row.started.clone();
-                    slot.state = row.state.clone();
-                    slot.user = row.user.clone();
-                    slot.command = row.command.clone();
-                }
-                slot.cpu += row.cpu;
-                slot.mem += row.mem;
+                merge(slot.get_mut(), row);
             }
             Entry::Vacant(slot) => {
                 slot.insert(row);
@@ -874,24 +869,37 @@ fn collapse_process_rows_by_name(rows: Vec<ProcessRow>) -> Vec<ProcessRow> {
 }
 
 /// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
+fn collapse_process_rows_by_name(rows: Vec<ProcessRow>) -> Vec<ProcessRow> {
+    collapse_named_rows(
+        rows,
+        |row| row.name.clone(),
+        |slot, row| {
+            if slot.pid > row.pid {
+                slot.pid = row.pid;
+                slot.started = row.started.clone();
+                slot.state = row.state.clone();
+                slot.user = row.user.clone();
+                slot.command = row.command.clone();
+            }
+            slot.cpu += row.cpu;
+            slot.mem += row.mem;
+        },
+    )
+}
+
+/// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
 fn collapse_top_rows_by_name(rows: Vec<ProcessTopRow>) -> Vec<ProcessTopRow> {
-    let mut collapsed: HashMap<String, ProcessTopRow> = HashMap::new();
-    for row in rows {
-        match collapsed.entry(row.name.clone()) {
-            Entry::Occupied(mut slot) => {
-                let slot = slot.get_mut();
-                if slot.pid > row.pid {
-                    slot.pid = row.pid;
-                }
-                slot.cpu += row.cpu;
-                slot.mem += row.mem;
+    collapse_named_rows(
+        rows,
+        |row| row.name.clone(),
+        |slot, row| {
+            if slot.pid > row.pid {
+                slot.pid = row.pid;
             }
-            Entry::Vacant(slot) => {
-                slot.insert(row);
-            }
-        }
-    }
-    collapsed.into_values().collect()
+            slot.cpu += row.cpu;
+            slot.mem += row.mem;
+        },
+    )
 }
 
 fn chrono_like_iso(unix_secs: u64) -> String {
