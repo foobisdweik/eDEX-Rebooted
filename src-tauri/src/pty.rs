@@ -157,7 +157,9 @@ pub fn pty_resize(
 #[tauri::command]
 pub fn pty_kill(state: State<'_, PtyManager>, id: u32) -> Result<(), String> {
     let mut map = state.inner.lock().unwrap();
-    map.remove(&id);
+    if let Some(mut handle) = map.remove(&id) {
+        let _ = handle._child.kill();
+    }
     Ok(())
 }
 

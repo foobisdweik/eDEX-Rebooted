@@ -1,144 +1,860 @@
-# eDEX-UI → Tauri/Rust migration (time-optimized)
+# Multiple Terminal Tabs Implementation Plan
 
-## Context
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-The repo is the security-patched eDEX-UI fork on Electron 37 / Node 20 / `@xterm/*` 5.5.0. The destination is a native `aarch64-apple-darwin` Tauri + Rust app — the Electron model is being replaced wholesale, and the macOS x64-under-Rosetta build is the catalyst.
+**Goal:** Implement reliable multiple terminal tabs in the Tauri eDEX-UI build, preserving the existing Ctrl+X then 1-5 shortcut model while giving each tab an independent PTY, lifecycle, title, focus state, and filesystem tracking.
 
-The original draft (Phases 1–4, summarized in `CLAUDE.md`) is structurally correct but pays a large time tax in two places:
+**Architecture:** Keep the existing Rust PTY manager because it already supports multiple PTY ids. Move the renderer's ad hoc tab logic out of `renderer.js` into a dedicated `TerminalTabs` frontend controller that owns slot state, DOM activation, tab spawning, tab closing, focus, next/previous navigation, and compatibility with existing classes that still read `window.term[window.currentTerm]`.
 
-1. **It deletes the Node-using visual classes** (`sysinfo`, `cpuinfo`, `ramwatcher`, `netstat`, `toplist`, `conninfo`, `hardwareInspector`, `filesystem`) and tells us to re-implement what they did. But the only Node coupling in those files is `window.si.<method>()` and a handful of `fs`/`shell.openPath` calls. `window.si` is already a Proxy (`src/_renderer.js:178`) — a clean RPC seam. Swapping its backend is hours of work; rewriting the modules is weeks.
-2. **It sequences Phase 2 (destructive deletes) before Phase 3 (Tauri scaffold)**, requiring "confirm before deletion" gates and a "keep Electron working" ground rule. We instead scaffold Tauri on a fresh branch, build the new app to feature-parity beside the old code, then delete in one final commit once parity is verified. No dual-build maintenance burden, no destructive intermediate state.
+**Tech Stack:** Tauri 2, Rust `portable-pty`, xterm.js UMD bundles, plain browser JavaScript, existing CSS in `src/assets/css/main_shell.css`.
 
-Net effect: fewer rewrites, no parallel-build tax, narrower v1 scope (defer globe/docReader/updateChecker/conninfo to v0.2). Single-target (Apple Silicon, macOS only) lets us delete all `process.platform === "win32"` / Linux conditionals as we touch each file.
+---
 
-## Shape of the change
+## Planning Consolidation
 
+All active implementation planning for terminal tabs lives in this file. `CLAUDE.md` is repository guidance only and should link here instead of duplicating backlog or implementation planning.
+
+## Deferred Follow-Up
+
+Mouse-based cursor relocation is explicitly deferred until after the managed tabs refactor lands. The follow-up should use shell-integration markers, not direct xterm cursor mutation: valid left-clicks inside the active editable prompt region should translate into normal keyboard navigation escape sequences, while drag selections, alternate-screen apps, mouse-reporting programs, and unreachable output regions should be ignored.
+
+## Current State
+
+The app already renders five tab labels and five `<pre id="terminalN">` containers from `src/renderer.js`, and `src-tauri/src/pty.rs` already allocates one PTY id per `pty_spawn` call. The weak part is the renderer lifecycle:
+
+- Tab state is a sparse `window.term` object with implicit states: missing, `null`, or `Terminal`.
+- Focus, spawn, process-title updates, filesystem following, and close cleanup are mixed into `window.focusShellTab`.
+- `NEXT_TAB` and `PREVIOUS_TAB` only walk a few hard-coded offsets.
+- Closing a spawned shell depends on `onclose` cleanup in the same function that created it.
+- CSS positions inactive terminals with negative `top` offsets instead of stable absolute stacking.
+
+The implementation should not rewrite `Terminal` or the PTY manager from scratch. It should make tab ownership explicit and then adjust the few compatibility callers.
+
+## File Structure
+
+**Create**
+
+- `src/classes/terminalTabs.class.js` - owns tab slots and exposes `open`, `focus`, `close`, `next`, `previous`, `active`, `writeActive`, `writelrActive`, and `syncGlobals`.
+
+**Modify**
+
+- `src/ui.html` - load `classes/terminalTabs.class.js` after `terminal.class.js`.
+- `src/renderer.js` - replace inline shell tab markup/state/focus code with `TerminalTabs`.
+- `src/assets/css/main_shell.css` - make terminal panes stable stacked layers and add deterministic tab label behavior.
+- `src/classes/terminal.class.js` - add an idempotent `dispose` method that wraps `close`, xterm disposal, and DOM cleanup.
+- `src-tauri/src/pty.rs` - make `pty_kill` explicitly kill the child process before removing the handle.
+- `src/classes/filesystem.class.js`, `src/classes/keyboard.class.js`, `src/classes/fuzzyFinder.class.js`, `src/classes/toplist.class.js` - keep compatibility through `window.term`/`window.currentTerm`; only touch these if runtime testing proves a direct active-terminal helper is needed.
+- `README.md`, `CHANGELOG.md`, `CLAUDE.md` - document the final behavior after implementation.
+
+---
+
+### Task 1: Baseline Checks
+
+**Files:**
+- Read: `src/renderer.js`
+- Read: `src/classes/terminal.class.js`
+- Read: `src-tauri/src/pty.rs`
+
+- [ ] **Step 1: Confirm the renderer parses before edits**
+
+Run:
+
+```bash
+node --check src/renderer.js
 ```
-BEFORE (current)                          AFTER (target)
-─────────────────                         ─────────────
-_boot.js (Electron main)                  src-tauri/src/main.rs
-  ├─ Terminal({role:"server"})              ├─ #[command] pty_spawn/write/resize/kill
-  │   ├─ node-pty.spawn                     │     (portable-pty + tokio task per pty)
-  │   └─ ws.Server (verifyClient)           │     emits  pty://{id}/data  events
-  ├─ _multithread.js                        ├─ #[command] si_* (one per window.si call)
-  │   └─ cluster worker pool x 7            │     (sysinfo crate — single-threaded is fine)
-  │       └─ systeminformation              ├─ #[command] fs_readdir/readfile/exists
-  ├─ ipc: ttyspawn, theme/kb override       ├─ #[command] get/set_theme_override, kb_override
-  └─ userData mirror of assets              └─ asset mirror on setup() (dirs::data_dir)
-                  ↕ ipcRenderer/Main                       ↕ invoke() + listen()
-ui.html + _renderer.js (Electron renderer)  ui.html + renderer.js (WKWebView)
-  ├─ window.term[0..4] (xterm+WebSocket)     ├─ window.term[0..4] (xterm + Tauri events)  ← thin patch
-  ├─ window.si Proxy → ipc → workers         ├─ window.si Proxy → invoke()                 ← shim swap
-  ├─ window.mods.* (visual modules)          ├─ window.mods.* — UNCHANGED                  ← biggest savings
-  └─ FilesystemDisplay (Node fs)             └─ FilesystemDisplay (fs_* invokes)           ← ~10 line patch
+
+Expected: exit code 0 and no syntax errors.
+
+- [ ] **Step 2: Confirm the terminal class parses before edits**
+
+Run:
+
+```bash
+node --check src/classes/terminal.class.js
 ```
 
-The `window.si` Proxy stays. The visual modules don't know whether their data comes from Electron IPC or Tauri invoke. That's the load-bearing simplification.
+Expected: exit code 0 and no syntax errors.
 
-## Execution order
+- [ ] **Step 3: Confirm the Rust backend checks before edits**
 
-All work happens on a new branch `tauri-migration`. The `main` branch keeps the Electron build untouched as a safety net until the final delete commit.
+Run:
 
-### Step 1 — Tauri scaffold (in repo root, alongside `src/`)
+```bash
+cargo +stable check
+```
 
-- `cargo tauri init` → creates `src-tauri/`. Point `tauri.conf.json` `frontendDist` at `src/` (so existing `ui.html` and `assets/` are served unmodified). Set `productName: "eDEX-UI"`, `identifier: "dev.edex.ui"`, window `width/height` matching primary display + `fullscreen: true`, `decorations: false`.
-- `src-tauri/Cargo.toml` deps: `tauri = { version = "2", features = ["macos-private-api"] }`, `portable-pty = "0.8"`, `sysinfo = "0.32"`, `battery = "0.7"` (sysinfo has no battery on macOS), `tokio = { version = "1", features = ["full"] }`, `serde`, `serde_json`, `dirs = "5"`, `tauri-plugin-shell = "2"` (for `shell.openPath` parity).
-- Target only `aarch64-apple-darwin` — no Windows/Linux build config.
+Expected: `Finished dev profile` with no Rust compile errors.
 
-### Step 2 — Rust commands (`src-tauri/src/`)
+- [ ] **Step 4: Commit only if the baseline needed cleanup**
 
-Layout: `main.rs` + `pty.rs` + `sysinfo_cmds.rs` + `fs_cmds.rs` + `settings.rs`.
+If the baseline required no changes, skip this step. If cleanup was required, commit only the cleanup files:
 
-- **`pty.rs`** — `PtyManager` holds `HashMap<u32, PtyHandle>` behind a `Mutex`. Commands:
-  - `pty_spawn(shell, args, cwd, env, cols, rows) -> u32` (returns id); spawns `portable-pty::native_pty_system()`, takes `master.try_clone_reader()` into a `tokio::spawn` task that reads and `app_handle.emit_to(window, &format!("pty://{id}/data"), bytes_as_b64)`.
-  - `pty_write(id, data)`, `pty_resize(id, cols, rows)`, `pty_kill(id)`.
-  - `pty_cwd(id) -> Option<String>` via `lsof -a -d cwd -p <pid>` (existing logic, lifted from `terminal.class.js:332`); `pty_process(id) -> Option<String>` via `ps -o comm -p <pid>`. macOS-only — no OS switch.
-  - Replaces `terminal.class.js` role:"server" block entirely; the `verifyClient` origin gate is gone because there is no WebSocket — invoke is process-local.
-- **`sysinfo_cmds.rs`** — one `#[command]` per `window.si.<x>()` call site (see grep results: `cpu`, `currentLoad`, `cpuTemperature`, `processes`, `mem`, `battery`, `networkInterfaces`, `networkStats`, `fsSize`, `blockDevices`, `system`, `chassis`). Each returns a `serde_json::Value` matching the shape `systeminformation` returned — these are tiny adapter functions:
-  - `cpu` → `System::cpus()[0].brand()` + cores count → `{manufacturer, brand, cores, speed, speedMax}`.
-  - `currentLoad` → `sys.refresh_cpu(); { cpus: cpus.iter().map(|c| {load: c.cpu_usage()}) }`.
-  - `cpuTemperature` → `Components::new_with_refreshed_list()` → max temp.
-  - `mem` → `sys.refresh_memory(); {total, free, used, active, available}`.
-  - `processes` → `sys.refresh_processes(); {all: processes.len(), list: [{pid, name, cpu, mem}]}`.
-  - `battery` → `battery::Manager` → `{hasBattery, isCharging, acConnected, percent}`.
-  - `networkInterfaces` / `networkStats` → `sys.networks()` rx/tx deltas; cache previous tick.
-  - `blockDevices` / `fsSize` → `sys.disks()` → mount/label/total/used.
-  - `system` / `chassis` → `System::name()/os_version()/host_name()/kernel_version()`.
-  - **Defer:** `networkConnections` (globe-only) — return `[]` for v1.
-- **`fs_cmds.rs`** — `fs_readdir(path) -> Vec<{name, type, size, hidden}>`, `fs_stat(path)`, `fs_readfile(path) -> String`, `fs_writefile(path, content)`, `fs_open_external(path)` (shells out to `open`). Replaces direct Node `fs.*` calls in `filesystem.class.js`.
-- **`settings.rs`** — port `_boot.js:46-167`: paths via `dirs::data_dir().join("eDEX-UI")`, mirror `src/assets/{themes,kb_layouts,fonts}/*` into userData on `setup()`, write defaults for `settings.json`/`shortcuts.json`/`lastWindowState.json`. Theme/kb override state stays in a `Mutex<Option<String>>` in `App::manage()`. Commands: `get_settings`, `get_shortcuts`, `get_theme_override`, `set_theme_override`, `get_kb_override`, `set_kb_override`, `write_settings`, `write_window_state`.
+```bash
+git add src/renderer.js src/classes/terminal.class.js src-tauri/src/pty.rs
+git commit -m "chore: restore terminal tab baseline"
+```
 
-### Step 3 — Frontend rewire (in `src/`)
+Expected: a small commit with no `.claude`, `.codex`, `.cursor`, or `.gemini` skill-directory changes.
 
-This is the only place we modify existing JS. Create `src/renderer.js` as the replacement for `_renderer.js`.
+---
 
-- **`src/renderer.js`** — copy `_renderer.js` verbatim, then surgically swap:
-  - Replace `const electron = require("electron"); const remote = require("@electron/remote"); const ipc = electron.ipcRenderer;` with `const { invoke } = window.__TAURI__.core; const { listen, emit } = window.__TAURI__.event;`.
-  - `remote.app.getPath("userData")` → injected by `settings.rs::get_settings` into a `window.__USER_DATA__` global at boot.
-  - `ipc.send("getThemeOverride")` / `ipc.once(...)` → `await invoke("get_theme_override")`.
-  - `electron.remote.getCurrentWindow()` / `setFullScreen` → `window.__TAURI__.window.getCurrentWindow()` + `setFullscreen`.
-  - `globalShortcut.register(...)` → `tauri-plugin-global-shortcut` (already a Tauri plugin); same shortcut strings work.
-  - `electron.remote.app.relaunch()/quit()` → `process.relaunch()/exit()` from `@tauri-apps/plugin-process`.
-  - Strip `initSystemInformationProxy()` ipc round-trip; replace with simpler shim (see next bullet).
-- **`window.si` shim** — replaces the `nanoid`/`ipc.once` round-trip in `_renderer.js:178-201`:
-  ```js
-  window.si = new Proxy({}, {
-    get: (_, prop) => (...args) => invoke(`si_${prop}`, { args })
-  });
-  ```
-  Rust side names commands `si_cpu`, `si_current_load`, etc. (camelCase → snake_case mapping done in the shim). All `cpuinfo.class.js`, `ramwatcher.class.js`, `sysinfo.class.js`, `toplist.class.js`, `hardwareInspector.class.js`, `netstat.class.js` keep working unchanged.
-- **`terminal.class.js`** — keep the entire `role: "client"` block. Two surgical edits in the client branch:
-  - Replace `this.socket = new WebSocket(...)` + `AttachAddon(this.socket)` with: `await invoke("pty_spawn", {...}); this.term.onData(d => invoke("pty_write", {id, data: d})); listen(\`pty://${id}/data\`, e => this.term.write(atob(e.payload)));`.
-  - Replace `this.Ipc.send("terminal_channel-…")` resize/CWD plumbing with direct `invoke("pty_resize"/"pty_cwd"/"pty_process")` calls; CWD/process tracking happens on a `setInterval` in the client (same cadence as `terminal.class.js:366` server tick).
-  - Delete the entire `role: "server"` branch (lines 302–488). The `verifyClient` block goes with it — its replacement is the absence of a network socket.
-- **`filesystem.class.js`** — replace `require("fs")` with `fs_*` invokes (lines 5, 11–12 still load JSON content directly from the bundle via fetch instead). Replace `electron.shell.openPath(...)` + `electronWin.minimize()` (lines 312–313) with `invoke("fs_open_external", { path })`.
-- **`updateChecker.class.js`** — uses `https.get` and `@electron/remote`. Drop from v1 (comment out the `new UpdateChecker()` in `renderer.js`).
-- **`locationGlobe.class.js`, `conninfo.class.js`** — depend on `networkConnections` + geolite2. Drop from v1 (comment out the `<script>` tags in `ui.html` and the `window.mods.globe`/`conninfo` instantiations).
-- **`docReader.class.js`** + `pdfjs-dist` — drop from v1 (remove `<script src="node_modules/pdfjs-dist/...">` from `ui.html`).
-- **`ui.html`** — remove the `node_modules/` `<script>` tag for `pdf.js`, the `node_modules/augmented-ui/augmented.css` link is replaced by copying `augmented.css` into `assets/css/` (since `node_modules` won't exist at runtime). Replace `<script src="_renderer.js">` with `<script src="renderer.js">`. CSP unchanged (Tauri injects its own).
+### Task 2: Add TerminalTabs Controller
 
-### Step 4 — Build & flip
+**Files:**
+- Create: `src/classes/terminalTabs.class.js`
 
-- `cargo tauri dev` from repo root → runs the app. Verify: terminal I/O, theme swap, kb swap, multi-tab spawn (Ctrl+X then 2–5), filesystem panel, sysinfo/cpuinfo/ramwatcher/toplist graphs, battery indicator.
-- `cargo tauri build --target aarch64-apple-darwin` → produces `.app` and `.dmg` in `src-tauri/target/aarch64-apple-darwin/release/bundle/`.
-- Once verified working: single delete commit removes `src/_boot.js`, `src/_multithread.js`, `src/_renderer.js`, `src/classes/{docReader,locationGlobe,conninfo,updateChecker}.class.js`, the `geolite2-redist`/`maxmind`/`pdfjs-dist`/`howler`-keep/`@electron/remote`/`@xterm/addon-attach`/`electron`/`electron-builder`/`electron-rebuild`/`node-pty`/`ws`/`systeminformation`/`signale`/`shell-env`/`which`/`username`/`@electron/remote` from both `package.json` files (keep `@xterm/*`, `color`, `mime-types`, `smoothie`, `augmented-ui`, `howler`, `nanoid`, `pretty-bytes`). Delete `prebuild-minify.js`, both `package-lock.json`s, and the `prebuild-*`/`build-*` npm scripts.
-- File-icons content is kept: `file-icons-generator.js`, `file-icons/` submodules, `src/assets/icons/file-icons.json`, `src/assets/misc/file-icons-match.js`.
+- [ ] **Step 1: Create the controller file**
 
-### Step 5 — Update `CLAUDE.md`
+Add `src/classes/terminalTabs.class.js` with this complete implementation:
 
-Replace the "Migration phases" and "Current Electron architecture" sections with the post-migration architecture and the `cargo tauri dev` / `cargo tauri build` commands. Note v0.2 backlog (globe, docReader, updateChecker, conninfo, Windows/Linux targets).
+```javascript
+class TerminalTabs {
+    constructor(opts) {
+        if (!opts || !opts.containerId) throw new Error("Missing terminal tabs container");
+        if (!opts.shell) throw new Error("Missing shell binary");
 
-## Files modified vs untouched
+        this.container = document.getElementById(opts.containerId);
+        if (!this.container) throw new Error(`Terminal tabs container not found: ${opts.containerId}`);
 
-**Modified (frontend):** `src/ui.html`, `src/classes/terminal.class.js`, `src/classes/filesystem.class.js`. New: `src/renderer.js`.
+        this.shell = opts.shell;
+        this.shellArgs = opts.shellArgs || [];
+        this.defaultCwd = opts.defaultCwd || "/";
+        this.maxTabs = opts.maxTabs || 5;
+        this.onActiveCwdChange = opts.onActiveCwdChange || (() => {});
+        this.onActiveProcessChange = opts.onActiveProcessChange || (() => {});
+        this.onFocus = opts.onFocus || (() => {});
+        this.slots = new Array(this.maxTabs).fill(null);
+        this.activeIndex = 0;
+    }
 
-**Untouched (frontend, but require `window.si` shim working):** `src/classes/{sysinfo,cpuinfo,ramwatcher,toplist,netstat,hardwareInspector,clock,fuzzyFinder,modal,mediaPlayer,audiofx,keyboard}.class.js`, all of `src/assets/`.
+    mount() {
+        const tabs = [];
+        const panes = [];
+        for (let index = 0; index < this.maxTabs; index++) {
+            tabs.push(`<li id="shell_tab${index}" data-tab-index="${index}" class="${index === 0 ? "active" : ""}"><p>${index === 0 ? "MAIN SHELL" : "EMPTY"}</p></li>`);
+            panes.push(`<pre id="terminal${index}" class="${index === 0 ? "active" : ""}"></pre>`);
+        }
 
-**New (Rust):** `src-tauri/` tree as described.
+        this.container.innerHTML += `
+            <ul id="main_shell_tabs">${tabs.join("")}</ul>
+            <div id="main_shell_innercontainer">${panes.join("")}</div>`;
 
-**Deleted (final commit only):** `src/_boot.js`, `src/_multithread.js`, `src/_renderer.js`, four `.class.js` files listed in Step 4, root `package.json` Electron build scripts, `prebuild-minify.js`.
+        document.querySelectorAll("#main_shell_tabs > li").forEach(node => {
+            node.addEventListener("click", () => {
+                this.openOrFocus(Number(node.dataset.tabIndex)).catch(e => console.error("tab focus failed:", e));
+            });
+        });
+    }
 
-## Verification
+    syncGlobals() {
+        window.term = this.slots;
+        window.currentTerm = this.activeIndex;
+    }
 
-There is no test framework — the project relies on manual verification (per `CLAUDE.md`'s "No automated tests" note). Smoke-test checklist after `cargo tauri dev`:
+    active() {
+        return this.slots[this.activeIndex];
+    }
 
-1. App launches fullscreen, boot intro plays, drops into terminal.
-2. Type in main shell — characters echo, prompt rendered with theme colors.
-3. `Ctrl+X` then `2`/`3`/`4`/`5` — extra tabs spawn, each gets its own PTY.
-4. `Ctrl+Shift+S` → settings modal → change theme → reload → new theme applied.
-5. `Ctrl+Shift+K` → shortcuts modal renders.
-6. Filesystem panel updates when shell `cd`s; click a directory to navigate; click "Show disks" → disk list renders.
-7. CPU graphs animate; per-core values plausible on M-series (perf vs efficiency cores).
-8. RAM grid populates; swap bar shows reasonable value.
-9. Battery indicator shows percent / CHARGE / WIRED.
-10. Top processes list populates and refreshes.
-11. `cargo tauri build --target aarch64-apple-darwin` produces a `.app` that launches from `/Applications` and shows `aarch64` in `file Contents/MacOS/eDEX-UI`.
+    isOpen(index) {
+        return Boolean(this.slots[index]);
+    }
 
-## Out of scope (v0.2 backlog)
+    label(index, text) {
+        const tab = document.getElementById(`shell_tab${index}`);
+        if (tab) tab.innerHTML = `<p>${window._escapeHtml(text)}</p>`;
+    }
 
-- Network globe + `networkConnections` (`netstat2` crate) + geolite2 download.
-- conninfo external-IP lookup.
-- docReader (PDF viewer).
-- updateChecker.
-- Windows/Linux Tauri targets.
-- Code signing + notarization (separate workstream).
+    setActiveDom(index) {
+        document.querySelectorAll("#main_shell_tabs > li").forEach(node => node.classList.remove("active"));
+        document.querySelectorAll("#main_shell_innercontainer > pre").forEach(node => node.classList.remove("active"));
+        const tab = document.getElementById(`shell_tab${index}`);
+        const pane = document.getElementById(`terminal${index}`);
+        if (tab) tab.classList.add("active");
+        if (pane) pane.classList.add("active");
+    }
+
+    async openOrFocus(index) {
+        if (this.isOpen(index)) {
+            this.focus(index);
+            return this.slots[index];
+        }
+        return this.open(index);
+    }
+
+    async open(index, opts) {
+        if (index < 0 || index >= this.maxTabs) throw new Error(`Tab index out of range: ${index}`);
+        if (this.slots[index]) return this.openOrFocus(index);
+
+        const cwd = (opts && opts.cwd) || (this.active() && this.active().cwd) || this.defaultCwd;
+        this.label(index, "LOADING...");
+
+        const terminal = new Terminal({
+            role: "client",
+            parentId: `terminal${index}`,
+            shell: this.shell,
+            args: this.shellArgs,
+            cwd
+        });
+
+        this.slots[index] = terminal;
+        this.syncGlobals();
+
+        terminal.onprocesschange = processName => {
+            const prefix = index === 0 ? "MAIN" : `#${index + 1}`;
+            this.label(index, processName ? `${prefix} - ${processName}` : prefix);
+            if (index === this.activeIndex) this.onActiveProcessChange(processName);
+        };
+
+        terminal.oncwdchange = cwd => {
+            if (index === this.activeIndex) this.onActiveCwdChange(cwd);
+        };
+
+        terminal.onclose = () => {
+            this.close(index, { fromProcessExit: true }).catch(e => console.warn("tab close failed:", e));
+        };
+
+        try {
+            if (terminal._init) await terminal._init;
+            if (index === 0) {
+                terminal.term.writeln("\033[1m" + `Welcome to eDEX-UI v${window.appVersion} - Tauri/Rust port` + "\033[0m");
+                this.label(index, "MAIN SHELL");
+            } else {
+                this.label(index, `#${index + 1}`);
+            }
+            this.focus(index);
+            return terminal;
+        } catch (e) {
+            this.slots[index] = null;
+            this.label(index, "ERROR");
+            this.syncGlobals();
+            throw e;
+        }
+    }
+
+    focus(index) {
+        if (!this.slots[index]) return false;
+        this.activeIndex = index;
+        this.syncGlobals();
+        this.setActiveDom(index);
+        this.slots[index].fit();
+        this.slots[index].term.focus();
+        this.slots[index].resendCWD();
+        this.onFocus(index, this.slots[index]);
+        return true;
+    }
+
+    async close(index, opts) {
+        const terminal = this.slots[index];
+        if (!terminal) return false;
+        if (index === 0 && !(opts && opts.allowMainClose)) return false;
+
+        this.slots[index] = null;
+        this.syncGlobals();
+
+        if (!(opts && opts.fromProcessExit)) {
+            await terminal.close();
+        }
+        if (terminal.dispose) {
+            await terminal.dispose();
+        } else if (terminal.term && terminal.term.dispose) {
+            terminal.term.dispose();
+        }
+
+        const pane = document.getElementById(`terminal${index}`);
+        if (pane) pane.innerHTML = "";
+        this.label(index, index === 0 ? "MAIN SHELL" : "EMPTY");
+
+        if (this.activeIndex === index) {
+            this.focus(this.previousOpenIndex(index) || 0);
+        }
+        return true;
+    }
+
+    next() {
+        for (let step = 1; step <= this.maxTabs; step++) {
+            const index = (this.activeIndex + step) % this.maxTabs;
+            if (this.slots[index]) return this.focus(index);
+        }
+        return false;
+    }
+
+    previous() {
+        for (let step = 1; step <= this.maxTabs; step++) {
+            const index = (this.activeIndex - step + this.maxTabs) % this.maxTabs;
+            if (this.slots[index]) return this.focus(index);
+        }
+        return false;
+    }
+
+    previousOpenIndex(fromIndex) {
+        for (let step = 1; step <= this.maxTabs; step++) {
+            const index = (fromIndex - step + this.maxTabs) % this.maxTabs;
+            if (this.slots[index]) return index;
+        }
+        return 0;
+    }
+
+    resizeActive() {
+        const terminal = this.active();
+        if (terminal) terminal.fit();
+    }
+
+    writeActive(data) {
+        const terminal = this.active();
+        if (terminal) terminal.write(data);
+    }
+
+    writelrActive(data) {
+        const terminal = this.active();
+        if (terminal) terminal.writelr(data);
+    }
+}
+
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = { TerminalTabs };
+}
+```
+
+- [ ] **Step 2: Parse-check the new controller**
+
+Run:
+
+```bash
+node --check src/classes/terminalTabs.class.js
+```
+
+Expected: exit code 0 and no syntax errors.
+
+- [ ] **Step 3: Commit the controller**
+
+```bash
+git add src/classes/terminalTabs.class.js
+git commit -m "feat: add terminal tab controller"
+```
+
+Expected: the commit contains only `src/classes/terminalTabs.class.js`.
+
+---
+
+### Task 3: Load TerminalTabs in the Frontend
+
+**Files:**
+- Modify: `src/ui.html`
+
+- [ ] **Step 1: Add the script tag**
+
+In `src/ui.html`, place the new controller immediately after the existing terminal class:
+
+```html
+<script src="classes/terminal.class.js"></script>
+<script src="classes/terminalTabs.class.js"></script>
+```
+
+- [ ] **Step 2: Verify script order**
+
+Run:
+
+```bash
+rg -n "terminal.class.js|terminalTabs.class.js" src/ui.html
+```
+
+Expected:
+
+```text
+src/ui.html:74:        <script src="classes/terminal.class.js"></script>
+src/ui.html:75:        <script src="classes/terminalTabs.class.js"></script>
+```
+
+- [ ] **Step 3: Commit the script load**
+
+```bash
+git add src/ui.html
+git commit -m "feat: load terminal tabs controller"
+```
+
+Expected: one-line HTML script-order commit.
+
+---
+
+### Task 4: Replace Inline Tab State in Renderer
+
+**Files:**
+- Modify: `src/renderer.js`
+
+- [ ] **Step 1: Replace the shell tab markup block**
+
+In `initUI`, replace the block that appends `<ul id="main_shell_tabs">...` and `<pre id="terminal0">...` with:
+
+```javascript
+window.terminalTabs = new TerminalTabs({
+    containerId: "main_shell",
+    shell: shellBin,
+    shellArgs: window.settings.shellArgs ? [window.settings.shellArgs] : [],
+    defaultCwd: window.settings.cwd || settingsDir,
+    maxTabs: 5,
+    onFocus: () => {
+        if (window.fsDisp) window.fsDisp.followTab();
+    }
+});
+window.terminalTabs.mount();
+await window.terminalTabs.open(0, { cwd: window.settings.cwd || settingsDir });
+```
+
+Keep the existing shell resolution immediately before this code:
+
+```javascript
+let shellBin;
+try {
+    shellBin = await invoke("resolve_shell", { name: window.settings.shell || "zsh" });
+} catch (_) {
+    shellBin = window.settings.shell || "/bin/zsh";
+}
+window.__SHELL_BIN__ = shellBin;
+```
+
+- [ ] **Step 2: Remove the old `window.term = { 0: ... }` bootstrap**
+
+Delete the old code that constructs `window.term = { 0: new Terminal(...) }`, sets `window.currentTerm = 0`, assigns `window.term[0].onprocesschange`, awaits `window.term[0]._init`, and writes the welcome banner. The controller now owns that lifecycle.
+
+- [ ] **Step 3: Replace `window.focusShellTab`**
+
+Replace the body of `window.focusShellTab` with:
+
+```javascript
+window.focusShellTab = async number => {
+    window.audioManager.folder.play();
+    if (!window.terminalTabs) return false;
+    try {
+        await window.terminalTabs.openOrFocus(number);
+        if (window.fsDisp) window.fsDisp.followTab();
+        return true;
+    } catch (e) {
+        console.error("TTY spawn failed:", e);
+        const tab = document.getElementById("shell_tab" + number);
+        if (tab) tab.innerHTML = "<p>ERROR</p>";
+        return false;
+    }
+};
+```
+
+- [ ] **Step 4: Parse-check renderer**
+
+Run:
+
+```bash
+node --check src/renderer.js
+```
+
+Expected: exit code 0 and no syntax errors.
+
+- [ ] **Step 5: Commit the renderer handoff**
+
+```bash
+git add src/renderer.js
+git commit -m "feat: route terminal tabs through controller"
+```
+
+Expected: commit touches only `src/renderer.js`.
+
+---
+
+### Task 5: Route Shortcuts Through TerminalTabs
+
+**Files:**
+- Modify: `src/renderer.js`
+
+- [ ] **Step 1: Replace next/previous shortcut branches**
+
+In `window.useAppShortcut`, replace the `NEXT_TAB` and `PREVIOUS_TAB` branches with:
+
+```javascript
+case "NEXT_TAB":
+    if (window.terminalTabs) window.terminalTabs.next();
+    return true;
+case "PREVIOUS_TAB":
+    if (window.terminalTabs) window.terminalTabs.previous();
+    return true;
+```
+
+- [ ] **Step 2: Keep numbered tab shortcuts as open-or-focus**
+
+Leave the numbered branches in place, but make sure they call `window.focusShellTab`:
+
+```javascript
+case "TAB_1": window.focusShellTab(0); return true;
+case "TAB_2": window.focusShellTab(1); return true;
+case "TAB_3": window.focusShellTab(2); return true;
+case "TAB_4": window.focusShellTab(3); return true;
+case "TAB_5": window.focusShellTab(4); return true;
+```
+
+- [ ] **Step 3: Replace active resize**
+
+At the bottom of `src/renderer.js`, replace the `window.onresize` body with:
+
+```javascript
+window.onresize = () => {
+    if (window.terminalTabs) window.terminalTabs.resizeActive();
+};
+```
+
+- [ ] **Step 4: Parse-check renderer**
+
+Run:
+
+```bash
+node --check src/renderer.js
+```
+
+Expected: exit code 0 and no syntax errors.
+
+- [ ] **Step 5: Commit shortcut routing**
+
+```bash
+git add src/renderer.js
+git commit -m "feat: simplify terminal tab shortcuts"
+```
+
+Expected: shortcut behavior is owned by `TerminalTabs`.
+
+---
+
+### Task 6: Stabilize Terminal Pane CSS
+
+**Files:**
+- Modify: `src/assets/css/main_shell.css`
+
+- [ ] **Step 1: Replace pane positioning**
+
+Replace the `div#main_shell_innercontainer` and `pre` positioning block with:
+
+```css
+div#main_shell_innercontainer {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    overflow: hidden;
+    position: relative;
+}
+
+div#main_shell_innercontainer pre {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    opacity: 0;
+    margin: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+div#main_shell_innercontainer pre.active {
+    z-index: 1;
+    opacity: 1;
+    pointer-events: auto;
+}
+```
+
+- [ ] **Step 2: Delete negative offset rules**
+
+Delete these obsolete rules:
+
+```css
+div#main_shell_innercontainer pre#terminal1 { top: -100%; }
+div#main_shell_innercontainer pre#terminal2 { top: -200%; }
+div#main_shell_innercontainer pre#terminal3 { top: -300%; }
+div#main_shell_innercontainer pre#terminal4 { top: -400%; }
+```
+
+- [ ] **Step 3: Fix active tab stacking**
+
+In `ul#main_shell_tabs > li.active`, replace `z-index: -1;` with:
+
+```css
+z-index: 1;
+```
+
+- [ ] **Step 4: Run CSS diff check**
+
+Run:
+
+```bash
+git diff --check -- src/assets/css/main_shell.css
+```
+
+Expected: no whitespace errors.
+
+- [ ] **Step 5: Commit CSS**
+
+```bash
+git add src/assets/css/main_shell.css
+git commit -m "fix: stack terminal tab panes predictably"
+```
+
+Expected: only terminal shell CSS changes.
+
+---
+
+### Task 7: Make Terminal Disposal Idempotent
+
+**Files:**
+- Modify: `src/classes/terminal.class.js`
+
+- [ ] **Step 1: Add a disposed flag**
+
+Near the existing runtime fields, after `this._lastProc = null;`, add:
+
+```javascript
+this._disposed = false;
+```
+
+- [ ] **Step 2: Replace `this.close` with an idempotent version**
+
+Replace the existing `this.close = async () => { ... }` block with:
+
+```javascript
+this.close = async () => {
+    if (this._poll) { clearInterval(this._poll); this._poll = null; }
+    if (this._unlistenData) { this._unlistenData(); this._unlistenData = null; }
+    if (this._unlistenExit) { this._unlistenExit(); this._unlistenExit = null; }
+    if (this.ptyId !== null) {
+        try { await invoke("pty_kill", { id: this.ptyId }); } catch (_) {}
+        this.ptyId = null;
+    }
+};
+
+this.dispose = async () => {
+    if (this._disposed) return;
+    this._disposed = true;
+    await this.close();
+    if (this.term && this.term.dispose) this.term.dispose();
+};
+```
+
+- [ ] **Step 3: Parse-check terminal class**
+
+Run:
+
+```bash
+node --check src/classes/terminal.class.js
+```
+
+Expected: exit code 0 and no syntax errors.
+
+- [ ] **Step 4: Commit terminal disposal**
+
+```bash
+git add src/classes/terminal.class.js
+git commit -m "fix: make terminal disposal idempotent"
+```
+
+Expected: one terminal lifecycle commit.
+
+---
+
+### Task 8: Kill PTY Children Explicitly
+
+**Files:**
+- Modify: `src-tauri/src/pty.rs`
+
+- [ ] **Step 1: Update `pty_kill`**
+
+Replace the current `pty_kill` function with:
+
+```rust
+#[tauri::command]
+pub fn pty_kill(state: State<'_, PtyManager>, id: u32) -> Result<(), String> {
+    let mut map = state.inner.lock().unwrap();
+    if let Some(mut handle) = map.remove(&id) {
+        let _ = handle._child.kill();
+    }
+    Ok(())
+}
+```
+
+- [ ] **Step 2: Format Rust**
+
+Run:
+
+```bash
+cargo fmt
+```
+
+Expected: no output on success.
+
+- [ ] **Step 3: Check Rust**
+
+Run:
+
+```bash
+cargo +stable check
+```
+
+Expected: `Finished dev profile` with no Rust compile errors.
+
+- [ ] **Step 4: Commit PTY cleanup**
+
+```bash
+git add src-tauri/src/pty.rs
+git commit -m "fix: terminate closed tab ptys"
+```
+
+Expected: PTY cleanup commit only.
+
+---
+
+### Task 9: Runtime Smoke Test
+
+**Files:**
+- Exercise: built app only
+
+- [ ] **Step 1: Start the app**
+
+Run:
+
+```bash
+cargo +stable tauri dev
+```
+
+Expected: app launches and reaches the main terminal.
+
+- [ ] **Step 2: Verify main tab**
+
+In the app:
+
+```text
+Type: pwd
+Press: Enter
+```
+
+Expected: output prints in tab 1, and filesystem panel follows the printed working directory.
+
+- [ ] **Step 3: Verify tab creation**
+
+Use the configured shortcut sequence:
+
+```text
+Press: Ctrl+X then 2
+Type: echo tab2
+Press: Enter
+Press: Ctrl+X then 3
+Type: echo tab3
+Press: Enter
+```
+
+Expected: tabs 2 and 3 spawn independent shells. Returning to tab 2 still shows `tab2`; returning to tab 3 still shows `tab3`.
+
+- [ ] **Step 4: Verify next/previous navigation**
+
+Use:
+
+```text
+Press: Ctrl+Tab
+Press: Ctrl+Shift+Tab
+```
+
+Expected: focus cycles only through open tabs and wraps around.
+
+- [ ] **Step 5: Verify close cleanup**
+
+In tab 2:
+
+```text
+Type: exit
+Press: Enter
+```
+
+Expected: tab 2 label returns to `EMPTY`, focus falls back to an open tab, and the app remains responsive.
+
+- [ ] **Step 6: Verify keyboard and filesystem compatibility**
+
+Use the on-screen keyboard and click a directory in the filesystem panel.
+
+Expected: input goes to the active terminal, and filesystem commands are written to the active tab only.
+
+---
+
+### Task 10: Production Build and Documentation
+
+**Files:**
+- Modify: `README.md`
+- Modify: `CHANGELOG.md`
+- Modify: `CLAUDE.md`
+
+- [ ] **Step 1: Production build**
+
+Run:
+
+```bash
+cargo +stable tauri build --target aarch64-apple-darwin
+```
+
+Expected artifacts:
+
+```text
+src-tauri/target/aarch64-apple-darwin/release/bundle/macos/eDEX-UI.app
+src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/eDEX-UI_3.0.0_aarch64.dmg
+```
+
+- [ ] **Step 2: Update README behavior line**
+
+In `README.md`, make the verified status mention independent tab PTYs:
+
+```markdown
+Boots fullscreen, terminal echoes, terminal tabs spawn independent PTYs (Ctrl+X then 1-5, Ctrl+Tab, Ctrl+Shift+Tab), filesystem panel follows the active tab, sysinfo/cpuinfo/ramwatcher/toplist panels populate, hardware inspector renders, on-screen keyboard renders and swaps layouts, theme swap (Ctrl+Shift+S), settings modal opens, audio cues fire.
+```
+
+- [ ] **Step 3: Update changelog**
+
+In `CHANGELOG.md`, add a bullet under `v3.0.0`:
+
+```markdown
+- Reworked terminal tabs into an explicit frontend controller so each tab owns an independent PTY lifecycle, active focus state, process label, and filesystem tracking hook.
+```
+
+- [ ] **Step 4: Keep planning consolidated**
+
+In `CLAUDE.md`, keep only a short pointer to this file:
+
+```markdown
+Active implementation planning lives in `ULTRAPLAN.md`. Do not duplicate implementation plans or backlog lists in this guidance file.
+```
+
+- [ ] **Step 5: Final verification**
+
+Run:
+
+```bash
+node --check src/renderer.js
+node --check src/classes/terminal.class.js
+node --check src/classes/terminalTabs.class.js
+git diff --check -- README.md CHANGELOG.md CLAUDE.md ULTRAPLAN.md src/renderer.js src/classes/terminal.class.js src/classes/terminalTabs.class.js src/assets/css/main_shell.css src-tauri/src/pty.rs
+cargo +stable check
+```
+
+Expected: all commands pass.
+
+- [ ] **Step 6: Final commit**
+
+Stage only the intended implementation and documentation files:
+
+```bash
+git add README.md CHANGELOG.md CLAUDE.md ULTRAPLAN.md src/ui.html src/renderer.js src/classes/terminal.class.js src/classes/terminalTabs.class.js src/assets/css/main_shell.css src-tauri/src/pty.rs
+git commit -m "feat: implement managed terminal tabs"
+```
+
+Expected: no `.claude`, `.codex`, `.cursor`, or `.gemini` skill-directory files are staged or committed.
+
+---
+
+## Acceptance Criteria
+
+- `Ctrl+X` then `1` through `5` opens or focuses the corresponding terminal tab.
+- `Ctrl+Tab` and `Ctrl+Shift+Tab` cycle through open tabs only and wrap.
+- Every open tab has its own PTY id and keeps its own shell scrollback.
+- Closing a shell with `exit` cleans up the tab UI and kills/removes the PTY handle.
+- The filesystem panel follows the active terminal tab's CWD.
+- On-screen keyboard input and custom shell shortcuts target the active tab.
+- Resizing the window refits only the active xterm instance.
+- `node --check` passes for modified JS files.
+- `cargo +stable check` passes.
+- `cargo +stable tauri build --target aarch64-apple-darwin` produces the `.app` and `.dmg`.

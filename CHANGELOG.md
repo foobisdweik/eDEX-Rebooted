@@ -11,6 +11,7 @@ All notable changes to this fork will be documented in this file.
 - Replaced `node-pty` with Rust `portable-pty` for terminal process management.
 - Replaced the `systeminformation` worker model with Rust `sysinfo`/`battery` command handlers.
 - Replaced direct Node filesystem access in the renderer with Rust filesystem commands.
+- Reworked terminal tabs into an explicit frontend controller so each tab owns an independent PTY lifecycle, active focus state, process label, and filesystem tracking hook.
 - Vendored the frontend runtime assets under `src/assets/vendor/` so the shipped app does not include `node_modules/`.
 
 ### Added

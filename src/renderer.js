@@ -381,23 +381,6 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
 
         await window._delay(100);
 
-        const shellContainer = document.getElementById("main_shell");
-        shellContainer.innerHTML += `
-            <ul id="main_shell_tabs">
-                <li id="shell_tab0" onclick="window.focusShellTab(0);" class="active"><p>MAIN SHELL</p></li>
-                <li id="shell_tab1" onclick="window.focusShellTab(1);"><p>EMPTY</p></li>
-                <li id="shell_tab2" onclick="window.focusShellTab(2);"><p>EMPTY</p></li>
-                <li id="shell_tab3" onclick="window.focusShellTab(3);"><p>EMPTY</p></li>
-                <li id="shell_tab4" onclick="window.focusShellTab(4);"><p>EMPTY</p></li>
-            </ul>
-            <div id="main_shell_innercontainer">
-                <pre id="terminal0" class="active"></pre>
-                <pre id="terminal1"></pre>
-                <pre id="terminal2"></pre>
-                <pre id="terminal3"></pre>
-                <pre id="terminal4"></pre>
-            </div>`;
-
         // Resolve the shell binary up-front (legacy did this in main).
         let shellBin;
         try {
@@ -407,25 +390,23 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         }
         window.__SHELL_BIN__ = shellBin;
 
-        window.term = {
-            0: new Terminal({
-                role: "client",
-                parentId: "terminal0",
-                shell: shellBin,
-                args: window.settings.shellArgs ? [window.settings.shellArgs] : [],
-                cwd: window.settings.cwd || settingsDir
-            })
-        };
-        window.currentTerm = 0;
-        window.term[0].onprocesschange = p => {
-            document.getElementById("shell_tab0").innerHTML = `<p>MAIN - ${p}</p>`;
-        };
+        window.terminalTabs = new TerminalTabs({
+            containerId: "main_shell",
+            shell: shellBin,
+            shellArgs: window.settings.shellArgs ? [window.settings.shellArgs] : [],
+            defaultCwd: window.settings.cwd || settingsDir,
+            maxTabs: 5,
+            onFocus: () => {
+                if (window.fsDisp) window.fsDisp.followTab();
+            }
+        });
+        window.terminalTabs.mount();
         window.onmouseup = () => {
-            if (window.keyboard.linkedToTerm) window.term[window.currentTerm].term.focus();
+            if (window.keyboard.linkedToTerm && window.term && window.term[window.currentTerm]) {
+                window.term[window.currentTerm].term.focus();
+            }
         };
-        // _init resolves once the PTY is up; greet only after that.
-        if (window.term[0]._init) await window.term[0]._init;
-        window.term[0].term.writeln("\033[1m" + `Welcome to eDEX-UI v${window.appVersion} - Tauri/Rust port` + "\033[0m");
+        await window.terminalTabs.open(0, { cwd: window.settings.cwd || settingsDir });
 
         await window._delay(100);
         window.fsDisp = new FilesystemDisplay({ parentId: "filesystem" });
@@ -459,46 +440,15 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     window.focusShellTab = async number => {
         window.audioManager.folder.play();
 
-        if (number !== window.currentTerm && window.term[number]) {
-            window.currentTerm = number;
-            document.querySelectorAll(`ul#main_shell_tabs > li:not(:nth-child(${number + 1}))`).forEach(e => e.setAttribute("class", ""));
-            document.getElementById("shell_tab" + number).setAttribute("class", "active");
-            document.querySelectorAll(`div#main_shell_innercontainer > pre:not(:nth-child(${number + 1}))`).forEach(e => e.setAttribute("class", ""));
-            document.getElementById("terminal" + number).setAttribute("class", "active");
-            window.term[number].fit();
-            window.term[number].term.focus();
-            window.term[number].resendCWD();
-            window.fsDisp.followTab();
-        } else if (number > 0 && number <= 4 && window.term[number] !== null && typeof window.term[number] !== "object") {
-            window.term[number] = null;
-            document.getElementById("shell_tab" + number).innerHTML = "<p>LOADING...</p>";
-            try {
-                const inst = new Terminal({
-                    role: "client",
-                    parentId: "terminal" + number,
-                    shell: window.__SHELL_BIN__,
-                    args: window.settings.shellArgs ? [window.settings.shellArgs] : [],
-                    cwd: window.term[0].cwd || window.settings.cwd || settingsDir
-                });
-                window.term[number] = inst;
-                inst.onclose = () => {
-                    delete inst.onprocesschange;
-                    document.getElementById("shell_tab" + number).innerHTML = "<p>EMPTY</p>";
-                    document.getElementById("terminal" + number).innerHTML = "";
-                    inst.term.dispose();
-                    delete window.term[number];
-                    window.useAppShortcut("PREVIOUS_TAB");
-                };
-                inst.onprocesschange = p => {
-                    document.getElementById("shell_tab" + number).innerHTML = `<p>#${number + 1} - ${p}</p>`;
-                };
-                await inst._init;
-                document.getElementById("shell_tab" + number).innerHTML = `<p>#${number + 1}</p>`;
-                setTimeout(() => window.focusShellTab(number), 500);
-            } catch (e) {
-                console.error("TTY spawn failed:", e);
-                document.getElementById("shell_tab" + number).innerHTML = "<p>ERROR</p>";
-            }
+        if (!window.terminalTabs) return false;
+        try {
+            await window.terminalTabs.openOrFocus(number);
+            return true;
+        } catch (e) {
+            console.error("TTY spawn failed:", e);
+            const tab = document.getElementById("shell_tab" + number);
+            if (tab) tab.innerHTML = "<p>ERROR</p>";
+            return false;
         }
     };
 
@@ -707,24 +657,12 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
             case "PASTE":
                 window.term[window.currentTerm].clipboard.paste();
                 return true;
-            case "NEXT_TAB": {
-                const n = window.currentTerm;
-                if (window.term[n + 1]) window.focusShellTab(n + 1);
-                else if (window.term[n + 2]) window.focusShellTab(n + 2);
-                else if (window.term[n + 3]) window.focusShellTab(n + 3);
-                else if (window.term[n + 4]) window.focusShellTab(n + 4);
-                else window.focusShellTab(0);
+            case "NEXT_TAB":
+                if (window.terminalTabs) window.terminalTabs.next();
                 return true;
-            }
-            case "PREVIOUS_TAB": {
-                let n = window.currentTerm || 4;
-                if (window.term[n] && n !== window.currentTerm) window.focusShellTab(n);
-                else if (window.term[n - 1]) window.focusShellTab(n - 1);
-                else if (window.term[n - 2]) window.focusShellTab(n - 2);
-                else if (window.term[n - 3]) window.focusShellTab(n - 3);
-                else if (window.term[n - 4]) window.focusShellTab(n - 4);
+            case "PREVIOUS_TAB":
+                if (window.terminalTabs) window.terminalTabs.previous();
                 return true;
-            }
             case "TAB_1": window.focusShellTab(0); return true;
             case "TAB_2": window.focusShellTab(1); return true;
             case "TAB_3": window.focusShellTab(2); return true;
@@ -792,11 +730,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     });
 
     window.onresize = () => {
-        if (typeof window.currentTerm !== "undefined") {
-            if (typeof window.term[window.currentTerm] !== "undefined") {
-                window.term[window.currentTerm].fit();
-            }
-        }
+        if (window.terminalTabs) window.terminalTabs.resizeActive();
     };
 
     // Window-level resize/full-screen handling. The legacy code used

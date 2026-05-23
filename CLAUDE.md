@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-This is eDEX-UI **v3.0.0**, a Tauri 2 + Rust native port of the historical Electron-based fork, targeting **`aarch64-apple-darwin` only**. The Electron + Node-pty + systeminformation stack is gone. The migration was executed in commits `9f61a60` → `6b2380e` → `5b9b273` → `1ddb5ec`; `ULTRAPLAN.md` at the repo root is the (historical) plan that was followed. Treat ULTRAPLAN as a record, not a TODO — its checklist is done.
+This is eDEX-UI **v3.0.0**, a Tauri 2 + Rust native port of the historical Electron-based fork, targeting **`aarch64-apple-darwin` only**. The Electron + Node-pty + systeminformation stack is gone. Active implementation planning lives in `ULTRAPLAN.md`. Do not duplicate implementation plans or backlog lists in this guidance file.
 
-v1 is "core proven": app boots fullscreen, terminal echoes, the visual panels populate (clock/sysinfo/cpuinfo/hardwareInspector/ramwatcher/toplist), keyboard renders, settings modal opens, audio cues fire. See the **v0.2 backlog** at the end for known issues and deferred modules.
+v1 is "core proven": app boots fullscreen, terminal echoes, managed terminal tabs spawn independent PTYs, the visual panels populate (clock/sysinfo/cpuinfo/hardwareInspector/ramwatcher/toplist), keyboard renders, settings modal opens, audio cues fire.
 
 ## Architecture
 
@@ -75,16 +75,3 @@ There is **no test framework**. Smoke-test changes by running `cargo tauri dev` 
 - **Capabilities are allow-listed in `src-tauri/capabilities/default.json`.** New `invoke`-side APIs that touch core plugins (window, webview, shell, process, global-shortcut) need their permission added there, or Tauri 2 rejects the call at runtime with no friendly message. `core:window:allow-get-size` was renamed in Tauri 2 → use `allow-inner-size` / `allow-outer-size`.
 - **macOS-only.** All `process.platform === "win32"` branches were removed. Don't reintroduce them — v0.2 may add Windows/Linux targets, and the cross-platform forks belong in Rust commands, not in the WKWebView.
 - **`tauri-cli` lives at `~/.cargo/bin/cargo-tauri`** (install via `cargo install tauri-cli --version "^2.0" --locked`). If `cargo tauri` reports `no such command`, that's a missing install — not a config problem.
-
-## v0.2 backlog
-
-Tracked here so future sessions don't re-discover them.
-
-- **Typing-latency stutter every 2–3 keystrokes** in the terminal. Suspected causes: per-keystroke `audioManager.stdin.play()` blocking the JS thread, per-write base64 decode on the main thread in `terminal.class.js`, or WebGL + ligatures contention. First diagnostic: disable audio (`window.settings.audio = false`) and see whether the stutter goes away.
-- **Kerning artifacts in xterm output** — likely a font-loading race (xterm initialized before the eDEX custom font is ready) or a ligatures-addon interaction. Try `await document.fonts.ready` before `term.open()` in `terminal.class.js`.
-- **`netstat.class.js`** silenced, file retained for porting. Constructor calls `require("https")`/`require("net")` for external-IP + ping; v0.2 wires both through Rust commands.
-- **`si_network_connections` returns `[]`** (placeholder). v0.2 should source from the `netstat2` crate or `lsof`-shellout to populate the globe.
-- **Deleted in v1, restored in v0.2:** `locationGlobe.class.js` (3D globe + geolite2), `conninfo.class.js` (external-IP + connection list), `docReader.class.js` (PDF viewer), `updateChecker.class.js` (GitHub release polling).
-- **`src/assets/vendor/encom-globe.js`** (997 KB) is an orphan now that locationGlobe is gone. Delete it as part of the v0.2 globe rework.
-- **Code signing + notarization** for the production `.app` is unwired. Add to `tauri.conf.json` `bundle.macOS` once you have a Developer ID Application certificate.
-- **Windows + Linux Tauri targets** are out of scope — every `#[cfg]` and shellout in `pty.rs` / `sysinfo_cmds.rs` assumes macOS.

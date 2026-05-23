@@ -24,7 +24,7 @@ This is a community-driven fork of the original eDEX-UI (archived October 2021).
 
 # What works in v1 (this release)
 
-Boots fullscreen, terminal echoes, multi-tab spawn (Ctrl+X then 2/3/4/5), filesystem panel navigates, sysinfo/cpuinfo/ramwatcher/toplist panels populate, hardware inspector renders, on-screen keyboard renders and swaps layouts, theme swap (Ctrl+Shift+S), settings modal opens, audio cues fire.
+Boots fullscreen, terminal echoes, terminal tabs spawn independent PTYs (Ctrl+X then 1-5, Ctrl+Tab, Ctrl+Shift+Tab), filesystem panel follows the active tab, sysinfo/cpuinfo/ramwatcher/toplist panels populate, hardware inspector renders, on-screen keyboard renders and swaps layouts, theme swap (Ctrl+Shift+S), settings modal opens, audio cues fire.
 
 # Known issues / v0.2 backlog
 

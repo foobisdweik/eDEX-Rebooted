@@ -147,10 +147,7 @@ pub fn ensure_userdata(_app: &AppHandle) -> Result<(), Box<dyn std::error::Error
     }
     for entry in KB_DIR.files() {
         if let Some(name) = entry.path().file_name() {
-            fs::write(
-                PathBuf::from(&p.keyboards_dir).join(name),
-                entry.contents(),
-            )?;
+            fs::write(PathBuf::from(&p.keyboards_dir).join(name), entry.contents())?;
         }
     }
     for entry in FONTS_DIR.files() {

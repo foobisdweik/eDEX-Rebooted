@@ -100,6 +100,7 @@ class Terminal {
         this._unlistenData = null;
         this._unlistenExit = null;
         this._lastProc = null;
+        this._disposed = false;
 
         // _init is awaited from the renderer before treating this Terminal as
         // ready — it owns spawning the PTY and wiring the data stream.
@@ -266,6 +267,13 @@ class Terminal {
                 try { await invoke("pty_kill", { id: this.ptyId }); } catch (_) {}
                 this.ptyId = null;
             }
+        };
+
+        this.dispose = async () => {
+            if (this._disposed) return;
+            this._disposed = true;
+            await this.close();
+            if (this.term && this.term.dispose) this.term.dispose();
         };
     }
 }
