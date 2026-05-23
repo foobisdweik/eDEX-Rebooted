@@ -165,25 +165,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         return document.fonts.ready;
     }
 
-    // window.si — Tauri shim replacing the IPC round-trip from the legacy
-    // renderer. Method names are camelCase on JS, snake_case on Rust.
-    // Only si_network_stats currently takes a named argument (iface).
-    function initSystemInformationProxy() {
-        window.si = new Proxy({}, {
-            apply: () => { throw new Error("Cannot use sysinfo proxy directly as a function"); },
-            set: () => { throw new Error("Cannot set a property on the sysinfo proxy"); },
-            get: (_, prop) => {
-                const cmd = "si_" + String(prop).replace(/[A-Z]/g, m => "_" + m.toLowerCase());
-                return function (...args) {
-                    let payload = {};
-                    if (cmd === "si_network_stats" && args.length >= 1) {
-                        payload = { iface: args[0] };
-                    }
-                    return invoke(cmd, payload);
-                };
-            }
-        });
-    }
+    // window.si is owned by bridge/sysinfo.js — see ui.html script order.
 
     window.audioManager = new AudioManager();
 
@@ -193,7 +175,6 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     let bootLog = [];
     if (window.settings.nointro || window.settings.nointroOverride) {
         initGraphicalErrorHandling();
-        initSystemInformationProxy();
         const bs = document.getElementById("boot_screen");
         if (bs) bs.remove();
         document.body.setAttribute("class", "");
@@ -283,7 +264,6 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
             return true;
         }
         initGraphicalErrorHandling();
-        initSystemInformationProxy();
         waitForFonts().then(() => {
             bootScreen.remove();
             initUI();
