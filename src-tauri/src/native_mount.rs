@@ -267,6 +267,7 @@ unsafe fn apply_rect(handle: MountHandle, rect: WebRect, dpr: f64) {
     let _: () = msg_send![root_layer, setContentsScale: dpr];
     let _: () = msg_send![handle.border_layer(), setContentsScale: dpr];
     let _: () = msg_send![handle.label_layer(), setContentsScale: dpr];
+    let _: () = msg_send![handle.clock_layer(), setContentsScale: dpr];
 
     // Re-anchor the label to top-left of the (now-resized) view.
     let label_rect = NSRect::new(

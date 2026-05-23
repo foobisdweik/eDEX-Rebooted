@@ -10,7 +10,9 @@ use objc::{class, msg_send, sel, sel_impl};
 
 #[tauri::command]
 pub async fn native_modal_notify(kind: String, title: String, message: String) -> Result<(), String> {
-    Queue::main().exec_async(move || unsafe {
+    // Block this command until the user dismisses NSAlert so JS-side `finally`
+    // keeps the same acknowledgement semantics as legacy DOM modals.
+    Queue::main().exec_sync(move || unsafe {
         let alert: id = msg_send![class!(NSAlert), alloc];
         let alert: id = msg_send![alert, init];
 
