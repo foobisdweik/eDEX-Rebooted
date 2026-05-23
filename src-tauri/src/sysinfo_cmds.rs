@@ -74,12 +74,17 @@ pub async fn si_panel_snapshot(
     svc: State<'_, Arc<SysinfoService>>,
     collapse_threads_by_name: Option<bool>,
     top_limit: Option<usize>,
+    include_process_list: Option<bool>,
 ) -> Result<PanelSnapshot, String> {
     let started = Instant::now();
     let svc = Arc::clone(&svc);
     let collapse_threads_by_name = collapse_threads_by_name.unwrap_or(false);
     let top_limit = top_limit.unwrap_or(5);
-    let result = blocking(move || svc.panel_snapshot(collapse_threads_by_name, top_limit)).await;
+    let include_process_list = include_process_list.unwrap_or(false);
+    let result = blocking(move || {
+        svc.panel_snapshot(collapse_threads_by_name, top_limit, include_process_list)
+    })
+    .await;
     log_command_latency("si_panel_snapshot", started, result.is_ok());
     result
 }
