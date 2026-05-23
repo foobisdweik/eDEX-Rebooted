@@ -4,6 +4,7 @@ mod pty;
 mod settings;
 mod sysinfo_cmds;
 pub mod sysinfo_service;
+mod window_chrome;
 
 use native_mount::NativeMountState;
 use pty::PtyManager;
@@ -23,6 +24,7 @@ pub fn run() {
         .manage(NativeMountState::default())
         .setup(|app| {
             settings::ensure_userdata(app.handle())?;
+            window_chrome::configure(app.handle())?;
             native_mount::install(app.handle())?;
             Ok(())
         })

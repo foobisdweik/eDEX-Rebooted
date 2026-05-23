@@ -726,29 +726,11 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         if (window.terminalTabs) window.terminalTabs.resizeActive();
     };
 
-    // Window-level resize/full-screen handling. The legacy code used
-    // Electron's BrowserWindow events; Tauri 2 surfaces the same as async
-    // listeners on the WebviewWindow.
-    const winHandle = getCurrentWindow();
-    let resizeTimeout = null;
-    winHandle.onResized(async () => {
-        if (window.settings.keepGeometry === false) return;
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(async () => {
-            if (await winHandle.isFullscreen()) return;
-            if (await winHandle.isMaximized()) {
-                await winHandle.unmaximize();
-                await winHandle.setFullscreen(true);
-                return;
-            }
-            const size = await winHandle.outerSize();
-            if (size.width >= size.height) {
-                await winHandle.setSize(new tauri.window.PhysicalSize(size.width, Math.floor(size.width * 9 / 16)));
-            } else {
-                await winHandle.setSize(new tauri.window.PhysicalSize(size.height, Math.floor(size.height * 9 / 16)));
-            }
-        }, 100);
-    });
+    // Aspect-ratio enforcement during windowed-mode resize is handled
+    // natively via NSWindow.setContentAspectRatio = (16, 10), installed
+    // in src-tauri/src/window_chrome.rs. macOS clamps the user's drag
+    // live, which is smoother than the post-release JS snap the legacy
+    // code did. No window-resize listener needed here for that.
 })().catch(e => {
     console.error("Renderer init failed:", e);
     const bs = document.getElementById("boot_screen");
