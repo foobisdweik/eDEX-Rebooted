@@ -14,6 +14,12 @@
     }
 
     const { invoke } = globalScope.__TAURI__.core;
+    const panelSnapshotCache = {
+        inFlight: null,
+        value: null,
+        timestamp: 0,
+        ttlMs: 900
+    };
 
     const proxy = new Proxy({}, {
         apply: () => { throw new Error("Cannot use the sysinfo proxy directly as a function"); },
@@ -30,6 +36,29 @@
                 let payload = {};
                 if (cmd === "si_network_stats" && args.length >= 1) {
                     payload = { iface: args[0] };
+                }
+                if (cmd === "si_panel_snapshot") {
+                    payload = {
+                        collapseThreadsByName: args[0] === true,
+                        topLimit: Number.isInteger(args[1]) ? args[1] : 5
+                    };
+                    const now = Date.now();
+                    if (panelSnapshotCache.value && now - panelSnapshotCache.timestamp < panelSnapshotCache.ttlMs) {
+                        return Promise.resolve(panelSnapshotCache.value);
+                    }
+                    if (panelSnapshotCache.inFlight) {
+                        return panelSnapshotCache.inFlight;
+                    }
+                    panelSnapshotCache.inFlight = invoke(cmd, payload)
+                        .then(result => {
+                            panelSnapshotCache.value = result;
+                            panelSnapshotCache.timestamp = Date.now();
+                            return result;
+                        })
+                        .finally(() => {
+                            panelSnapshotCache.inFlight = null;
+                        });
+                    return panelSnapshotCache.inFlight;
                 }
                 return invoke(cmd, payload);
             };

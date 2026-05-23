@@ -109,6 +109,7 @@ class FilesystemDisplay {
         this._noTracking = false;
         this._runNextTick = false;
         this._reading = false;
+        this._lastDirSig = "";
 
         // Periodic re-read trigger. The legacy code had fs.watch() set
         // _runNextTick on change events; Tauri lacks a notify-style watcher in
@@ -196,8 +197,8 @@ class FilesystemDisplay {
                 return false;
             }
 
-            this.reCalculateDiskUsage(tcwd);
             this.cwd = [];
+            const nextSig = entries.map(entry => `${entry.name}:${entry.category}:${entry.size || 0}:${entry.hidden ? 1 : 0}`).join("|");
 
             for (const entry of entries) {
                 const file = entry.name;
@@ -247,8 +248,14 @@ class FilesystemDisplay {
                 this.cwd.splice(1, 0, { name: "Go up", type: "up" });
             }
 
+            if (tcwd === this.dirpath && nextSig === this._lastDirSig) {
+                this._reading = false;
+                return true;
+            }
+            this.reCalculateDiskUsage(tcwd);
             this.dirpath = tcwd;
             this.render(this.cwd);
+            this._lastDirSig = nextSig;
             this._reading = false;
         };
 

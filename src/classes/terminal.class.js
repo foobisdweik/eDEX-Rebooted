@@ -101,6 +101,15 @@ class Terminal {
         this._unlistenExit = null;
         this._lastProc = null;
         this._disposed = false;
+        this._onDataDisposable = null;
+        this._parent = document.getElementById(opts.parentId);
+        this._helperTa = null;
+        this._onWheel = null;
+        this._onTouchStart = null;
+        this._onTouchMove = null;
+        this._onTouchEnd = null;
+        this._onTouchCancel = null;
+        this._onHelperKeydown = null;
 
         // _init is awaited from the renderer before treating this Terminal as
         // ready — it owns spawning the PTY and wiring the data stream.
@@ -138,7 +147,7 @@ class Terminal {
                 if (this.onclose) this.onclose();
             });
 
-            this.term.onData(d => {
+            this._onDataDisposable = this.term.onData(d => {
                 if (this.ptyId !== null) {
                     invoke("pty_write", { id: this.ptyId, data: d }).catch(() => {});
                 }
@@ -152,19 +161,32 @@ class Terminal {
             this._poll = setInterval(async () => {
                 if (this.ptyId === null) return;
                 try {
-                    const cwd = await invoke("pty_cwd", { id: this.ptyId });
-                    if (cwd && cwd !== this.cwd) {
-                        this.cwd = cwd;
-                        this.oncwdchange(cwd);
+                    const meta = await invoke("pty_metadata", { id: this.ptyId });
+                    if (meta && meta.cwd && meta.cwd !== this.cwd) {
+                        this.cwd = meta.cwd;
+                        this.oncwdchange(meta.cwd);
                     }
-                } catch (_) {}
-                try {
-                    const proc = await invoke("pty_process", { id: this.ptyId });
-                    if (proc && this._lastProc !== proc) {
-                        this._lastProc = proc;
-                        if (this.onprocesschange) this.onprocesschange(proc);
+                    if (meta && meta.process && this._lastProc !== meta.process) {
+                        this._lastProc = meta.process;
+                        if (this.onprocesschange) this.onprocesschange(meta.process);
                     }
-                } catch (_) {}
+                } catch (_) {
+                    // Backward compatibility with older backends still serving split commands.
+                    try {
+                        const cwd = await invoke("pty_cwd", { id: this.ptyId });
+                        if (cwd && cwd !== this.cwd) {
+                            this.cwd = cwd;
+                            this.oncwdchange(cwd);
+                        }
+                    } catch (_) {}
+                    try {
+                        const proc = await invoke("pty_process", { id: this.ptyId });
+                        if (proc && this._lastProc !== proc) {
+                            this._lastProc = proc;
+                            if (this.onprocesschange) this.onprocesschange(proc);
+                        }
+                    } catch (_) {}
+                }
             }, 1000);
         })();
 
@@ -172,33 +194,38 @@ class Terminal {
             this.oncwdchange(this.cwd || null);
         };
 
-        const parent = document.getElementById(opts.parentId);
-        parent.addEventListener("wheel", e => {
+        this._onWheel = e => {
             this.term.scrollLines(Math.round(e.deltaY / 10));
-        });
+        };
+        this._parent.addEventListener("wheel", this._onWheel);
         this._lastTouchY = null;
-        parent.addEventListener("touchstart", e => {
+        this._onTouchStart = e => {
             this._lastTouchY = e.targetTouches[0].screenY;
-        });
-        parent.addEventListener("touchmove", e => {
+        };
+        this._onTouchMove = e => {
             if (this._lastTouchY) {
                 const y = e.changedTouches[0].screenY;
                 const deltaY = y - this._lastTouchY;
                 this._lastTouchY = y;
                 this.term.scrollLines(-Math.round(deltaY / 10));
             }
-        });
-        parent.addEventListener("touchend", () => { this._lastTouchY = null; });
-        parent.addEventListener("touchcancel", () => { this._lastTouchY = null; });
+        };
+        this._onTouchEnd = () => { this._lastTouchY = null; };
+        this._onTouchCancel = () => { this._lastTouchY = null; };
+        this._parent.addEventListener("touchstart", this._onTouchStart);
+        this._parent.addEventListener("touchmove", this._onTouchMove);
+        this._parent.addEventListener("touchend", this._onTouchEnd);
+        this._parent.addEventListener("touchcancel", this._onTouchCancel);
 
-        const helperTa = document.querySelector(".xterm-helper-textarea");
-        if (helperTa) {
-            helperTa.addEventListener("keydown", e => {
+        this._helperTa = document.querySelector(".xterm-helper-textarea");
+        if (this._helperTa) {
+            this._onHelperKeydown = e => {
                 if (e.key === "F11" && window.settings.allowWindowed) {
                     e.preventDefault();
                     if (window.toggleFullScreen) window.toggleFullScreen();
                 }
-            });
+            };
+            this._helperTa.addEventListener("keydown", this._onHelperKeydown);
         }
 
         this.fit = () => {
@@ -273,6 +300,20 @@ class Terminal {
             if (this._disposed) return;
             this._disposed = true;
             await this.close();
+            if (this._onDataDisposable && this._onDataDisposable.dispose) {
+                this._onDataDisposable.dispose();
+                this._onDataDisposable = null;
+            }
+            if (this._parent) {
+                if (this._onWheel) this._parent.removeEventListener("wheel", this._onWheel);
+                if (this._onTouchStart) this._parent.removeEventListener("touchstart", this._onTouchStart);
+                if (this._onTouchMove) this._parent.removeEventListener("touchmove", this._onTouchMove);
+                if (this._onTouchEnd) this._parent.removeEventListener("touchend", this._onTouchEnd);
+                if (this._onTouchCancel) this._parent.removeEventListener("touchcancel", this._onTouchCancel);
+            }
+            if (this._helperTa && this._onHelperKeydown) {
+                this._helperTa.removeEventListener("keydown", this._onHelperKeydown);
+            }
             if (this.term && this.term.dispose) this.term.dispose();
         };
     }

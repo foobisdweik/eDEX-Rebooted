@@ -23,25 +23,8 @@ class Toplist {
         if (this.currentlyUpdating) return;
 
         this.currentlyUpdating = true;
-        window.si.processes().then(data => {
-            if (window.settings.excludeThreadsFromToplist === true) {
-                data.list = data.list.sort((a, b) => {
-                    return (a.pid-b.pid);
-                }).filter((e, index, a) => {
-                    let i = a.findIndex(x => x.name === e.name);
-                    if (i !== -1 && i !== index) {
-                        a[i].cpu = a[i].cpu+e.cpu;
-                        a[i].mem = a[i].mem+e.mem;
-                        return false;
-                    }
-                    return true;
-                });
-            }
-
-            let list = data.list.sort((a, b) => {
-                return ((b.cpu-a.cpu)*100 + b.mem-a.mem);
-            }).splice(0, 5);
-
+        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5).then(data => {
+            const list = data.topProcesses || [];
             document.querySelectorAll("#mod_toplist_table > tr").forEach(el => {
                 el.remove();
             });
@@ -53,6 +36,8 @@ class Toplist {
                                 <td>${Math.round(proc.mem*10)/10}%</td>`;
                 document.getElementById("mod_toplist_table").append(el);
             });
+        }).catch(() => {
+        }).finally(() => {
             this.currentlyUpdating = false;
         });
     }

@@ -408,6 +408,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     };
 
     window.remakeKeyboard = async layout => {
+        if (window.keyboard && window.keyboard.destroy) {
+            window.keyboard.destroy();
+        }
         document.getElementById("keyboard").innerHTML = "";
         const kbLayout = await invoke("get_keyboard_layout", { name: layout || window.settings.keyboard });
         window.keyboard = new Keyboard({
@@ -718,6 +721,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     // listeners on the WebviewWindow.
     const winHandle = getCurrentWindow();
     let resizeTimeout = null;
+    let unlistenResized = null;
     winHandle.onResized(async () => {
         if (window.settings.keepGeometry === false) return;
         clearTimeout(resizeTimeout);
@@ -735,6 +739,17 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
                 await winHandle.setSize(new tauri.window.PhysicalSize(size.height, Math.floor(size.height * 9 / 16)));
             }
         }, 100);
+    }).then(unlisten => { unlistenResized = unlisten; }).catch(() => {});
+
+    window.addEventListener("beforeunload", () => {
+        if (window.keyboard && window.keyboard.destroy) {
+            window.keyboard.destroy();
+        }
+        if (unlistenResized) {
+            try { unlistenResized(); } catch (_) {}
+            unlistenResized = null;
+        }
+        gs.unregisterAll().catch(() => {});
     });
 })().catch(e => {
     console.error("Renderer init failed:", e);
