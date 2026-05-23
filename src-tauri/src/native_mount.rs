@@ -326,6 +326,7 @@ pub async fn native_mount_set_clock_text(
     Queue::main().exec_async(move || unsafe {
         let ns_text = NSString::alloc(nil).init_str(&text);
         let _: () = msg_send![handle.clock_layer(), setString: ns_text];
+        let _: () = msg_send![ns_text, release];
     });
 
     Ok(())
