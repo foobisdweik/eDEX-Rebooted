@@ -42,6 +42,7 @@ pub fn run() {
             sysinfo_cmds::si_current_load,
             sysinfo_cmds::si_cpu_temperature,
             sysinfo_cmds::si_processes,
+            sysinfo_cmds::si_panel_snapshot,
             sysinfo_cmds::si_mem,
             sysinfo_cmds::si_battery,
             sysinfo_cmds::si_network_interfaces,

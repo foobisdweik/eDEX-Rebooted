@@ -421,6 +421,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     };
 
     window.remakeKeyboard = async layout => {
+        if (window.keyboard && window.keyboard.destroy) {
+            window.keyboard.destroy();
+        }
         document.getElementById("keyboard").innerHTML = "";
         const kbLayout = await invoke("get_keyboard_layout", { name: layout || window.settings.keyboard });
         window.keyboard = new Keyboard({
@@ -731,6 +734,13 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     // in src-tauri/src/window_chrome.rs. macOS clamps the user's drag
     // live, which is smoother than the post-release JS snap the legacy
     // code did. No window-resize listener needed here for that.
+
+    window.addEventListener("beforeunload", () => {
+        if (window.keyboard && window.keyboard.destroy) {
+            window.keyboard.destroy();
+        }
+        gs.unregisterAll().catch(() => {});
+    });
 })().catch(e => {
     console.error("Renderer init failed:", e);
     const bs = document.getElementById("boot_screen");

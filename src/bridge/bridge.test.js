@@ -149,11 +149,42 @@ test("sysinfo proxy forwards camelCase reads to snake_case invoke commands", () 
     window.bridge.sysinfo.cpu();
     window.bridge.sysinfo.networkInterfaces();
     window.bridge.sysinfo.networkStats("en0");
+    window.bridge.sysinfo.panelSnapshot(true, 8);
     assert.deepEqual(calls, [
         ["si_cpu", {}],
         ["si_network_interfaces", {}],
-        ["si_network_stats", { iface: "en0" }]
+        ["si_network_stats", { iface: "en0" }],
+        ["si_panel_snapshot", { collapseThreadsByName: true, topLimit: 8 }]
     ]);
+});
+
+test("sysinfo panelSnapshot reuses short-lived cache and in-flight request", async () => {
+    let calls = 0;
+    const window = freshSysinfoBridge(() => {
+        calls++;
+        return Promise.resolve({ ok: true, calls });
+    });
+    const [a, b] = await Promise.all([
+        window.bridge.sysinfo.panelSnapshot(false, 5),
+        window.bridge.sysinfo.panelSnapshot(false, 5)
+    ]);
+    assert.equal(calls, 1);
+    assert.deepEqual(a, b);
+    const c = await window.bridge.sysinfo.panelSnapshot(false, 5);
+    assert.equal(calls, 1);
+    assert.deepEqual(c, a);
+});
+
+test("sysinfo panelSnapshot cache is keyed by collapse and topLimit", async () => {
+    const payloads = [];
+    const window = freshSysinfoBridge((_cmd, payload) => {
+        payloads.push(payload);
+        return Promise.resolve(payload);
+    });
+    await window.bridge.sysinfo.panelSnapshot(false, 5);
+    await window.bridge.sysinfo.panelSnapshot(true, 5);
+    await window.bridge.sysinfo.panelSnapshot(false, 8);
+    assert.equal(payloads.length, 3);
 });
 
 test("sysinfo proxy does not impersonate a thenable when awaited", async () => {

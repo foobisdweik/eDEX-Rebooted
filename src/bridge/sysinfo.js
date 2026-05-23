@@ -14,6 +14,14 @@
     }
 
     const { invoke } = globalScope.__TAURI__.core;
+    const panelSnapshotCache = {
+        entries: new Map(),
+        ttlMs: 900
+    };
+
+    function panelSnapshotCacheKey(collapseThreadsByName, topLimit) {
+        return `${collapseThreadsByName ? 1 : 0}:${topLimit}`;
+    }
 
     const proxy = new Proxy({}, {
         apply: () => { throw new Error("Cannot use the sysinfo proxy directly as a function"); },
@@ -30,6 +38,44 @@
                 let payload = {};
                 if (cmd === "si_network_stats" && args.length >= 1) {
                     payload = { iface: args[0] };
+                }
+                if (cmd === "si_panel_snapshot") {
+                    payload = {
+                        collapseThreadsByName: args[0] === true,
+                        topLimit: Number.isInteger(args[1]) ? args[1] : 5
+                    };
+                    const cacheKey = panelSnapshotCacheKey(
+                        payload.collapseThreadsByName,
+                        payload.topLimit
+                    );
+                    const now = Date.now();
+                    const cached = panelSnapshotCache.entries.get(cacheKey);
+                    if (cached && cached.value && now - cached.timestamp < panelSnapshotCache.ttlMs) {
+                        return Promise.resolve(cached.value);
+                    }
+                    if (cached && cached.inFlight) {
+                        return cached.inFlight;
+                    }
+                    const inFlight = invoke(cmd, payload)
+                        .then(result => {
+                            const entry = panelSnapshotCache.entries.get(cacheKey) || {};
+                            entry.value = result;
+                            entry.timestamp = Date.now();
+                            entry.inFlight = null;
+                            panelSnapshotCache.entries.set(cacheKey, entry);
+                            return result;
+                        })
+                        .catch(err => {
+                            const entry = panelSnapshotCache.entries.get(cacheKey);
+                            if (entry) entry.inFlight = null;
+                            throw err;
+                        });
+                    panelSnapshotCache.entries.set(cacheKey, {
+                        value: cached ? cached.value : null,
+                        timestamp: cached ? cached.timestamp : 0,
+                        inFlight
+                    });
+                    return inFlight;
                 }
                 return invoke(cmd, payload);
             };

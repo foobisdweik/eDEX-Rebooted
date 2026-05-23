@@ -4,17 +4,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{async_runtime, AppHandle, Emitter, State};
 
 pub struct PtyHandle {
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pid: u32,
-    _child: Box<dyn portable_pty::Child + Send + Sync>,
+    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
 }
 
 pub struct PtyManager {
-    inner: Arc<Mutex<HashMap<u32, PtyHandle>>>,
+    inner: Arc<Mutex<HashMap<u32, Arc<PtyHandle>>>>,
     next_id: Arc<Mutex<u32>>,
 }
 
@@ -37,6 +38,17 @@ where
         .map_err(|e| e.to_string())?
 }
 
+fn log_command_latency(name: &str, started: Instant, ok: bool) {
+    let elapsed = started.elapsed();
+    if elapsed >= Duration::from_millis(20) {
+        eprintln!(
+            "[perf][pty] {name} {}ms status={}",
+            elapsed.as_millis(),
+            if ok { "ok" } else { "err" }
+        );
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SpawnArgs {
     pub shell: String,
@@ -55,9 +67,10 @@ pub async fn pty_spawn(
     state: State<'_, PtyManager>,
     opts: SpawnArgs,
 ) -> Result<u32, String> {
+    let started = Instant::now();
     let inner = Arc::clone(&state.inner);
     let next_id = Arc::clone(&state.next_id);
-    blocking_pty(move || {
+    let result = blocking_pty(move || {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
@@ -84,8 +97,12 @@ pub async fn pty_spawn(
 
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         let pid = child.process_id().unwrap_or(0);
-        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+        let writer = Arc::new(Mutex::new(
+            pair.master.take_writer().map_err(|e| e.to_string())?,
+        ));
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+        let master = Arc::new(Mutex::new(pair.master));
+        let child = Arc::new(Mutex::new(child));
 
         let id = {
             let mut n = next_id.lock().unwrap();
@@ -98,12 +115,12 @@ pub async fn pty_spawn(
             let mut map = inner.lock().unwrap();
             map.insert(
                 id,
-                PtyHandle {
-                    master: pair.master,
+                Arc::new(PtyHandle {
+                    master,
                     writer,
                     pid,
-                    _child: child,
-                },
+                    child,
+                }),
             );
         }
 
@@ -111,12 +128,15 @@ pub async fn pty_spawn(
         let channel = format!("pty://{}/data", id);
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
+            let mut encoded = String::with_capacity(16 * 1024);
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-                        let _ = app_for_reader.emit(&channel, encoded);
+                        encoded.clear();
+                        base64::engine::general_purpose::STANDARD
+                            .encode_string(&buf[..n], &mut encoded);
+                        let _ = app_for_reader.emit(&channel, encoded.clone());
                     }
                     Err(_) => break,
                 }
@@ -126,21 +146,29 @@ pub async fn pty_spawn(
 
         Ok(id)
     })
-    .await
+    .await;
+    log_command_latency("pty_spawn", started, result.is_ok());
+    result
 }
 
 #[tauri::command]
 pub async fn pty_write(state: State<'_, PtyManager>, id: u32, data: String) -> Result<(), String> {
+    let started = Instant::now();
     let inner = Arc::clone(&state.inner);
-    blocking_pty(move || {
-        let mut map = inner.lock().unwrap();
-        let handle = map.get_mut(&id).ok_or("pty not found")?;
-        handle
+    let result = blocking_pty(move || {
+        let handle = {
+            let map = inner.lock().unwrap();
+            map.get(&id).cloned().ok_or("pty not found")?
+        };
+        let mut writer = handle
             .writer
-            .write_all(data.as_bytes())
-            .map_err(|e| e.to_string())
+            .lock()
+            .map_err(|_| "pty writer lock poisoned".to_string())?;
+        writer.write_all(data.as_bytes()).map_err(|e| e.to_string())
     })
-    .await
+    .await;
+    log_command_latency("pty_write", started, result.is_ok());
+    result
 }
 
 #[tauri::command]
@@ -150,12 +178,18 @@ pub async fn pty_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
+    let started = Instant::now();
     let inner = Arc::clone(&state.inner);
-    blocking_pty(move || {
-        let map = inner.lock().unwrap();
-        let handle = map.get(&id).ok_or("pty not found")?;
-        handle
+    let result = blocking_pty(move || {
+        let handle = {
+            let map = inner.lock().unwrap();
+            map.get(&id).cloned().ok_or("pty not found")?
+        };
+        let master = handle
             .master
+            .lock()
+            .map_err(|_| "pty master lock poisoned".to_string())?;
+        master
             .resize(PtySize {
                 rows,
                 cols,
@@ -164,20 +198,32 @@ pub async fn pty_resize(
             })
             .map_err(|e| e.to_string())
     })
-    .await
+    .await;
+    log_command_latency("pty_resize", started, result.is_ok());
+    result
 }
 
 #[tauri::command]
 pub async fn pty_kill(state: State<'_, PtyManager>, id: u32) -> Result<(), String> {
+    let started = Instant::now();
     let inner = Arc::clone(&state.inner);
-    blocking_pty(move || {
-        let mut map = inner.lock().unwrap();
-        if let Some(mut handle) = map.remove(&id) {
-            let _ = handle._child.kill();
+    let result = blocking_pty(move || {
+        let handle = {
+            let mut map = inner.lock().unwrap();
+            map.remove(&id)
+        };
+        if let Some(handle) = handle {
+            let _ = handle
+                .child
+                .lock()
+                .map_err(|_| "pty child lock poisoned".to_string())?
+                .kill();
         }
         Ok(())
     })
-    .await
+    .await;
+    log_command_latency("pty_kill", started, result.is_ok());
+    result
 }
 
 #[derive(Debug, Serialize)]
@@ -186,18 +232,8 @@ pub struct PtyMetadata {
     pub process: Option<String>,
 }
 
-fn pty_pid(inner: &Arc<Mutex<HashMap<u32, PtyHandle>>>, id: u32) -> Result<u32, String> {
-    let map = inner
-        .lock()
-        .map_err(|_| "pty manager lock poisoned".to_string())?;
-    map.get(&id)
-        .map(|h| h.pid)
-        .ok_or("pty not found".to_string())
-}
-
-fn query_cwd(pid: u32) -> Result<Option<String>, String> {
-    // Lifted from terminal.class.js legacy behavior — macOS only.
-    let out = std::process::Command::new("sh")
+fn read_pty_cwd(pid: u32) -> Result<Option<String>, String> {
+    let cwd_out = std::process::Command::new("sh")
         .arg("-c")
         .arg(format!(
             "lsof -a -d cwd -p {} | tail -1 | awk '{{ for (i=9; i<=NF; i++) printf \"%s \", $i }}'",
@@ -205,58 +241,77 @@ fn query_cwd(pid: u32) -> Result<Option<String>, String> {
         ))
         .output()
         .map_err(|e| e.to_string())?;
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(s))
-    }
+    let s = String::from_utf8_lossy(&cwd_out.stdout).trim().to_string();
+    Ok(if s.is_empty() { None } else { Some(s) })
 }
 
-fn query_process(pid: u32) -> Result<Option<String>, String> {
-    // Lifted from terminal.class.js legacy behavior.
-    let out = std::process::Command::new("sh")
+fn read_pty_process(pid: u32) -> Result<Option<String>, String> {
+    let proc_out = std::process::Command::new("sh")
         .arg("-c")
         .arg(format!("ps -o comm= -g {} 2>/dev/null | tail -1", pid))
         .output()
         .map_err(|e| e.to_string())?;
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(s))
-    }
+    let s = String::from_utf8_lossy(&proc_out.stdout).trim().to_string();
+    Ok(if s.is_empty() { None } else { Some(s) })
+}
+
+fn read_pty_metadata(pid: u32) -> Result<PtyMetadata, String> {
+    Ok(PtyMetadata {
+        cwd: read_pty_cwd(pid)?,
+        process: read_pty_process(pid)?,
+    })
 }
 
 #[tauri::command]
 pub async fn pty_metadata(state: State<'_, PtyManager>, id: u32) -> Result<PtyMetadata, String> {
+    let started = Instant::now();
     let inner = Arc::clone(&state.inner);
-    blocking_pty(move || {
-        let pid = pty_pid(&inner, id)?;
-        Ok(PtyMetadata {
-            cwd: query_cwd(pid)?,
-            process: query_process(pid)?,
-        })
+    let result = blocking_pty(move || {
+        let pid = {
+            let map = inner
+                .lock()
+                .map_err(|_| "pty manager lock poisoned".to_string())?;
+            map.get(&id).map(|h| h.pid).ok_or("pty not found")?
+        };
+        read_pty_metadata(pid)
     })
-    .await
+    .await;
+    log_command_latency("pty_metadata", started, result.is_ok());
+    result
 }
 
 #[tauri::command]
 pub async fn pty_cwd(state: State<'_, PtyManager>, id: u32) -> Result<Option<String>, String> {
+    let started = Instant::now();
     let inner = Arc::clone(&state.inner);
-    blocking_pty(move || {
-        let pid = pty_pid(&inner, id)?;
-        query_cwd(pid)
+    let result = blocking_pty(move || {
+        let pid = {
+            let map = inner
+                .lock()
+                .map_err(|_| "pty manager lock poisoned".to_string())?;
+            map.get(&id).map(|h| h.pid).ok_or("pty not found")?
+        };
+        read_pty_cwd(pid)
     })
-    .await
+    .await;
+    log_command_latency("pty_cwd", started, result.is_ok());
+    result
 }
 
 #[tauri::command]
 pub async fn pty_process(state: State<'_, PtyManager>, id: u32) -> Result<Option<String>, String> {
+    let started = Instant::now();
     let inner = Arc::clone(&state.inner);
-    blocking_pty(move || {
-        let pid = pty_pid(&inner, id)?;
-        query_process(pid)
+    let result = blocking_pty(move || {
+        let pid = {
+            let map = inner
+                .lock()
+                .map_err(|_| "pty manager lock poisoned".to_string())?;
+            map.get(&id).map(|h| h.pid).ok_or("pty not found")?
+        };
+        read_pty_process(pid)
     })
-    .await
+    .await;
+    log_command_latency("pty_process", started, result.is_ok());
+    result
 }

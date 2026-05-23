@@ -8,6 +8,7 @@ class Keyboard {
         const layout = opts.layout;
         this.ctrlseq = ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""];
         this.container = document.getElementById(opts.container);
+        this._destroyed = false;
 
         this.linkedToTerm = true;
         this.detach = () => {
@@ -220,7 +221,7 @@ class Keyboard {
         });
 
         // Tactile multi-touch support (#100)
-        this.container.addEventListener("touchstart", e => {
+        this._touchStartHandler = e => {
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 let key = e.changedTouches[i].target.parentElement;
@@ -236,8 +237,9 @@ class Keyboard {
                     }
                 }
             }
-        });
-        let dropKeyTouchHandler = e => {
+        };
+        this.container.addEventListener("touchstart", this._touchStartHandler);
+        this._dropKeyTouchHandler = e => {
             e.preventDefault();
             for (let i = 0; i < e.changedTouches.length; i++) {
                 let key = e.changedTouches[i].target.parentElement;
@@ -254,8 +256,8 @@ class Keyboard {
                 }
             }
         };
-        this.container.addEventListener("touchend", dropKeyTouchHandler);
-        this.container.addEventListener("touchcancel", dropKeyTouchHandler);
+        this.container.addEventListener("touchend", this._dropKeyTouchHandler);
+        this.container.addEventListener("touchcancel", this._dropKeyTouchHandler);
 
         // Bind actual keyboard actions to on-screen animations (for use without a touchscreen)
         let findKey = e => {
@@ -320,9 +322,10 @@ class Keyboard {
             }
         };
 
-        document.onkeydown = this.keydownHandler;
+        this._docKeydownHandler = this.keydownHandler;
+        document.onkeydown = this._docKeydownHandler;
 
-        document.onkeyup = e => {
+        this._docKeyupHandler = e => {
             // See #330
             if (e.key === "Control" && e.getModifierState("AltGraph")) return;
 
@@ -352,13 +355,27 @@ class Keyboard {
             if(this.container.dataset.passwordMode == "false" && e.key === "Enter")
                 window.audioManager.granted.play();
         };
+        document.onkeyup = this._docKeyupHandler;
 
-        window.addEventListener("blur", () => {
+        this._windowBlurHandler = () => {
             document.querySelectorAll("div.keyboard_key.active").forEach(key => {
                 key.setAttribute("class", key.getAttribute("class").replace("active", ""));
                 key.onmouseup({preventDefault: () => {return true}});
             });
-        });
+        };
+        window.addEventListener("blur", this._windowBlurHandler);
+    }
+    destroy() {
+        if (this._destroyed) return;
+        this._destroyed = true;
+        if (document.onkeydown === this._docKeydownHandler) document.onkeydown = null;
+        if (document.onkeyup === this._docKeyupHandler) document.onkeyup = null;
+        if (this._windowBlurHandler) window.removeEventListener("blur", this._windowBlurHandler);
+        if (this._touchStartHandler) this.container.removeEventListener("touchstart", this._touchStartHandler);
+        if (this._dropKeyTouchHandler) {
+            this.container.removeEventListener("touchend", this._dropKeyTouchHandler);
+            this.container.removeEventListener("touchcancel", this._dropKeyTouchHandler);
+        }
     }
     pressKey(key) {
         let cmd = key.dataset.cmd || "";

@@ -14,6 +14,13 @@
 
 All active implementation planning for terminal tabs lives in this file. `CLAUDE.md` is repository guidance only and should link here instead of duplicating backlog or implementation planning.
 
+## Migration Contracts and Deprecations (Current Refactor)
+
+- **PTY metadata contract (current):** `pty_metadata(id)` is the consolidated backend poll surface for terminal tab metadata and returns both `cwd` and foreground `process` in one call.
+- **Sysinfo panel contract (current):** `si_panel_snapshot(collapseThreadsByName, topLimit)` is the consolidated panel data path now used by CPU/toplist panels; bridge-side short TTL + in-flight reuse preserves current polling behavior while reducing duplicate backend work.
+- **Compatibility status:** Legacy split PTY poll paths `pty_cwd(id)` and `pty_process(id)` remain available; frontend polling falls back to them when `pty_metadata` is unavailable so mixed-version frontend/backend pairs keep working.
+- **Deprecation expectation (non-breaking):** Legacy per-metric poll usage (`si.processes()`, `si.mem()`, etc.) is still supported for unchanged callers and modal/detail views; new/updated panel code should prefer `panelSnapshot` and avoid introducing new dependencies on split poll paths.
+
 ## Deferred Follow-Up
 
 Mouse-based cursor relocation is explicitly deferred until after the managed tabs refactor lands. The follow-up should use shell-integration markers, not direct xterm cursor mutation: valid left-clicks inside the active editable prompt region should translate into normal keyboard navigation escape sequences, while drag selections, alternate-screen apps, mouse-reporting programs, and unreachable output regions should be ignored.

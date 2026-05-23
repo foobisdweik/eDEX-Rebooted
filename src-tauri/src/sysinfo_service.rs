@@ -6,6 +6,7 @@
 //! without an `invoke()` round-trip.
 
 use serde::Serialize;
+use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use sysinfo::{Components, Disks, Networks, System};
@@ -42,26 +43,7 @@ impl SysinfoService {
         }
 
         state.sys.refresh_cpu_all();
-        let cpus = state.sys.cpus();
-        let (brand, freq) = cpus
-            .first()
-            .map(|c| (c.brand().to_string(), c.frequency()))
-            .unwrap_or_default();
-        let speed_ghz = (freq as f64) / 1000.0;
-        let (manufacturer, brand_only) = match brand.split_once(' ') {
-            Some((m, rest)) => (m.to_string(), rest.to_string()),
-            None => (String::new(), brand.clone()),
-        };
-
-        Ok(CpuStats {
-            manufacturer,
-            brand: brand_only,
-            cores: cpus.len(),
-            physical_cores: state.sys.physical_core_count().unwrap_or(cpus.len()),
-            speed: format!("{speed_ghz:.2}"),
-            speed_max: format!("{speed_ghz:.2}"),
-        })
-        .inspect(|cpu| state.cpu.store(cpu.clone(), now))
+        Ok(cpu_stats_from_sys(&state.sys)).inspect(|cpu| state.cpu.store(cpu.clone(), now))
     }
 
     pub fn current_load(&self) -> Result<LoadStats, String> {
@@ -75,26 +57,7 @@ impl SysinfoService {
         }
 
         state.sys.refresh_cpu_usage();
-        let cpus: Vec<CpuLoad> = state
-            .sys
-            .cpus()
-            .iter()
-            .map(|c| CpuLoad {
-                load: c.cpu_usage() as f64,
-            })
-            .collect();
-        let avg = if cpus.is_empty() {
-            0.0
-        } else {
-            state.sys.global_cpu_usage() as f64
-        };
-
-        Ok(LoadStats {
-            avg_load: avg,
-            current_load: avg,
-            cpus,
-        })
-        .inspect(|load| state.load.store(load.clone(), now))
+        Ok(load_stats_from_sys(&state.sys)).inspect(|load| state.load.store(load.clone(), now))
     }
 
     pub fn cpu_temperature(&self) -> Result<TempStats, String> {
@@ -103,25 +66,7 @@ impl SysinfoService {
             .lock()
             .map_err(|_| "components lock poisoned".to_string())?;
         comps.refresh();
-        let cores: Vec<f32> = comps
-            .iter()
-            .filter_map(|c| {
-                let label = c.label().to_lowercase();
-                if label.contains("cpu") || label.contains("core") || label.contains("package") {
-                    Some(c.temperature())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let max = cores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let max_v = if max.is_finite() { max as f64 } else { 0.0 };
-
-        Ok(TempStats {
-            main: max_v,
-            max: max_v,
-            cores,
-        })
+        Ok(temp_stats_from_components(&comps))
     }
 
     pub fn processes(&self) -> Result<ProcessList, String> {
@@ -178,6 +123,90 @@ impl SysinfoService {
             list,
         })
         .inspect(|processes| state.processes.store(processes.clone(), now))
+    }
+
+    pub fn panel_snapshot(
+        &self,
+        collapse_threads_by_name: bool,
+        top_limit: usize,
+    ) -> Result<PanelSnapshot, String> {
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
+
+        let mut state = self
+            .sys_state
+            .lock()
+            .map_err(|_| "sysinfo lock poisoned".to_string())?;
+        let sys = &mut state.sys;
+        sys.refresh_cpu_all();
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::everything(),
+        );
+
+        let cpu = cpu_stats_from_sys(sys);
+
+        let current_load = load_stats_from_sys(sys);
+
+        let process_count = sys.processes().len();
+        let total_mem = sys.total_memory() as f64;
+        let mut top_candidates: Vec<ProcessTopRow> = if collapse_threads_by_name {
+            let rows = sys
+                .processes()
+                .iter()
+                .map(|(pid, p)| ProcessTopRow {
+                    pid: pid.as_u32(),
+                    name: p.name().to_string_lossy().to_string(),
+                    cpu: p.cpu_usage() as f64,
+                    mem: if total_mem > 0.0 {
+                        (p.memory() as f64) * 100.0 / total_mem
+                    } else {
+                        0.0
+                    },
+                })
+                .collect();
+            collapse_top_rows_by_name(rows)
+        } else {
+            sys.processes()
+                .iter()
+                .map(|(pid, p)| ProcessTopRow {
+                    pid: pid.as_u32(),
+                    name: p.name().to_string_lossy().to_string(),
+                    cpu: p.cpu_usage() as f64,
+                    mem: if total_mem > 0.0 {
+                        (p.memory() as f64) * 100.0 / total_mem
+                    } else {
+                        0.0
+                    },
+                })
+                .collect()
+        };
+
+        top_candidates.sort_by(|a, b| {
+            let score_a = a.cpu * 100.0 + a.mem;
+            let score_b = b.cpu * 100.0 + b.mem;
+            score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        top_candidates.truncate(top_limit.max(1));
+
+        drop(state);
+
+        let mut comps = self
+            .components
+            .lock()
+            .map_err(|_| "components lock poisoned".to_string())?;
+        comps.refresh();
+        let cpu_temperature = temp_stats_from_components(&comps);
+
+        Ok(PanelSnapshot {
+            cpu,
+            current_load,
+            cpu_temperature,
+            process_count,
+            top_processes: top_candidates,
+        })
     }
 
     pub fn mem(&self) -> Result<MemStats, String> {
@@ -551,6 +580,25 @@ pub struct ProcessList {
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct ProcessTopRow {
+    pub pid: u32,
+    pub name: String,
+    pub cpu: f64,
+    pub mem: f64,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelSnapshot {
+    pub cpu: CpuStats,
+    pub current_load: LoadStats,
+    pub cpu_temperature: TempStats,
+    pub process_count: usize,
+    pub top_processes: Vec<ProcessTopRow>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct MemStats {
     pub total: u64,
     pub free: u64,
@@ -707,6 +755,92 @@ pub struct ChassisInfo {
     pub sku: String,
 }
 
+fn cpu_stats_from_sys(sys: &System) -> CpuStats {
+    let cpus = sys.cpus();
+    let (brand, freq) = cpus
+        .first()
+        .map(|c| (c.brand().to_string(), c.frequency()))
+        .unwrap_or_default();
+    let speed_ghz = (freq as f64) / 1000.0;
+    let (manufacturer, brand_only) = match brand.split_once(' ') {
+        Some((m, rest)) => (m.to_string(), rest.to_string()),
+        None => (String::new(), brand.clone()),
+    };
+
+    CpuStats {
+        manufacturer,
+        brand: brand_only,
+        cores: cpus.len(),
+        physical_cores: sys.physical_core_count().unwrap_or(cpus.len()),
+        speed: format!("{speed_ghz:.2}"),
+        speed_max: format!("{speed_ghz:.2}"),
+    }
+}
+
+fn load_stats_from_sys(sys: &System) -> LoadStats {
+    let cpus: Vec<CpuLoad> = sys
+        .cpus()
+        .iter()
+        .map(|c| CpuLoad {
+            load: c.cpu_usage() as f64,
+        })
+        .collect();
+    let avg = if cpus.is_empty() {
+        0.0
+    } else {
+        sys.global_cpu_usage() as f64
+    };
+
+    LoadStats {
+        avg_load: avg,
+        current_load: avg,
+        cpus,
+    }
+}
+
+fn temp_stats_from_components(comps: &Components) -> TempStats {
+    let cores: Vec<f32> = comps
+        .iter()
+        .filter_map(|c| {
+            let label = c.label().to_lowercase();
+            if label.contains("cpu") || label.contains("core") || label.contains("package") {
+                Some(c.temperature())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let max = cores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let max_v = if max.is_finite() { max as f64 } else { 0.0 };
+
+    TempStats {
+        main: max_v,
+        max: max_v,
+        cores,
+    }
+}
+
+/// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
+fn collapse_top_rows_by_name(rows: Vec<ProcessTopRow>) -> Vec<ProcessTopRow> {
+    let mut collapsed: HashMap<String, ProcessTopRow> = HashMap::new();
+    for row in rows {
+        match collapsed.entry(row.name.clone()) {
+            Entry::Occupied(mut slot) => {
+                let slot = slot.get_mut();
+                if slot.pid > row.pid {
+                    slot.pid = row.pid;
+                }
+                slot.cpu += row.cpu;
+                slot.mem += row.mem;
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(row);
+            }
+        }
+    }
+    collapsed.into_values().collect()
+}
+
 fn chrono_like_iso(unix_secs: u64) -> String {
     let secs = unix_secs as i64;
     let days = secs / 86400;
@@ -737,4 +871,48 @@ fn days_to_date(days_from_epoch: i64) -> (i32, u32, u32) {
     let year = if m <= 2 { y + 1 } else { y };
 
     (year, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collapse_top_rows_by_name_sums_once_and_keeps_lowest_pid() {
+        let rows = vec![
+            ProcessTopRow {
+                pid: 200,
+                name: "Chrome".to_string(),
+                cpu: 10.0,
+                mem: 2.0,
+            },
+            ProcessTopRow {
+                pid: 100,
+                name: "Chrome".to_string(),
+                cpu: 5.0,
+                mem: 1.0,
+            },
+            ProcessTopRow {
+                pid: 50,
+                name: "Safari".to_string(),
+                cpu: 3.0,
+                mem: 0.5,
+            },
+        ];
+        let mut collapsed = collapse_top_rows_by_name(rows);
+        collapsed.sort_by_key(|r| r.name.clone());
+
+        assert_eq!(collapsed.len(), 2);
+        let chrome = &collapsed[0];
+        assert_eq!(chrome.name, "Chrome");
+        assert_eq!(chrome.pid, 100);
+        assert!((chrome.cpu - 15.0).abs() < f64::EPSILON);
+        assert!((chrome.mem - 3.0).abs() < f64::EPSILON);
+
+        let safari = &collapsed[1];
+        assert_eq!(safari.name, "Safari");
+        assert_eq!(safari.pid, 50);
+        assert!((safari.cpu - 3.0).abs() < f64::EPSILON);
+        assert!((safari.mem - 0.5).abs() < f64::EPSILON);
+    }
 }

@@ -15,11 +15,13 @@ class Cpuinfo {
 
         this.series = [];
         this.charts = [];
-        window.si.cpu().then(data => {
-            let divide = Math.floor(data.cores/2);
+        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5).then(data => {
+            if (!data || !data.cpu || !data.currentLoad) return;
+            const cpu = data.cpu;
+            let divide = Math.floor(cpu.cores / 2);
             this.divide = divide;
 
-            let cpuName = data.manufacturer+data.brand;
+            let cpuName = cpu.manufacturer + cpu.brand;
             cpuName = cpuName.substr(0, 30);
             cpuName.substr(0, Math.min(cpuName.length, cpuName.lastIndexOf(" ")));
 
@@ -32,7 +34,7 @@ class Cpuinfo {
                     <canvas id="mod_cpuinfo_canvas_0" height="60"></canvas>
                 </div>
                 <div>
-                    <h1># <em>${divide+1}</em> - <em>${data.cores}</em><br>
+                    <h1># <em>${divide+1}</em> - <em>${cpu.cores}</em><br>
                     <i id="mod_cpuinfo_usagecounter1">Avg. --%</i></h1>
                     <canvas id="mod_cpuinfo_canvas_1" height="60"></canvas>
                 </div>
@@ -76,7 +78,7 @@ class Cpuinfo {
                 }));
             }
 
-            for (var i = 0; i < data.cores; i++) {
+            for (var i = 0; i < cpu.cores; i++) {
                 // Create TimeSeries
                 this.series.push(new TimeSeries());
 
@@ -98,32 +100,15 @@ class Cpuinfo {
             }
 
             // Init updater
-            this.updatingCPUload = false;
-            this.updateCPUload();
-            // Tauri port (macOS-only): process.platform branches dropped.
-            this.updateCPUtemp();
-            this.updatingCPUspeed = false;
-            this.updateCPUspeed();
-            this.updatingCPUtasks = false;
-            this.updateCPUtasks();
-            this.loadUpdater = setInterval(() => {
-                this.updateCPUload();
-            }, 500);
-            this.tempUpdater = setInterval(() => {
-                this.updateCPUtemp();
-            }, 2000);
-            this.speedUpdater = setInterval(() => {
-                this.updateCPUspeed();
+            this.updateSnapshot(data);
+            this.snapshotUpdater = setInterval(() => {
+                this.updateSnapshot();
             }, 1000);
-            this.tasksUpdater = setInterval(() => {
-                this.updateCPUtasks();
-            }, 5000);
-        });
+        }).catch(() => {});
     }
-    updateCPUload() {
-        if (this.updatingCPUload) return;
-        this.updatingCPUload = true;
-        window.si.currentLoad().then(data => {
+    updateSnapshot(snapshot) {
+        const applySnapshot = data => {
+            if (!data) return;
             let average = [[], []];
 
             if (!data.cpus) return; // Prevent memleak in rare case where systeminformation takes extra time to retrieve CPU info (see github issue #216)
@@ -146,42 +131,36 @@ class Cpuinfo {
                     // Fail silently, DOM element is probably getting refreshed (new theme, etc)
                 }
             });
-            this.updatingCPUload = false;
-        });
-    }
-    updateCPUtemp() {
-        window.si.cpuTemperature().then(data => {
+
             try {
-                document.getElementById("mod_cpuinfo_temp").innerText = `${data.max}°C`;
+                document.getElementById("mod_cpuinfo_temp").innerText = `${data.cpuTemperature.max}°C`;
+                document.getElementById("mod_cpuinfo_speed_min").innerText = `${data.cpu.speed}GHz`;
+                document.getElementById("mod_cpuinfo_speed_max").innerText = `${data.cpu.speedMax}GHz`;
+                document.getElementById("mod_cpuinfo_tasks").innerText = `${data.processCount}`;
             } catch(e) {
                 // See above notice
             }
-        });
-    }
-    updateCPUspeed() {
-        if (this.updatingCPUspeed) return;
-        this.updatingCPUspeed = true
-        window.si.cpu().then(data => {
-            try {
-                document.getElementById("mod_cpuinfo_speed_min").innerText = `${data.speed}GHz`;
-                document.getElementById("mod_cpuinfo_speed_max").innerText = `${data.speedMax}GHz`;
-            } catch(e) {
-                // See above notice
-            }
-            this.updatingCPUspeed = false;
-        });
-    }
-    updateCPUtasks() {
-        if (this.updatingCPUtasks) return;
-        this.updatingCPUtasks = true;
-        window.si.processes().then(data => {
-            try {
-                document.getElementById("mod_cpuinfo_tasks").innerText = `${data.all}`;
-            } catch(e) {
-                // See above notice
-            }
-            this.updatingCPUtasks = false;
-        });
+
+        };
+
+        if (snapshot) {
+            // Adapt the backend panel snapshot to the legacy shape used by this class.
+            applySnapshot({
+                cpus: snapshot.currentLoad.cpus,
+                cpu: snapshot.cpu,
+                cpuTemperature: snapshot.cpuTemperature,
+                processCount: snapshot.processCount
+            });
+            return;
+        }
+        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5).then(data => {
+            applySnapshot({
+                cpus: data.currentLoad.cpus,
+                cpu: data.cpu,
+                cpuTemperature: data.cpuTemperature,
+                processCount: data.processCount
+            });
+        }).catch(() => {});
     }
 }
 
