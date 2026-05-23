@@ -249,6 +249,7 @@ class FilesystemDisplay {
             }
 
             if (tcwd === this.dirpath && nextSig === this._lastDirSig) {
+                this.render(this.cwd);
                 this._reading = false;
                 return true;
             }
