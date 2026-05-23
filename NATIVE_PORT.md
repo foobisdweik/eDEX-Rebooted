@@ -32,17 +32,24 @@ companion app, depending on what the open questions resolve to.
 
 ---
 
+## Decisions
+
+- **2026-05-22 — UI framework: gpui.** Zed's GPU UI framework, chosen
+  for its Metal-backed text rendering, SwiftUI-shaped reactive model,
+  and proven ability to carry a dense text UI smoothly on macOS.
+  Tradeoffs accepted: documentation is thin ("read Zed's source"),
+  ecosystem is young, and breaking changes still happen. The decision
+  to host gpui inside an AppKit/SwiftUI shell vs. let gpui own the
+  whole window is deferred to Slice 4 (terminal core) since none of
+  the panel slices need that distinction yet.
+
 ## Open architectural questions
 
-Resolve before — or at the same time as — picking the first conversion
-target. Whichever framework the panels migrate to, the terminal and the
-boot sequence have to be able to live in the same window.
+Resolve before — or at the same time as — the slice that needs them.
+Q2 and Q4 are tied to Slice 4 (terminal core); Q3 only matters if the
+hybrid shell from the Slice 4 sub-decision pulls Swift back in.
 
-1. **What does "native" mean for the UI layer?**
-   - SwiftUI + AppKit (Swift owns rendering, Rust owns logic via FFI)?
-   - A pure Rust GUI crate (egui / iced / Slint / makepad / gpui)?
-   - A hybrid (native AppKit chrome, Rust-owned GPU surface for the
-     panels, native NSView for the terminal)?
+1. ~~**What does "native" mean for the UI layer?**~~ → **gpui** (see Decisions above).
 2. **Where does the terminal renderer live?** xterm.js is ~284 KB and the
    single biggest reason WKWebView is still here. Candidates: alacritty's
    renderer (`alacritty_terminal` + `wgpu`), wezterm's term crate, or a
