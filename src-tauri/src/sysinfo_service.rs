@@ -6,7 +6,7 @@
 //! without an `invoke()` round-trip.
 
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use sysinfo::{Components, Disks, Networks, System};
@@ -234,27 +234,21 @@ impl SysinfoService {
         let process_count = sys.processes().len();
         let total_mem = sys.total_memory() as f64;
         let mut top_candidates: Vec<ProcessTopRow> = if collapse_threads_by_name {
-            let mut collapsed: HashMap<String, ProcessTopRow> = HashMap::new();
-            for (pid, p) in sys.processes() {
-                let name = p.name().to_string_lossy().to_string();
-                let row = ProcessTopRow {
+            let rows = sys
+                .processes()
+                .iter()
+                .map(|(pid, p)| ProcessTopRow {
                     pid: pid.as_u32(),
-                    name: name.clone(),
+                    name: p.name().to_string_lossy().to_string(),
                     cpu: p.cpu_usage() as f64,
                     mem: if total_mem > 0.0 {
                         (p.memory() as f64) * 100.0 / total_mem
                     } else {
                         0.0
                     },
-                };
-                let slot = collapsed.entry(name).or_insert_with(|| row.clone());
-                if slot.pid > row.pid {
-                    slot.pid = row.pid;
-                }
-                slot.cpu += row.cpu;
-                slot.mem += row.mem;
-            }
-            collapsed.into_values().collect()
+                })
+                .collect();
+            collapse_top_rows_by_name(rows)
         } else {
             sys.processes()
                 .iter()
@@ -861,6 +855,27 @@ pub struct ChassisInfo {
     pub sku: String,
 }
 
+/// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
+fn collapse_top_rows_by_name(rows: Vec<ProcessTopRow>) -> Vec<ProcessTopRow> {
+    let mut collapsed: HashMap<String, ProcessTopRow> = HashMap::new();
+    for row in rows {
+        match collapsed.entry(row.name.clone()) {
+            Entry::Occupied(mut slot) => {
+                let slot = slot.get_mut();
+                if slot.pid > row.pid {
+                    slot.pid = row.pid;
+                }
+                slot.cpu += row.cpu;
+                slot.mem += row.mem;
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(row);
+            }
+        }
+    }
+    collapsed.into_values().collect()
+}
+
 fn chrono_like_iso(unix_secs: u64) -> String {
     let secs = unix_secs as i64;
     let days = secs / 86400;
@@ -891,4 +906,48 @@ fn days_to_date(days_from_epoch: i64) -> (i32, u32, u32) {
     let year = if m <= 2 { y + 1 } else { y };
 
     (year, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collapse_top_rows_by_name_sums_once_and_keeps_lowest_pid() {
+        let rows = vec![
+            ProcessTopRow {
+                pid: 200,
+                name: "Chrome".to_string(),
+                cpu: 10.0,
+                mem: 2.0,
+            },
+            ProcessTopRow {
+                pid: 100,
+                name: "Chrome".to_string(),
+                cpu: 5.0,
+                mem: 1.0,
+            },
+            ProcessTopRow {
+                pid: 50,
+                name: "Safari".to_string(),
+                cpu: 3.0,
+                mem: 0.5,
+            },
+        ];
+        let mut collapsed = collapse_top_rows_by_name(rows);
+        collapsed.sort_by_key(|r| r.name.clone());
+
+        assert_eq!(collapsed.len(), 2);
+        let chrome = &collapsed[0];
+        assert_eq!(chrome.name, "Chrome");
+        assert_eq!(chrome.pid, 100);
+        assert!((chrome.cpu - 15.0).abs() < f64::EPSILON);
+        assert!((chrome.mem - 3.0).abs() < f64::EPSILON);
+
+        let safari = &collapsed[1];
+        assert_eq!(safari.name, "Safari");
+        assert_eq!(safari.pid, 50);
+        assert!((safari.cpu - 3.0).abs() < f64::EPSILON);
+        assert!((safari.mem - 0.5).abs() < f64::EPSILON);
+    }
 }
