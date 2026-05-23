@@ -87,6 +87,14 @@
         console.info("native_mount: activated (flag-on, restart required to disable)");
     }
 
+    async function setClockText(text) {
+        try {
+            await invoke("native_mount_set_clock_text", { text });
+        } catch (e) {
+            console.warn("native_mount_set_clock_text failed:", e);
+        }
+    }
+
     function _resetForTests() {
         seq = 0;
         lastRect = null;
@@ -100,7 +108,7 @@
     }
 
     globalScope.bridge = globalScope.bridge || {};
-    globalScope.bridge.nativeMount = { activate, _resetForTests };
+    globalScope.bridge.nativeMount = { activate, setClockText, _resetForTests };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = globalScope.bridge.nativeMount;

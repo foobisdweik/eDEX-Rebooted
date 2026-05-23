@@ -1,4 +1,5 @@
 mod fs_cmds;
+mod native_modal;
 mod native_mount;
 mod pty;
 mod settings;
@@ -84,6 +85,9 @@ pub fn run() {
             // native mount
             native_mount::native_mount_set_rect,
             native_mount::native_mount_set_visible,
+            native_mount::native_mount_set_clock_text,
+            // native modal pilot
+            native_modal::native_modal_notify,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

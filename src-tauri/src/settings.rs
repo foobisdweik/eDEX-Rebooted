@@ -87,7 +87,9 @@ fn default_settings() -> Value {
         "fsListView": false,
         "experimentalGlobeFeatures": false,
         "experimentalFeatures": false,
-        "experimentalNativePanels": false
+        "experimentalNativePanels": false,
+        "experimentalNativeClock": false,
+        "experimentalNativeModal": false
     })
 }
 

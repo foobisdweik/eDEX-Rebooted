@@ -17,9 +17,53 @@ class Modal {
         let buttons = [];
         let augs = [];
         let zindex = 0;
+        const invoke = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
 
         // Reserve a slot in window.modals
         window.modals[this.id] = {};
+
+        const useNativeModal = (
+            window.settings
+            && window.settings.experimentalNativeModal === true
+            && typeof invoke === "function"
+            && this.type !== "custom"
+        );
+        if (useNativeModal) {
+            this.close = () => {
+                delete window.modals[this.id];
+                if (typeof this.onclose === "function") this.onclose();
+            };
+            this.focus = () => {};
+            this.unfocus = () => {};
+
+            switch(this.type) {
+                case "error":
+                    window.audioManager.error.play();
+                    break;
+                case "warning":
+                    window.audioManager.alarm.play();
+                    break;
+                default:
+                    window.audioManager.info.play();
+                    break;
+            }
+
+            window.modals[this.id] = this;
+            const plainMessage = String(this.message || "")
+                .replace(/<br\s*\/?>/gi, "\n")
+                .replace(/<[^>]*>/g, "");
+            const kind = this.type === "error" ? "error" : (this.type === "warning" ? "warning" : "info");
+            invoke("native_modal_notify", {
+                kind,
+                title: String(this.title || "Modal"),
+                message: plainMessage
+            }).catch(e => {
+                console.warn("native_modal_notify failed:", e);
+            }).finally(() => {
+                this.close();
+            });
+            return this.id;
+        }
 
         switch(this.type) {
             case "error":
