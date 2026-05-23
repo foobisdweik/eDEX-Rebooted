@@ -18,8 +18,14 @@
     const proxy = new Proxy({}, {
         apply: () => { throw new Error("Cannot use the sysinfo proxy directly as a function"); },
         set: () => { throw new Error("Cannot set a property on the sysinfo proxy"); },
-        get: (_, prop) => {
-            const cmd = "si_" + String(prop).replace(/[A-Z]/g, m => "_" + m.toLowerCase());
+        get: (target, prop) => {
+            // Pass through Symbol keys, anything already on the target,
+            // and the "then" property so the proxy is not mistaken for a
+            // thenable when accidentally awaited or inspected by tooling.
+            if (typeof prop !== "string" || prop === "then" || prop in target) {
+                return target[prop];
+            }
+            const cmd = "si_" + prop.replace(/[A-Z]/g, m => "_" + m.toLowerCase());
             return function (...args) {
                 let payload = {};
                 if (cmd === "si_network_stats" && args.length >= 1) {

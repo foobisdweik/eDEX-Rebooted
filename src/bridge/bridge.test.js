@@ -96,3 +96,83 @@ test("events.listenerCount reflects active subscribers", () => {
     off();
     assert.equal(window.bridge.events.listenerCount("x"), 0);
 });
+
+test("events.on rejects non-function handlers", () => {
+    const window = freshBridge();
+    assert.throws(() => window.bridge.events.on("x", null), TypeError);
+    assert.throws(() => window.bridge.events.on("x", "string"), TypeError);
+    assert.throws(() => window.bridge.events.on("x", 42), TypeError);
+});
+
+test("events.emit uses a snapshot, so concurrent subscribe doesn't fire this round", () => {
+    const window = freshBridge();
+    let outerCalls = 0;
+    let innerCalls = 0;
+    window.bridge.events.on("x", () => {
+        outerCalls++;
+        window.bridge.events.on("x", () => { innerCalls++; });
+    });
+    window.bridge.events.emit("x");
+    assert.equal(outerCalls, 1);
+    assert.equal(innerCalls, 0);
+    // The newly-added handler fires on the NEXT emit.
+    window.bridge.events.emit("x");
+    assert.ok(innerCalls >= 1);
+});
+
+test("events.emit uses a snapshot, so concurrent unsubscribe doesn't skip handlers mid-iteration", () => {
+    const window = freshBridge();
+    let calls = 0;
+    const handlerA = () => { calls++; off(); };
+    const handlerB = () => { calls++; };
+    window.bridge.events.on("x", handlerA);
+    const off = window.bridge.events.on("x", handlerB);
+    window.bridge.events.emit("x");
+    assert.equal(calls, 2);
+});
+
+function freshSysinfoBridge(invokeImpl) {
+    delete require.cache[require.resolve("./sysinfo.js")];
+    global.window = {
+        __TAURI__: { core: { invoke: invokeImpl } }
+    };
+    require("./sysinfo.js");
+    return global.window;
+}
+
+test("sysinfo proxy forwards camelCase reads to snake_case invoke commands", () => {
+    const calls = [];
+    const window = freshSysinfoBridge((cmd, payload) => {
+        calls.push([cmd, payload]);
+        return Promise.resolve(null);
+    });
+    window.bridge.sysinfo.cpu();
+    window.bridge.sysinfo.networkInterfaces();
+    window.bridge.sysinfo.networkStats("en0");
+    assert.deepEqual(calls, [
+        ["si_cpu", {}],
+        ["si_network_interfaces", {}],
+        ["si_network_stats", { iface: "en0" }]
+    ]);
+});
+
+test("sysinfo proxy does not impersonate a thenable when awaited", async () => {
+    const window = freshSysinfoBridge(() => Promise.resolve("never invoked"));
+    assert.equal(typeof window.bridge.sysinfo.then, "undefined");
+    // Awaiting the proxy directly must NOT trigger si_then.
+    const awaited = await window.bridge.sysinfo;
+    assert.equal(awaited, window.bridge.sysinfo);
+});
+
+test("sysinfo proxy ignores Symbol property reads", () => {
+    const window = freshSysinfoBridge(() => { throw new Error("invoke called"); });
+    assert.equal(window.bridge.sysinfo[Symbol.iterator], undefined);
+    assert.equal(window.bridge.sysinfo[Symbol.toPrimitive], undefined);
+});
+
+test("sysinfo proxy passes Object.prototype methods through", () => {
+    const window = freshSysinfoBridge(() => { throw new Error("invoke called"); });
+    // toString / hasOwnProperty must be the standard Object methods, not si_to_string.
+    assert.equal(typeof window.bridge.sysinfo.toString, "function");
+    assert.equal(window.bridge.sysinfo.toString(), "[object Object]");
+});

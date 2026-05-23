@@ -17,18 +17,26 @@
 
     globalScope.bridge.events = {
         on(event, handler) {
+            if (typeof handler !== "function") {
+                throw new TypeError("bridge.events.on: handler must be a function");
+            }
             getSet(event).add(handler);
             return () => globalScope.bridge.events.off(event, handler);
         },
         off(event, handler) {
             const set = subscribers.get(event);
-            if (set) set.delete(handler);
+            if (!set) return;
+            set.delete(handler);
+            if (set.size === 0) subscribers.delete(event);
         },
         emit(event, payload) {
             const set = subscribers.get(event);
             if (!set || set.size === 0) return 0;
+            // Snapshot before dispatch so handlers that subscribe or
+            // unsubscribe during iteration don't perturb this round.
+            const snapshot = [...set];
             let delivered = 0;
-            for (const handler of set) {
+            for (const handler of snapshot) {
                 try {
                     handler(payload);
                     delivered++;
