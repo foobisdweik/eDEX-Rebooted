@@ -15,7 +15,7 @@ class Cpuinfo {
 
         this.series = [];
         this.charts = [];
-        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5).then(data => {
+        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5, false).then(data => {
             if (!data || !data.cpu || !data.currentLoad) return;
             const cpu = data.cpu;
             let divide = Math.floor(cpu.cores / 2);
@@ -153,7 +153,7 @@ class Cpuinfo {
             });
             return;
         }
-        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5).then(data => {
+        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5, false).then(data => {
             applySnapshot({
                 cpus: data.currentLoad.cpus,
                 cpu: data.cpu,

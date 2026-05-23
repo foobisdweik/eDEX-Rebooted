@@ -17,7 +17,11 @@ All active implementation planning for terminal tabs lives in this file. `CLAUDE
 ## Migration Contracts and Deprecations (Current Refactor)
 
 - **PTY metadata contract (current):** `pty_metadata(id)` is the consolidated backend poll surface for terminal tab metadata and returns both `cwd` and foreground `process` in one call.
-- **Sysinfo panel contract (current):** `si_panel_snapshot(collapseThreadsByName, topLimit)` is the consolidated panel data path now used by CPU/toplist panels; bridge-side short TTL + in-flight reuse preserves current polling behavior while reducing duplicate backend work.
+- **Sysinfo panel contract (current):** `si_panel_snapshot(collapseThreadsByName, topLimit, includeProcessList)` returns one refresh bundle for the left column. Bridge cache key: `collapse:topLimit:includeProcessList` (900ms TTL + in-flight dedupe).
+- **PanelSnapshot JSON shape (camelCase):**
+  - `cpu`, `currentLoad`, `cpuTemperature`, `processCount`, `topProcesses[]` — cpuinfo + toplist widget
+  - `mem` — ramwatcher (`total`, `free`, `used`, `active`, `available`, swap fields)
+  - `processList` — only when `includeProcessList: true` (toplist modal); same shape as legacy `si_processes` (`all`, `running`, `list[]` with `pid`, `name`, `cpu`, `mem`, `started`, `state`, `user`, `command`). Thread collapse by name runs in Rust when `collapseThreadsByName` is true.
 - **Compatibility status:** Legacy split PTY poll paths `pty_cwd(id)` and `pty_process(id)` remain available; frontend polling falls back to them when `pty_metadata` is unavailable so mixed-version frontend/backend pairs keep working.
 - **Deprecation expectation (non-breaking):** Legacy per-metric poll usage (`si.processes()`, `si.mem()`, etc.) is still supported for unchanged callers and modal/detail views; new/updated panel code should prefer `panelSnapshot` and avoid introducing new dependencies on split poll paths.
 

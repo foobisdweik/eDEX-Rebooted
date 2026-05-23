@@ -149,12 +149,12 @@ test("sysinfo proxy forwards camelCase reads to snake_case invoke commands", () 
     window.bridge.sysinfo.cpu();
     window.bridge.sysinfo.networkInterfaces();
     window.bridge.sysinfo.networkStats("en0");
-    window.bridge.sysinfo.panelSnapshot(true, 8);
+    window.bridge.sysinfo.panelSnapshot(true, 8, false);
     assert.deepEqual(calls, [
         ["si_cpu", {}],
         ["si_network_interfaces", {}],
         ["si_network_stats", { iface: "en0" }],
-        ["si_panel_snapshot", { collapseThreadsByName: true, topLimit: 8 }]
+        ["si_panel_snapshot", { collapseThreadsByName: true, topLimit: 8, includeProcessList: false }]
     ]);
 });
 
@@ -165,26 +165,27 @@ test("sysinfo panelSnapshot reuses short-lived cache and in-flight request", asy
         return Promise.resolve({ ok: true, calls });
     });
     const [a, b] = await Promise.all([
-        window.bridge.sysinfo.panelSnapshot(false, 5),
-        window.bridge.sysinfo.panelSnapshot(false, 5)
+        window.bridge.sysinfo.panelSnapshot(false, 5, false),
+        window.bridge.sysinfo.panelSnapshot(false, 5, false)
     ]);
     assert.equal(calls, 1);
     assert.deepEqual(a, b);
-    const c = await window.bridge.sysinfo.panelSnapshot(false, 5);
+    const c = await window.bridge.sysinfo.panelSnapshot(false, 5, false);
     assert.equal(calls, 1);
     assert.deepEqual(c, a);
 });
 
-test("sysinfo panelSnapshot cache is keyed by collapse and topLimit", async () => {
+test("sysinfo panelSnapshot cache is keyed by collapse, topLimit, and includeProcessList", async () => {
     const payloads = [];
     const window = freshSysinfoBridge((_cmd, payload) => {
         payloads.push(payload);
         return Promise.resolve(payload);
     });
-    await window.bridge.sysinfo.panelSnapshot(false, 5);
-    await window.bridge.sysinfo.panelSnapshot(true, 5);
-    await window.bridge.sysinfo.panelSnapshot(false, 8);
-    assert.equal(payloads.length, 3);
+    await window.bridge.sysinfo.panelSnapshot(false, 5, false);
+    await window.bridge.sysinfo.panelSnapshot(true, 5, false);
+    await window.bridge.sysinfo.panelSnapshot(false, 8, false);
+    await window.bridge.sysinfo.panelSnapshot(false, 5, true);
+    assert.equal(payloads.length, 4);
 });
 
 test("sysinfo proxy does not impersonate a thenable when awaited", async () => {

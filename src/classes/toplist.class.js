@@ -23,7 +23,7 @@ class Toplist {
         if (this.currentlyUpdating) return;
 
         this.currentlyUpdating = true;
-        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5).then(data => {
+        window.si.panelSnapshot(window.settings.excludeThreadsFromToplist === true, 5, false).then(data => {
             const list = data.topProcesses || [];
             document.querySelectorAll("#mod_toplist_table > tr").forEach(el => {
                 el.remove();
@@ -85,19 +85,12 @@ class Toplist {
         function updateProcessList() {
             if (currentlyUpdating) return;
             currentlyUpdating = true;
-            window.si.processes().then(data => {
-                if (window.settings.excludeThreadsFromToplist === true) {
-                    data.list = data.list.sort((a, b) => {
-                        return (a.pid - b.pid);
-                    }).filter((e, index, a) => {
-                        let i = a.findIndex(x => x.name === e.name);
-                        if (i !== -1 && i !== index) {
-                            a[i].cpu = a[i].cpu + e.cpu;
-                            a[i].mem = a[i].mem + e.mem;
-                            return false;
-                        }
-                        return true;
-                    });
+            const collapse = window.settings.excludeThreadsFromToplist === true;
+            window.si.panelSnapshot(collapse, 5, true).then(snapshot => {
+                const data = snapshot.processList;
+                if (!data || !data.list) {
+                    currentlyUpdating = false;
+                    return;
                 }
 
                 data.list.forEach(proc => {
@@ -173,6 +166,8 @@ class Toplist {
                         document.getElementById("processList").append(el);
                     });
                 }
+            }).catch(() => {
+                currentlyUpdating = false;
             });
         }
 

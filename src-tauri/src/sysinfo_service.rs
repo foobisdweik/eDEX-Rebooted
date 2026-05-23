@@ -88,47 +88,17 @@ impl SysinfoService {
             true,
             ProcessRefreshKind::everything(),
         );
-        let total_mem = state.sys.total_memory() as f64;
-        let list: Vec<ProcessRow> = state
-            .sys
-            .processes()
-            .iter()
-            .map(|(pid, p)| ProcessRow {
-                pid: pid.as_u32(),
-                name: p.name().to_string_lossy().to_string(),
-                cpu: p.cpu_usage() as f64,
-                mem: if total_mem > 0.0 {
-                    (p.memory() as f64) * 100.0 / total_mem
-                } else {
-                    0.0
-                },
-                started: chrono_like_iso(p.start_time()),
-                state: format!("{:?}", p.status()),
-                user: p.user_id().map(|u| u.to_string()).unwrap_or_default(),
-                command: p
-                    .cmd()
-                    .iter()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            })
-            .collect();
-        let n = list.len();
+        let list = collect_process_rows(&state.sys);
 
-        Ok(ProcessList {
-            all: n,
-            running: n,
-            blocked: 0,
-            sleeping: 0,
-            list,
-        })
-        .inspect(|processes| state.processes.store(processes.clone(), now))
+        Ok(process_list_from_rows(list))
+            .inspect(|processes| state.processes.store(processes.clone(), now))
     }
 
     pub fn panel_snapshot(
         &self,
         collapse_threads_by_name: bool,
         top_limit: usize,
+        include_process_list: bool,
     ) -> Result<PanelSnapshot, String> {
         use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
 
@@ -138,12 +108,14 @@ impl SysinfoService {
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
         let sys = &mut state.sys;
         sys.refresh_cpu_all();
+        sys.refresh_memory();
         sys.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
             ProcessRefreshKind::everything(),
         );
 
+        let mem = mem_stats_from_system(sys);
         let cpu = cpu_stats_from_sys(sys);
 
         let current_load = load_stats_from_sys(sys);
@@ -191,6 +163,16 @@ impl SysinfoService {
         });
         top_candidates.truncate(top_limit.max(1));
 
+        let process_list = if include_process_list {
+            let mut rows = collect_process_rows(sys);
+            if collapse_threads_by_name {
+                rows = collapse_process_rows_by_name(rows);
+            }
+            Some(process_list_from_rows(rows))
+        } else {
+            None
+        };
+
         drop(state);
 
         let mut comps = self
@@ -206,6 +188,8 @@ impl SysinfoService {
             cpu_temperature,
             process_count,
             top_processes: top_candidates,
+            mem,
+            process_list,
         })
     }
 
@@ -220,27 +204,8 @@ impl SysinfoService {
         }
 
         state.sys.refresh_memory();
-        let total = state.sys.total_memory();
-        let used = state.sys.used_memory();
-        let free = state.sys.free_memory();
-        let available = state.sys.available_memory();
-        let free_strict = total.saturating_sub(used);
 
-        Ok(MemStats {
-            total,
-            free: free_strict,
-            used,
-            active: used,
-            available: available.max(free),
-            buffers: 0,
-            cached: 0,
-            slab: 0,
-            buffcache: 0,
-            swaptotal: state.sys.total_swap(),
-            swapused: state.sys.used_swap(),
-            swapfree: state.sys.free_swap(),
-        })
-        .inspect(|mem| state.mem.store(mem.clone(), now))
+        Ok(mem_stats_from_system(&state.sys)).inspect(|mem| state.mem.store(mem.clone(), now))
     }
 
     pub fn battery(&self) -> Result<BatteryInfo, String> {
@@ -595,6 +560,9 @@ pub struct PanelSnapshot {
     pub cpu_temperature: TempStats,
     pub process_count: usize,
     pub top_processes: Vec<ProcessTopRow>,
+    pub mem: MemStats,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_list: Option<ProcessList>,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -820,18 +788,77 @@ fn temp_stats_from_components(comps: &Components) -> TempStats {
     }
 }
 
-/// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
-fn collapse_top_rows_by_name(rows: Vec<ProcessTopRow>) -> Vec<ProcessTopRow> {
-    let mut collapsed: HashMap<String, ProcessTopRow> = HashMap::new();
+fn mem_stats_from_system(sys: &System) -> MemStats {
+    let total = sys.total_memory();
+    let used = sys.used_memory();
+    let free = sys.free_memory();
+    let available = sys.available_memory();
+    let free_strict = total.saturating_sub(used);
+
+    MemStats {
+        total,
+        free: free_strict,
+        used,
+        active: used,
+        available: available.max(free),
+        buffers: 0,
+        cached: 0,
+        slab: 0,
+        buffcache: 0,
+        swaptotal: sys.total_swap(),
+        swapused: sys.used_swap(),
+        swapfree: sys.free_swap(),
+    }
+}
+
+fn collect_process_rows(sys: &System) -> Vec<ProcessRow> {
+    let total_mem = sys.total_memory() as f64;
+    sys.processes()
+        .iter()
+        .map(|(pid, p)| ProcessRow {
+            pid: pid.as_u32(),
+            name: p.name().to_string_lossy().to_string(),
+            cpu: p.cpu_usage() as f64,
+            mem: if total_mem > 0.0 {
+                (p.memory() as f64) * 100.0 / total_mem
+            } else {
+                0.0
+            },
+            started: chrono_like_iso(p.start_time()),
+            state: format!("{:?}", p.status()),
+            user: p.user_id().map(|u| u.to_string()).unwrap_or_default(),
+            command: p
+                .cmd()
+                .iter()
+                .map(|s| s.to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+                .join(" "),
+        })
+        .collect()
+}
+
+fn process_list_from_rows(list: Vec<ProcessRow>) -> ProcessList {
+    let n = list.len();
+    ProcessList {
+        all: n,
+        running: n,
+        blocked: 0,
+        sleeping: 0,
+        list,
+    }
+}
+
+/// Group rows by `name`; on collision, callers merge via `merge` (typically sum cpu/mem, lowest pid wins).
+fn collapse_named_rows<T>(
+    rows: Vec<T>,
+    name_key: impl Fn(&T) -> String,
+    mut merge: impl FnMut(&mut T, T),
+) -> Vec<T> {
+    let mut collapsed: HashMap<String, T> = HashMap::new();
     for row in rows {
-        match collapsed.entry(row.name.clone()) {
+        match collapsed.entry(name_key(&row)) {
             Entry::Occupied(mut slot) => {
-                let slot = slot.get_mut();
-                if slot.pid > row.pid {
-                    slot.pid = row.pid;
-                }
-                slot.cpu += row.cpu;
-                slot.mem += row.mem;
+                merge(slot.get_mut(), row);
             }
             Entry::Vacant(slot) => {
                 slot.insert(row);
@@ -839,6 +866,40 @@ fn collapse_top_rows_by_name(rows: Vec<ProcessTopRow>) -> Vec<ProcessTopRow> {
         }
     }
     collapsed.into_values().collect()
+}
+
+/// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
+fn collapse_process_rows_by_name(rows: Vec<ProcessRow>) -> Vec<ProcessRow> {
+    collapse_named_rows(
+        rows,
+        |row| row.name.clone(),
+        |slot, row| {
+            if slot.pid > row.pid {
+                slot.pid = row.pid;
+                slot.started = row.started.clone();
+                slot.state = row.state.clone();
+                slot.user = row.user.clone();
+                slot.command = row.command.clone();
+            }
+            slot.cpu += row.cpu;
+            slot.mem += row.mem;
+        },
+    )
+}
+
+/// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
+fn collapse_top_rows_by_name(rows: Vec<ProcessTopRow>) -> Vec<ProcessTopRow> {
+    collapse_named_rows(
+        rows,
+        |row| row.name.clone(),
+        |slot, row| {
+            if slot.pid > row.pid {
+                slot.pid = row.pid;
+            }
+            slot.cpu += row.cpu;
+            slot.mem += row.mem;
+        },
+    )
 }
 
 fn chrono_like_iso(unix_secs: u64) -> String {

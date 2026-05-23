@@ -19,8 +19,8 @@
         ttlMs: 900
     };
 
-    function panelSnapshotCacheKey(collapseThreadsByName, topLimit) {
-        return `${collapseThreadsByName ? 1 : 0}:${topLimit}`;
+    function panelSnapshotCacheKey(collapseThreadsByName, topLimit, includeProcessList) {
+        return `${collapseThreadsByName ? 1 : 0}:${topLimit}:${includeProcessList ? 1 : 0}`;
     }
 
     const proxy = new Proxy({}, {
@@ -42,11 +42,13 @@
                 if (cmd === "si_panel_snapshot") {
                     payload = {
                         collapseThreadsByName: args[0] === true,
-                        topLimit: Number.isInteger(args[1]) ? args[1] : 5
+                        topLimit: Number.isInteger(args[1]) ? args[1] : 5,
+                        includeProcessList: args[2] === true
                     };
                     const cacheKey = panelSnapshotCacheKey(
                         payload.collapseThreadsByName,
-                        payload.topLimit
+                        payload.topLimit,
+                        payload.includeProcessList
                     );
                     const now = Date.now();
                     const cached = panelSnapshotCache.entries.get(cacheKey);
