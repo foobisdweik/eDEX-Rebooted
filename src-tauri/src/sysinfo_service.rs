@@ -138,7 +138,6 @@ impl SysinfoService {
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
         let sys = &mut state.sys;
         sys.refresh_cpu_all();
-        sys.refresh_cpu_usage();
         sys.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
