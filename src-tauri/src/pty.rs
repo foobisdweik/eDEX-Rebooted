@@ -50,117 +50,132 @@ pub struct SpawnArgs {
 }
 
 #[tauri::command]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     app: AppHandle,
     state: State<'_, PtyManager>,
     opts: SpawnArgs,
 ) -> Result<u32, String> {
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize {
-            rows: opts.rows,
-            cols: opts.cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| e.to_string())?;
+    blocking_pty(move || {
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: opts.rows,
+                cols: opts.cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new(&opts.shell);
-    if opts.args.is_empty() {
-        // Match _boot.js default: login shell on non-Windows
-        cmd.arg("--login");
-    } else {
-        for a in &opts.args {
-            cmd.arg(a);
-        }
-    }
-    cmd.cwd(&opts.cwd);
-    for (k, v) in &opts.env {
-        cmd.env(k, v);
-    }
-
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    let pid = child.process_id().unwrap_or(0);
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-
-    let id = {
-        let mut n = state.next_id.lock().unwrap();
-        let v = *n;
-        *n += 1;
-        v
-    };
-
-    {
-        let mut map = state.inner.lock().unwrap();
-        map.insert(
-            id,
-            PtyHandle {
-                master: pair.master,
-                writer,
-                pid,
-                _child: child,
-            },
-        );
-    }
-
-    let app_for_reader = app.clone();
-    let channel = format!("pty://{}/data", id);
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 8192];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
-                    let _ = app_for_reader.emit(&channel, encoded);
-                }
-                Err(_) => break,
+        let mut cmd = CommandBuilder::new(&opts.shell);
+        if opts.args.is_empty() {
+            // Match _boot.js default: login shell on non-Windows
+            cmd.arg("--login");
+        } else {
+            for a in &opts.args {
+                cmd.arg(a);
             }
         }
-        let _ = app_for_reader.emit(&format!("pty://{}/exit", id), ());
-    });
+        cmd.cwd(&opts.cwd);
+        for (k, v) in &opts.env {
+            cmd.env(k, v);
+        }
 
-    Ok(id)
+        let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+        let pid = child.process_id().unwrap_or(0);
+        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+        let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+
+        let id = {
+            let mut n = state.next_id.lock().unwrap();
+            let v = *n;
+            *n += 1;
+            v
+        };
+
+        {
+            let mut map = state.inner.lock().unwrap();
+            map.insert(
+                id,
+                PtyHandle {
+                    master: pair.master,
+                    writer,
+                    pid,
+                    _child: child,
+                },
+            );
+        }
+
+        let app_for_reader = app.clone();
+        let channel = format!("pty://{}/data", id);
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                        let _ = app_for_reader.emit(&channel, encoded);
+                    }
+                    Err(_) => break,
+                }
+            }
+            let _ = app_for_reader.emit(&format!("pty://{}/exit", id), ());
+        });
+
+        Ok(id)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn pty_write(state: State<'_, PtyManager>, id: u32, data: String) -> Result<(), String> {
-    let mut map = state.inner.lock().unwrap();
-    let handle = map.get_mut(&id).ok_or("pty not found")?;
-    handle
-        .writer
-        .write_all(data.as_bytes())
-        .map_err(|e| e.to_string())
+pub async fn pty_write(state: State<'_, PtyManager>, id: u32, data: String) -> Result<(), String> {
+    let inner = Arc::clone(&state.inner);
+    blocking_pty(move || {
+        let mut map = inner.lock().unwrap();
+        let handle = map.get_mut(&id).ok_or("pty not found")?;
+        handle
+            .writer
+            .write_all(data.as_bytes())
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn pty_resize(
+pub async fn pty_resize(
     state: State<'_, PtyManager>,
     id: u32,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let map = state.inner.lock().unwrap();
-    let handle = map.get(&id).ok_or("pty not found")?;
-    handle
-        .master
-        .resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|e| e.to_string())
+    let inner = Arc::clone(&state.inner);
+    blocking_pty(move || {
+        let map = inner.lock().unwrap();
+        let handle = map.get(&id).ok_or("pty not found")?;
+        handle
+            .master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn pty_kill(state: State<'_, PtyManager>, id: u32) -> Result<(), String> {
-    let mut map = state.inner.lock().unwrap();
-    if let Some(mut handle) = map.remove(&id) {
-        let _ = handle._child.kill();
-    }
-    Ok(())
+pub async fn pty_kill(state: State<'_, PtyManager>, id: u32) -> Result<(), String> {
+    let inner = Arc::clone(&state.inner);
+    blocking_pty(move || {
+        let mut map = inner.lock().unwrap();
+        if let Some(mut handle) = map.remove(&id) {
+            let _ = handle._child.kill();
+        }
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]

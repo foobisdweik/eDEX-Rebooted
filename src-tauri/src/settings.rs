@@ -79,8 +79,8 @@ fn default_settings() -> Value {
         "port": 3000,
         "nointro": false,
         "nocursor": false,
-        "forceFullscreen": true,
-        "allowWindowed": false,
+        "forceFullscreen": false,
+        "allowWindowed": true,
         "excludeThreadsFromToplist": true,
         "hideDotfiles": false,
         "fsListView": false,
@@ -110,7 +110,7 @@ fn default_shortcuts() -> Value {
 }
 
 fn default_window_state() -> Value {
-    serde_json::json!({ "useFullscreen": true })
+    serde_json::json!({ "useFullscreen": false })
 }
 
 pub fn ensure_userdata(_app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -166,77 +166,93 @@ pub fn get_paths() -> Paths {
 }
 
 #[tauri::command]
-pub fn get_settings() -> Result<Value, String> {
+pub async fn get_settings() -> Result<Value, String> {
     let p = paths_internal();
-    let contents = fs::read_to_string(&p.settings_file).map_err(|e| e.to_string())?;
+    let contents = tokio::fs::read_to_string(&p.settings_file)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::from_str(&contents).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn write_settings(contents: Value) -> Result<(), String> {
+pub async fn write_settings(contents: Value) -> Result<(), String> {
     let p = paths_internal();
     let s = serde_json::to_string_pretty(&contents).map_err(|e| e.to_string())?;
-    fs::write(&p.settings_file, s).map_err(|e| e.to_string())
+    tokio::fs::write(&p.settings_file, s)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_shortcuts() -> Result<Value, String> {
+pub async fn get_shortcuts() -> Result<Value, String> {
     let p = paths_internal();
-    let contents = fs::read_to_string(&p.shortcuts_file).map_err(|e| e.to_string())?;
+    let contents = tokio::fs::read_to_string(&p.shortcuts_file)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::from_str(&contents).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn write_shortcuts(contents: Value) -> Result<(), String> {
+pub async fn write_shortcuts(contents: Value) -> Result<(), String> {
     let p = paths_internal();
     let s = serde_json::to_string_pretty(&contents).map_err(|e| e.to_string())?;
-    fs::write(&p.shortcuts_file, s).map_err(|e| e.to_string())
+    tokio::fs::write(&p.shortcuts_file, s)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_window_state() -> Result<Value, String> {
+pub async fn get_window_state() -> Result<Value, String> {
     let p = paths_internal();
-    let contents = fs::read_to_string(&p.last_window_state_file).map_err(|e| e.to_string())?;
+    let contents = tokio::fs::read_to_string(&p.last_window_state_file)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::from_str(&contents).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn write_window_state(contents: Value) -> Result<(), String> {
+pub async fn write_window_state(contents: Value) -> Result<(), String> {
     let p = paths_internal();
     let s = serde_json::to_string_pretty(&contents).map_err(|e| e.to_string())?;
-    fs::write(&p.last_window_state_file, s).map_err(|e| e.to_string())
+    tokio::fs::write(&p.last_window_state_file, s)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_theme(name: String) -> Result<Value, String> {
+pub async fn get_theme(name: String) -> Result<Value, String> {
     let p = paths_internal();
     let path = PathBuf::from(&p.themes_dir).join(format!("{}.json", name));
-    let contents = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let contents = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::from_str(&contents).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_keyboard_layout(name: String) -> Result<Value, String> {
+pub async fn get_keyboard_layout(name: String) -> Result<Value, String> {
     let p = paths_internal();
     let path = PathBuf::from(&p.keyboards_dir).join(format!("{}.json", name));
-    let contents = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let contents = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| e.to_string())?;
     serde_json::from_str(&contents).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn list_themes() -> Vec<String> {
-    list_json_basenames(&paths_internal().themes_dir)
+pub async fn list_themes() -> Vec<String> {
+    list_json_basenames(&paths_internal().themes_dir).await
 }
 
 #[tauri::command]
-pub fn list_keyboards() -> Vec<String> {
-    list_json_basenames(&paths_internal().keyboards_dir)
+pub async fn list_keyboards() -> Vec<String> {
+    list_json_basenames(&paths_internal().keyboards_dir).await
 }
 
-fn list_json_basenames(dir: &str) -> Vec<String> {
+async fn list_json_basenames(dir: &str) -> Vec<String> {
     let mut out = Vec::new();
-    if let Ok(read) = fs::read_dir(dir) {
-        for entry in read.flatten() {
+    if let Ok(mut read) = tokio::fs::read_dir(dir).await {
+        while let Ok(Some(entry)) = read.next_entry().await {
             let name = entry.file_name().to_string_lossy().to_string();
             if let Some(stripped) = name.strip_suffix(".json") {
                 out.push(stripped.to_string());
@@ -278,10 +294,14 @@ pub fn get_app_version(app: AppHandle) -> String {
 }
 
 #[tauri::command]
-pub fn resolve_shell(name: String) -> Result<String, String> {
-    which::which(&name)
-        .map(|p| p.to_string_lossy().to_string())
-        .map_err(|e| e.to_string())
+pub async fn resolve_shell(name: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        which::which(&name)
+            .map(|p| p.to_string_lossy().to_string())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

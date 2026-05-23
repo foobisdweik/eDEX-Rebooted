@@ -7,10 +7,11 @@
 
 use serde::Serialize;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use sysinfo::{Components, Disks, Networks, System};
 
 pub struct SysinfoService {
-    sys: Mutex<System>,
+    sys_state: Mutex<SystemState>,
     disks: Mutex<Disks>,
     networks: Mutex<Networks>,
     components: Mutex<Components>,
@@ -23,7 +24,7 @@ impl SysinfoService {
         let mut sys = System::new_with_specifics(RefreshKind::everything());
         sys.refresh_all();
         Self {
-            sys: Mutex::new(sys),
+            sys_state: Mutex::new(SystemState::new(sys)),
             disks: Mutex::new(Disks::new_with_refreshed_list()),
             networks: Mutex::new(Networks::new_with_refreshed_list()),
             components: Mutex::new(Components::new_with_refreshed_list()),
@@ -31,12 +32,17 @@ impl SysinfoService {
     }
 
     pub fn cpu(&self) -> Result<CpuStats, String> {
-        let mut sys = self
-            .sys
+        let mut state = self
+            .sys_state
             .lock()
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
-        sys.refresh_cpu_all();
-        let cpus = sys.cpus();
+        let now = Instant::now();
+        if let Some(cpu) = state.cpu.read_fresh(now, CPU_SNAPSHOT_TTL) {
+            return Ok(cpu);
+        }
+
+        state.sys.refresh_cpu_all();
+        let cpus = state.sys.cpus();
         let (brand, freq) = cpus
             .first()
             .map(|c| (c.brand().to_string(), c.frequency()))
@@ -51,19 +57,26 @@ impl SysinfoService {
             manufacturer,
             brand: brand_only,
             cores: cpus.len(),
-            physical_cores: sys.physical_core_count().unwrap_or(cpus.len()),
+            physical_cores: state.sys.physical_core_count().unwrap_or(cpus.len()),
             speed: format!("{speed_ghz:.2}"),
             speed_max: format!("{speed_ghz:.2}"),
         })
+        .inspect(|cpu| state.cpu.store(cpu.clone(), now))
     }
 
     pub fn current_load(&self) -> Result<LoadStats, String> {
-        let mut sys = self
-            .sys
+        let mut state = self
+            .sys_state
             .lock()
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
-        sys.refresh_cpu_usage();
-        let cpus: Vec<CpuLoad> = sys
+        let now = Instant::now();
+        if let Some(load) = state.load.read_fresh(now, LOAD_SNAPSHOT_TTL) {
+            return Ok(load);
+        }
+
+        state.sys.refresh_cpu_usage();
+        let cpus: Vec<CpuLoad> = state
+            .sys
             .cpus()
             .iter()
             .map(|c| CpuLoad {
@@ -73,7 +86,7 @@ impl SysinfoService {
         let avg = if cpus.is_empty() {
             0.0
         } else {
-            sys.global_cpu_usage() as f64
+            state.sys.global_cpu_usage() as f64
         };
 
         Ok(LoadStats {
@@ -81,6 +94,7 @@ impl SysinfoService {
             current_load: avg,
             cpus,
         })
+        .inspect(|load| state.load.store(load.clone(), now))
     }
 
     pub fn cpu_temperature(&self) -> Result<TempStats, String> {
@@ -113,19 +127,25 @@ impl SysinfoService {
     pub fn processes(&self) -> Result<ProcessList, String> {
         use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
 
-        let mut sys = self
-            .sys
+        let mut state = self
+            .sys_state
             .lock()
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
-        sys.refresh_processes_specifics(
+        let now = Instant::now();
+        if let Some(processes) = state.processes.read_fresh(now, PROCESS_SNAPSHOT_TTL) {
+            return Ok(processes);
+        }
+
+        state.sys.refresh_processes_specifics(
             ProcessesToUpdate::All,
             // sysinfo 0.32 names this flag remove_dead_processes.
             // Keep it true because this service is long-lived and si_processes is polled often.
             true,
             ProcessRefreshKind::everything(),
         );
-        let total_mem = sys.total_memory() as f64;
-        let list: Vec<ProcessRow> = sys
+        let total_mem = state.sys.total_memory() as f64;
+        let list: Vec<ProcessRow> = state
+            .sys
             .processes()
             .iter()
             .map(|(pid, p)| ProcessRow {
@@ -157,18 +177,24 @@ impl SysinfoService {
             sleeping: 0,
             list,
         })
+        .inspect(|processes| state.processes.store(processes.clone(), now))
     }
 
     pub fn mem(&self) -> Result<MemStats, String> {
-        let mut sys = self
-            .sys
+        let mut state = self
+            .sys_state
             .lock()
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
-        sys.refresh_memory();
-        let total = sys.total_memory();
-        let used = sys.used_memory();
-        let free = sys.free_memory();
-        let available = sys.available_memory();
+        let now = Instant::now();
+        if let Some(mem) = state.mem.read_fresh(now, MEM_SNAPSHOT_TTL) {
+            return Ok(mem);
+        }
+
+        state.sys.refresh_memory();
+        let total = state.sys.total_memory();
+        let used = state.sys.used_memory();
+        let free = state.sys.free_memory();
+        let available = state.sys.available_memory();
         let free_strict = total.saturating_sub(used);
 
         Ok(MemStats {
@@ -181,10 +207,11 @@ impl SysinfoService {
             cached: 0,
             slab: 0,
             buffcache: 0,
-            swaptotal: sys.total_swap(),
-            swapused: sys.used_swap(),
-            swapfree: sys.free_swap(),
+            swaptotal: state.sys.total_swap(),
+            swapused: state.sys.used_swap(),
+            swapfree: state.sys.free_swap(),
         })
+        .inspect(|mem| state.mem.store(mem.clone(), now))
     }
 
     pub fn battery(&self) -> Result<BatteryInfo, String> {
@@ -402,6 +429,61 @@ impl SysinfoService {
 
     pub fn uptime(&self) -> u64 {
         System::uptime()
+    }
+}
+
+const CPU_SNAPSHOT_TTL: Duration = Duration::from_secs(30);
+const LOAD_SNAPSHOT_TTL: Duration = Duration::from_millis(350);
+const MEM_SNAPSHOT_TTL: Duration = Duration::from_millis(1000);
+const PROCESS_SNAPSHOT_TTL: Duration = Duration::from_millis(1000);
+
+struct SystemState {
+    sys: System,
+    cpu: SnapshotCache<CpuStats>,
+    load: SnapshotCache<LoadStats>,
+    mem: SnapshotCache<MemStats>,
+    processes: SnapshotCache<ProcessList>,
+}
+
+impl SystemState {
+    fn new(sys: System) -> Self {
+        Self {
+            sys,
+            cpu: SnapshotCache::default(),
+            load: SnapshotCache::default(),
+            mem: SnapshotCache::default(),
+            processes: SnapshotCache::default(),
+        }
+    }
+}
+
+struct SnapshotCache<T> {
+    data: Option<T>,
+    refreshed_at: Option<Instant>,
+}
+
+impl<T> Default for SnapshotCache<T> {
+    fn default() -> Self {
+        Self {
+            data: None,
+            refreshed_at: None,
+        }
+    }
+}
+
+impl<T: Clone> SnapshotCache<T> {
+    fn read_fresh(&self, now: Instant, ttl: Duration) -> Option<T> {
+        let refreshed_at = self.refreshed_at?;
+        if now.duration_since(refreshed_at) <= ttl {
+            self.data.clone()
+        } else {
+            None
+        }
+    }
+
+    fn store(&mut self, data: T, now: Instant) {
+        self.data = Some(data);
+        self.refreshed_at = Some(now);
     }
 }
 
