@@ -85,7 +85,8 @@ fn default_settings() -> Value {
         "hideDotfiles": false,
         "fsListView": false,
         "experimentalGlobeFeatures": false,
-        "experimentalFeatures": false
+        "experimentalFeatures": false,
+        "experimentalNativePanels": false
     })
 }
 

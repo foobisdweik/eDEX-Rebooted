@@ -361,6 +361,19 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
 
         await window._delay(100);
 
+        // Slice 1b: opt-in native panel mount. Defaults false; users enable
+        // via settings.json. Activation hides the JS panels in #mod_column_left
+        // and shows the native NSView placeholder in their slot. Must run
+        // after panels mount so #mod_column_left has its final layout rect.
+        if (window.settings.experimentalNativePanels === true
+                && window.bridge && window.bridge.nativeMount) {
+            try {
+                await window.bridge.nativeMount.activate();
+            } catch (e) {
+                console.warn("native_mount.activate() failed:", e);
+            }
+        }
+
         // Resolve the shell binary up-front (legacy did this in main).
         let shellBin;
         try {
