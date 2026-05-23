@@ -123,7 +123,7 @@ class Terminal {
 
             const onData = new Channel();
             onData.onmessage = chunk => {
-                if (this._disposed || this.ptyId === null) return;
+                if (this._disposed) return;
                 const payload = chunk && typeof chunk === "object" && "message" in chunk
                     ? chunk.message
                     : chunk;
