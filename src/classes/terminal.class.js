@@ -123,18 +123,24 @@ class Terminal {
 
             const onData = new Channel();
             onData.onmessage = chunk => {
+                if (this._disposed || this.ptyId === null) return;
+                const payload = chunk && typeof chunk === "object" && "message" in chunk
+                    ? chunk.message
+                    : chunk;
                 const now = Date.now();
                 if (now - this.lastSoundFX > 30) {
                     if (window.passwordMode == "false") window.audioManager.stdout.play();
                     this.lastSoundFX = now;
                 }
                 if (now - this.lastRefit > 10000) this.fit();
-                if (chunk instanceof Uint8Array) {
-                    this.term.write(chunk);
-                } else if (chunk instanceof ArrayBuffer) {
-                    this.term.write(new Uint8Array(chunk));
-                } else if (typeof chunk === "string") {
-                    this.term.write(chunk);
+                if (payload instanceof Uint8Array) {
+                    this.term.write(payload);
+                } else if (payload instanceof ArrayBuffer) {
+                    this.term.write(new Uint8Array(payload));
+                } else if (ArrayBuffer.isView(payload)) {
+                    this.term.write(new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength));
+                } else if (typeof payload === "string") {
+                    this.term.write(payload);
                 }
             };
             this._onDataChannel = onData;
@@ -299,7 +305,10 @@ class Terminal {
 
         this.close = async () => {
             if (this._poll) { clearInterval(this._poll); this._poll = null; }
-            this._onDataChannel = null;
+            if (this._onDataChannel) {
+                this._onDataChannel.onmessage = () => {};
+                this._onDataChannel = null;
+            }
             if (this._unlistenExit) { this._unlistenExit(); this._unlistenExit = null; }
             if (this.ptyId !== null) {
                 try { await invoke("pty_kill", { id: this.ptyId }); } catch (_) {}

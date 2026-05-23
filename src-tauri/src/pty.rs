@@ -134,7 +134,9 @@ pub async fn pty_spawn(
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let _ = on_data.send(buf[..n].to_vec());
+                        if on_data.send(buf[..n].to_vec()).is_err() {
+                            break;
+                        }
                     }
                     Err(_) => break,
                 }
@@ -231,6 +233,9 @@ pub struct PtyMetadata {
 }
 
 fn read_pty_cwd(pid: u32) -> Result<Option<String>, String> {
+    if pid == 0 {
+        return Ok(None);
+    }
     match pidcwd(pid as i32) {
         Ok(path) => {
             let s = path.to_string_lossy().into_owned();
@@ -242,26 +247,24 @@ fn read_pty_cwd(pid: u32) -> Result<Option<String>, String> {
 
 /// Mirrors legacy `ps -o comm= -g {shell_pid} | tail -1` without spawning a shell.
 fn read_pty_process(shell_pid: u32) -> Result<Option<String>, String> {
+    if shell_pid == 0 {
+        return Ok(None);
+    }
     let shell_pid_i32 = shell_pid as i32;
     let pgid = unsafe { libc::getpgid(shell_pid_i32) };
     if pgid < 0 {
         return Ok(None);
     }
-    let pids = processes::pids_by_type(ProcFilter::All).map_err(|e| e.to_string())?;
+    let pids = processes::pids_by_type(ProcFilter::ByProgramGroup {
+        pgrpid: pgid as u32,
+    })
+    .map_err(|e| e.to_string())?;
     let mut highest: Option<(i32, String)> = None;
     for pid in pids {
         let pid_i32 = pid as i32;
-        if unsafe { libc::getpgid(pid_i32) } != pgid {
-            continue;
-        }
         if let Ok(comm) = name(pid_i32) {
             let comm = comm.trim().to_string();
-            if !comm.is_empty()
-                && highest
-                    .as_ref()
-                    .map(|(p, _)| pid_i32 > *p)
-                    .unwrap_or(true)
-            {
+            if !comm.is_empty() && highest.as_ref().map(|(p, _)| pid_i32 > *p).unwrap_or(true) {
                 highest = Some((pid_i32, comm));
             }
         }
