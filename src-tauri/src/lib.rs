@@ -1,9 +1,12 @@
 mod fs_cmds;
+mod native_mount;
 mod pty;
 mod settings;
 mod sysinfo_cmds;
 pub mod sysinfo_service;
+mod window_chrome;
 
+use native_mount::NativeMountState;
 use pty::PtyManager;
 use settings::OverrideState;
 use std::sync::Arc;
@@ -18,8 +21,11 @@ pub fn run() {
         .manage(PtyManager::new())
         .manage(OverrideState::default())
         .manage(Arc::new(SysinfoService::new()))
+        .manage(NativeMountState::default())
         .setup(|app| {
             settings::ensure_userdata(app.handle())?;
+            window_chrome::configure(app.handle(), settings::keep_geometry_enabled_startup())?;
+            native_mount::install(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -75,6 +81,9 @@ pub fn run() {
             settings::resolve_shell,
             settings::get_username,
             settings::get_displays,
+            // native mount
+            native_mount::native_mount_set_rect,
+            native_mount::native_mount_set_visible,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

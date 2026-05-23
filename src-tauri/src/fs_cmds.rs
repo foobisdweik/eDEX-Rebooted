@@ -92,11 +92,14 @@ pub async fn fs_exists(path: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn fs_open_external(path: String) -> Result<(), String> {
-    // macOS `open` opens with the default handler.
-    std::process::Command::new("open")
-        .arg(&path)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+pub async fn fs_open_external(path: String) -> Result<(), String> {
+    blocking_fs(move || {
+        // macOS `open` opens with the default handler.
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
 }

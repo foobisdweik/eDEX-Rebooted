@@ -361,6 +361,19 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
 
         await window._delay(100);
 
+        // Slice 1b: opt-in native panel mount. Defaults false; users enable
+        // via settings.json. Activation hides the JS panels in #mod_column_left
+        // and shows the native NSView placeholder in their slot. Must run
+        // after panels mount so #mod_column_left has its final layout rect.
+        if (window.settings.experimentalNativePanels === true
+                && window.bridge && window.bridge.nativeMount) {
+            try {
+                await window.bridge.nativeMount.activate();
+            } catch (e) {
+                console.warn("native_mount.activate() failed:", e);
+            }
+        }
+
         // Resolve the shell binary up-front (legacy did this in main).
         let shellBin;
         try {
@@ -716,38 +729,15 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         if (window.terminalTabs) window.terminalTabs.resizeActive();
     };
 
-    // Window-level resize/full-screen handling. The legacy code used
-    // Electron's BrowserWindow events; Tauri 2 surfaces the same as async
-    // listeners on the WebviewWindow.
-    const winHandle = getCurrentWindow();
-    let resizeTimeout = null;
-    let unlistenResized = null;
-    winHandle.onResized(async () => {
-        if (window.settings.keepGeometry === false) return;
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(async () => {
-            if (await winHandle.isFullscreen()) return;
-            if (await winHandle.isMaximized()) {
-                await winHandle.unmaximize();
-                await winHandle.setFullscreen(true);
-                return;
-            }
-            const size = await winHandle.outerSize();
-            if (size.width >= size.height) {
-                await winHandle.setSize(new tauri.window.PhysicalSize(size.width, Math.floor(size.width * 9 / 16)));
-            } else {
-                await winHandle.setSize(new tauri.window.PhysicalSize(size.height, Math.floor(size.height * 9 / 16)));
-            }
-        }, 100);
-    }).then(unlisten => { unlistenResized = unlisten; }).catch(() => {});
+    // Aspect-ratio enforcement during windowed-mode resize is handled
+    // natively via NSWindow.setContentAspectRatio = (16, 10), installed
+    // in src-tauri/src/window_chrome.rs. macOS clamps the user's drag
+    // live, which is smoother than the post-release JS snap the legacy
+    // code did. No window-resize listener needed here for that.
 
     window.addEventListener("beforeunload", () => {
         if (window.keyboard && window.keyboard.destroy) {
             window.keyboard.destroy();
-        }
-        if (unlistenResized) {
-            try { unlistenResized(); } catch (_) {}
-            unlistenResized = null;
         }
         gs.unregisterAll().catch(() => {});
     });

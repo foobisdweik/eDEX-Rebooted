@@ -12,9 +12,11 @@
       {
         "title": "eDEX-UI",
         "width": 1920,
-        "height": 1080,
-        "fullscreen": true,
-        "decorations": false,
+        "height": 1200,
+        "minWidth": 800,
+        "minHeight": 500,
+        "fullscreen": false,
+        "decorations": true,
         "resizable": true,
         "backgroundColor": "#000000",
         "url": "ui.html"

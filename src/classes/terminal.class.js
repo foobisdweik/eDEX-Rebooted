@@ -161,14 +161,16 @@ class Terminal {
             this._poll = setInterval(async () => {
                 if (this.ptyId === null) return;
                 try {
-                    const meta = await invoke("pty_metadata", { id: this.ptyId });
-                    if (meta && meta.cwd && meta.cwd !== this.cwd) {
-                        this.cwd = meta.cwd;
-                        this.oncwdchange(meta.cwd);
+                    const metadata = await invoke("pty_metadata", { id: this.ptyId });
+                    const cwd = metadata && metadata.cwd;
+                    if (cwd && cwd !== this.cwd) {
+                        this.cwd = cwd;
+                        this.oncwdchange(cwd);
                     }
-                    if (meta && meta.process && this._lastProc !== meta.process) {
-                        this._lastProc = meta.process;
-                        if (this.onprocesschange) this.onprocesschange(meta.process);
+                    const proc = metadata && metadata.process;
+                    if (proc && this._lastProc !== proc) {
+                        this._lastProc = proc;
+                        if (this.onprocesschange) this.onprocesschange(proc);
                     }
                 } catch (_) {
                     // Backward compatibility with older backends still serving split commands.
