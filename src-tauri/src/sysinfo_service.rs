@@ -876,6 +876,10 @@ fn collapse_process_rows_by_name(rows: Vec<ProcessRow>) -> Vec<ProcessRow> {
                 let slot = slot.get_mut();
                 if slot.pid > row.pid {
                     slot.pid = row.pid;
+                    slot.started = row.started.clone();
+                    slot.state = row.state.clone();
+                    slot.user = row.user.clone();
+                    slot.command = row.command.clone();
                 }
                 slot.cpu += row.cpu;
                 slot.mem += row.mem;
