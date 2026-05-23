@@ -119,7 +119,9 @@ impl SysinfoService {
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
         sys.refresh_processes_specifics(
             ProcessesToUpdate::All,
-            false,
+            // sysinfo 0.32 names this flag remove_dead_processes.
+            // Keep it true because this service is long-lived and si_processes is polled often.
+            true,
             ProcessRefreshKind::everything(),
         );
         let total_mem = sys.total_memory() as f64;
