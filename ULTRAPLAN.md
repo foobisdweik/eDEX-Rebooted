@@ -16,7 +16,8 @@ All active implementation planning for terminal tabs lives in this file. `CLAUDE
 
 ## Migration Contracts and Deprecations (Current Refactor)
 
-- **PTY metadata contract (current):** `pty_metadata(id)` is the consolidated backend poll surface for terminal tab metadata and returns both `cwd` and foreground `process` in one call.
+- **PTY output contract (current):** `pty_spawn(opts, onData)` accepts a Tauri `Channel` (raw bytes as `ArrayBuffer` in `onmessage`; wrap with `Uint8Array` before `term.write`). Legacy base64 `pty://{id}/data` events are removed; `pty://{id}/exit` remains.
+- **PTY metadata contract (current):** `pty_metadata(id)` returns `cwd` and foreground `process` via libproc (`pidcwd`, process-group scan). No `lsof`/`ps` subprocesses. Legacy `pty_cwd` / `pty_process` invoke paths remain for mixed-version pairs.
 - **Sysinfo panel contract (current):** `si_panel_snapshot(collapseThreadsByName, topLimit, includeProcessList)` returns one refresh bundle for the left column. Bridge cache key: `collapse:topLimit:includeProcessList` (900ms TTL + in-flight dedupe).
 - **PanelSnapshot JSON shape (camelCase):**
   - `cpu`, `currentLoad`, `cpuTemperature`, `processCount`, `topProcesses[]` — cpuinfo + toplist widget
