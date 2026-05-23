@@ -85,7 +85,7 @@ This is a **macOS-only** Tauri 2 desktop app. The Cloud Agent VM runs Linux (x86
 | Check | Command | Notes |
 |-------|---------|-------|
 | Rust formatting | `cargo fmt --check` (in `src-tauri/`) | Does not compile — just checks syntax/style |
-| JS unit tests | `find src -name '*.test.js' -print0 \| xargs -0 node --test` | 30 tests covering bridge, sysinfo proxy, terminal tabs |
+| JS unit tests | node --test src (root) | 30 tests covering bridge, sysinfo proxy, terminal tabs |
 | npm deps | `npm install` (root) | Only `cson-parser` for file-icons generator |
 
 ### What does NOT work on Linux
