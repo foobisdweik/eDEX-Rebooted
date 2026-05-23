@@ -43,26 +43,7 @@ impl SysinfoService {
         }
 
         state.sys.refresh_cpu_all();
-        let cpus = state.sys.cpus();
-        let (brand, freq) = cpus
-            .first()
-            .map(|c| (c.brand().to_string(), c.frequency()))
-            .unwrap_or_default();
-        let speed_ghz = (freq as f64) / 1000.0;
-        let (manufacturer, brand_only) = match brand.split_once(' ') {
-            Some((m, rest)) => (m.to_string(), rest.to_string()),
-            None => (String::new(), brand.clone()),
-        };
-
-        Ok(CpuStats {
-            manufacturer,
-            brand: brand_only,
-            cores: cpus.len(),
-            physical_cores: state.sys.physical_core_count().unwrap_or(cpus.len()),
-            speed: format!("{speed_ghz:.2}"),
-            speed_max: format!("{speed_ghz:.2}"),
-        })
-        .inspect(|cpu| state.cpu.store(cpu.clone(), now))
+        Ok(cpu_stats_from_sys(&state.sys)).inspect(|cpu| state.cpu.store(cpu.clone(), now))
     }
 
     pub fn current_load(&self) -> Result<LoadStats, String> {
@@ -76,26 +57,7 @@ impl SysinfoService {
         }
 
         state.sys.refresh_cpu_usage();
-        let cpus: Vec<CpuLoad> = state
-            .sys
-            .cpus()
-            .iter()
-            .map(|c| CpuLoad {
-                load: c.cpu_usage() as f64,
-            })
-            .collect();
-        let avg = if cpus.is_empty() {
-            0.0
-        } else {
-            state.sys.global_cpu_usage() as f64
-        };
-
-        Ok(LoadStats {
-            avg_load: avg,
-            current_load: avg,
-            cpus,
-        })
-        .inspect(|load| state.load.store(load.clone(), now))
+        Ok(load_stats_from_sys(&state.sys)).inspect(|load| state.load.store(load.clone(), now))
     }
 
     pub fn cpu_temperature(&self) -> Result<TempStats, String> {
@@ -104,25 +66,7 @@ impl SysinfoService {
             .lock()
             .map_err(|_| "components lock poisoned".to_string())?;
         comps.refresh();
-        let cores: Vec<f32> = comps
-            .iter()
-            .filter_map(|c| {
-                let label = c.label().to_lowercase();
-                if label.contains("cpu") || label.contains("core") || label.contains("package") {
-                    Some(c.temperature())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let max = cores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let max_v = if max.is_finite() { max as f64 } else { 0.0 };
-
-        Ok(TempStats {
-            main: max_v,
-            max: max_v,
-            cores,
-        })
+        Ok(temp_stats_from_components(&comps))
     }
 
     pub fn processes(&self) -> Result<ProcessList, String> {
@@ -201,35 +145,9 @@ impl SysinfoService {
             ProcessRefreshKind::everything(),
         );
 
-        let cpus = sys.cpus();
-        let (brand, freq) = cpus
-            .first()
-            .map(|c| (c.brand().to_string(), c.frequency()))
-            .unwrap_or_default();
-        let speed_ghz = (freq as f64) / 1000.0;
-        let (manufacturer, brand_only) = match brand.split_once(' ') {
-            Some((m, rest)) => (m.to_string(), rest.to_string()),
-            None => (String::new(), brand.clone()),
-        };
-        let cpu = CpuStats {
-            manufacturer,
-            brand: brand_only,
-            cores: cpus.len(),
-            physical_cores: sys.physical_core_count().unwrap_or(cpus.len()),
-            speed: format!("{speed_ghz:.2}"),
-            speed_max: format!("{speed_ghz:.2}"),
-        };
+        let cpu = cpu_stats_from_sys(sys);
 
-        let current_load = LoadStats {
-            avg_load: sys.global_cpu_usage() as f64,
-            current_load: sys.global_cpu_usage() as f64,
-            cpus: cpus
-                .iter()
-                .map(|c| CpuLoad {
-                    load: c.cpu_usage() as f64,
-                })
-                .collect(),
-        };
+        let current_load = load_stats_from_sys(sys);
 
         let process_count = sys.processes().len();
         let total_mem = sys.total_memory() as f64;
@@ -281,24 +199,7 @@ impl SysinfoService {
             .lock()
             .map_err(|_| "components lock poisoned".to_string())?;
         comps.refresh();
-        let cores: Vec<f32> = comps
-            .iter()
-            .filter_map(|c| {
-                let label = c.label().to_lowercase();
-                if label.contains("cpu") || label.contains("core") || label.contains("package") {
-                    Some(c.temperature())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        let max = cores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let max_v = if max.is_finite() { max as f64 } else { 0.0 };
-        let cpu_temperature = TempStats {
-            main: max_v,
-            max: max_v,
-            cores,
-        };
+        let cpu_temperature = temp_stats_from_components(&comps);
 
         Ok(PanelSnapshot {
             cpu,
@@ -853,6 +754,71 @@ pub struct ChassisInfo {
     #[serde(rename = "assetTag")]
     pub asset_tag: String,
     pub sku: String,
+}
+
+fn cpu_stats_from_sys(sys: &System) -> CpuStats {
+    let cpus = sys.cpus();
+    let (brand, freq) = cpus
+        .first()
+        .map(|c| (c.brand().to_string(), c.frequency()))
+        .unwrap_or_default();
+    let speed_ghz = (freq as f64) / 1000.0;
+    let (manufacturer, brand_only) = match brand.split_once(' ') {
+        Some((m, rest)) => (m.to_string(), rest.to_string()),
+        None => (String::new(), brand.clone()),
+    };
+
+    CpuStats {
+        manufacturer,
+        brand: brand_only,
+        cores: cpus.len(),
+        physical_cores: sys.physical_core_count().unwrap_or(cpus.len()),
+        speed: format!("{speed_ghz:.2}"),
+        speed_max: format!("{speed_ghz:.2}"),
+    }
+}
+
+fn load_stats_from_sys(sys: &System) -> LoadStats {
+    let cpus: Vec<CpuLoad> = sys
+        .cpus()
+        .iter()
+        .map(|c| CpuLoad {
+            load: c.cpu_usage() as f64,
+        })
+        .collect();
+    let avg = if cpus.is_empty() {
+        0.0
+    } else {
+        sys.global_cpu_usage() as f64
+    };
+
+    LoadStats {
+        avg_load: avg,
+        current_load: avg,
+        cpus,
+    }
+}
+
+fn temp_stats_from_components(comps: &Components) -> TempStats {
+    let cores: Vec<f32> = comps
+        .iter()
+        .filter_map(|c| {
+            let label = c.label().to_lowercase();
+            if label.contains("cpu") || label.contains("core") || label.contains("package") {
+                Some(c.temperature())
+            } else {
+                None
+            }
+        })
+        .collect();
+    let max = cores.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+    let max_v = if max.is_finite() { max as f64 } else { 0.0 };
+
+    TempStats {
+        main: max_v,
+        max: max_v,
+        cores,
+    }
 }
 
 /// Aggregate processes that share the same name: sum cpu/mem, keep lowest pid.
