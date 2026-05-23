@@ -37,6 +37,20 @@ jobs:
       - run: cargo clippy --target aarch64-apple-darwin --all-targets -- -D warnings
         working-directory: src-tauri
 
+  rust-test:
+    name: Rust tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: cargo test --target aarch64-apple-darwin
+        working-directory: src-tauri
+
   js-tests:
     name: JS tests
     runs-on: macos-latest
@@ -51,7 +65,7 @@ jobs:
   tauri-build:
     name: Tauri build (aarch64-apple-darwin)
     runs-on: macos-latest
-    needs: [rust-fmt, rust-clippy, js-tests]
+    needs: [rust-fmt, rust-clippy, rust-test, js-tests]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

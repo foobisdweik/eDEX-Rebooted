@@ -2,10 +2,12 @@ mod fs_cmds;
 mod pty;
 mod settings;
 mod sysinfo_cmds;
+pub mod sysinfo_service;
 
 use pty::PtyManager;
 use settings::OverrideState;
-use sysinfo_cmds::SysinfoState;
+use std::sync::Arc;
+use sysinfo_service::SysinfoService;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,7 +17,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(PtyManager::new())
         .manage(OverrideState::default())
-        .manage(SysinfoState::new())
+        .manage(Arc::new(SysinfoService::new()))
         .setup(|app| {
             settings::ensure_userdata(app.handle())?;
             Ok(())

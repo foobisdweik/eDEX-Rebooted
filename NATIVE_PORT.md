@@ -103,6 +103,58 @@ replaced; nothing converts on its own.
 
 40 lines of script tags + a body shell. Goes away with the last JS module.
 
+## Slice 1 layout audit
+
+Snapshot taken 2026-05-22 during Slice 1 implementation. Slice 1b reads
+this to drive sibling NSView geometry; Slice 1c rebuilds the panels in
+gpui to match. Treat as authoritative until 1c retires the JS column.
+
+### Panel inventory (left column -> #mod_column_left)
+
+All six panels are appended into `#mod_column_left` (created by
+`src/renderer.js:279`, class `.mod_column`). Panel DOM roots are
+inserted in this order:
+
+| Panel | JS class file | DOM root id | CSS file(s) | Primary visual hooks |
+|---|---|---|---|---|
+| Clock | classes/clock.class.js | #mod_clock | mod_clock.css | Thin top border with left/right pseudo-element end caps; large segmented time text. |
+| Sysinfo | classes/sysinfo.class.js | #mod_sysinfo | mod_sysinfo.css | Thin top border with left/right pseudo-element end caps; three compact stacked label/value columns. |
+| HardwareInspector | classes/hardwareInspector.class.js | #mod_hardwareInspector | mod_hardwareInspector.css | Thin top border with left/right pseudo-element end caps; wrapped two-column hardware label/value rows. |
+| Cpuinfo | classes/cpuinfo.class.js | #mod_cpuinfo | mod_cpuinfo.css | Thin top border with left/right pseudo-element end caps; dashed chart rails and two vendored smoothie.js canvas charts. |
+| RAMwatcher | classes/ramwatcher.class.js | #mod_ramwatcher_inner | mod_ramwatcher.css | 40x11 point grid with opacity-coded memory states; custom WebKit progress bar for swap. |
+| Toplist | classes/toplist.class.js | #mod_toplist | mod_toplist.css, mod_processlist.css | Thin top border with offset pseudo-element end caps; fixed-width table columns with ellipsis truncation. |
+
+### Sysinfo commands consumed per panel
+
+Confirmed by grepping each panel for `window.si.*` calls. The
+SysinfoService landed in Slice 1 exposes typed methods covering every
+command in this table, plus `fs_size`, `block_devices`,
+`network_interfaces`, `network_stats`, and `network_connections` for
+filesystem and deferred netstat consumers outside the left column.
+
+| Panel | Commands called (via window.si) |
+|---|---|
+| Clock | _(none - local Date)_ |
+| Sysinfo | si_uptime, si_battery |
+| HardwareInspector | si_system, si_chassis |
+| Cpuinfo | si_cpu, si_current_load, si_cpu_temperature, si_processes |
+| RAMwatcher | si_mem |
+| Toplist | si_processes |
+
+### Rect-source contract
+
+Slice 1b reads `getBoundingClientRect()` on `#mod_column_left` and
+positions the sibling NSView/CAMetalLayer accordingly. The element
+MUST NOT be renamed or removed until Slice 1c retires the JS column
+entirely. A small bridge module added in Slice 1b will forward
+`resize` / DPR-change events from the WKWebView to the Rust side so
+the native view tracks layout reflows.
+
+### CSS seam status
+
+`body.native-left-active` was added to `src/assets/css/mod_column.css`
+in Slice 1 and is inert. Slice 1b activates it.
+
 ## Priorities (TBD)
 
 Filled in once the first open question is answered. Likely starting points
@@ -119,7 +171,7 @@ once we pick a UI framework:
 
 | Date | Module | Old → New | Commit | Notes |
 |---|---|---|---|---|
-| _empty_ | | | | |
+| 2026-05-23 | Slice 1 backend prep | n/a → SysinfoService + JSON contract tests + inert CSS seam | this PR | No user-visible change. Slice 1b adds NSView mount; Slice 1c renders panels in gpui. |
 
 ## Reference
 
