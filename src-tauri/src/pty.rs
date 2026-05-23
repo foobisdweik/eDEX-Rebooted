@@ -248,7 +248,7 @@ fn read_pty_process(shell_pid: u32) -> Result<Option<String>, String> {
         return Ok(None);
     }
     let pids = processes::pids_by_type(ProcFilter::All).map_err(|e| e.to_string())?;
-    let mut last: Option<String> = None;
+    let mut highest: Option<(i32, String)> = None;
     for pid in pids {
         let pid_i32 = pid as i32;
         if unsafe { libc::getpgid(pid_i32) } != pgid {
@@ -256,12 +256,12 @@ fn read_pty_process(shell_pid: u32) -> Result<Option<String>, String> {
         }
         if let Ok(comm) = name(pid_i32) {
             let comm = comm.trim().to_string();
-            if !comm.is_empty() {
-                last = Some(comm);
+            if !comm.is_empty() && highest.map(|(p, _)| pid_i32 > p).unwrap_or(true) {
+                highest = Some((pid_i32, comm));
             }
         }
     }
-    Ok(last)
+    Ok(highest.map(|(_, comm)| comm))
 }
 
 fn read_pty_metadata(pid: u32) -> Result<PtyMetadata, String> {
