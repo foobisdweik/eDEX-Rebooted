@@ -6,14 +6,14 @@
 //! without an `invoke()` round-trip.
 
 use serde::Serialize;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use sysinfo::{Components, Disks, Networks, System};
 
 pub struct SysinfoService {
-    sys: Arc<Mutex<System>>,
-    disks: Arc<Mutex<Disks>>,
-    networks: Arc<Mutex<Networks>>,
-    components: Arc<Mutex<Components>>,
+    sys: Mutex<System>,
+    disks: Mutex<Disks>,
+    networks: Mutex<Networks>,
+    components: Mutex<Components>,
 }
 
 impl SysinfoService {
@@ -23,10 +23,10 @@ impl SysinfoService {
         let mut sys = System::new_with_specifics(RefreshKind::everything());
         sys.refresh_all();
         Self {
-            sys: Arc::new(Mutex::new(sys)),
-            disks: Arc::new(Mutex::new(Disks::new_with_refreshed_list())),
-            networks: Arc::new(Mutex::new(Networks::new_with_refreshed_list())),
-            components: Arc::new(Mutex::new(Components::new_with_refreshed_list())),
+            sys: Mutex::new(sys),
+            disks: Mutex::new(Disks::new_with_refreshed_list()),
+            networks: Mutex::new(Networks::new_with_refreshed_list()),
+            components: Mutex::new(Components::new_with_refreshed_list()),
         }
     }
 
@@ -119,7 +119,7 @@ impl SysinfoService {
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
         sys.refresh_processes_specifics(
             ProcessesToUpdate::All,
-            true,
+            false,
             ProcessRefreshKind::everything(),
         );
         let total_mem = sys.total_memory() as f64;
@@ -201,9 +201,9 @@ impl SysinfoService {
                         has_battery: true,
                         cycle_count: bat.cycle_count().unwrap_or(0),
                         is_charging: charging,
-                        designed_capacity: bat.energy_full_design().value as f64,
-                        max_capacity: bat.energy_full().value as f64,
-                        current_capacity: bat.energy().value as f64,
+                        designed_capacity: joules_to_wh(bat.energy_full_design().value as f64),
+                        max_capacity: joules_to_wh(bat.energy_full().value as f64),
+                        current_capacity: joules_to_wh(bat.energy().value as f64),
                         voltage: bat.voltage().value as f64,
                         capacity_unit: "Wh".to_string(),
                         percent,
@@ -634,6 +634,10 @@ fn chrono_like_iso(unix_secs: u64) -> String {
     let (year, month, day) = days_to_date(days);
 
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+fn joules_to_wh(joules: f64) -> f64 {
+    joules / 3600.0
 }
 
 fn days_to_date(days_from_epoch: i64) -> (i32, u32, u32) {
