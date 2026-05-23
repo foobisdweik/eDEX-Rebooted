@@ -1,6 +1,6 @@
 use base64::Engine;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -55,6 +55,8 @@ pub async fn pty_spawn(
     state: State<'_, PtyManager>,
     opts: SpawnArgs,
 ) -> Result<u32, String> {
+    let inner = Arc::clone(&state.inner);
+    let next_id = Arc::clone(&state.next_id);
     blocking_pty(move || {
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -86,14 +88,14 @@ pub async fn pty_spawn(
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
 
         let id = {
-            let mut n = state.next_id.lock().unwrap();
+            let mut n = next_id.lock().unwrap();
             let v = *n;
             *n += 1;
             v
         };
 
         {
-            let mut map = state.inner.lock().unwrap();
+            let mut map = inner.lock().unwrap();
             map.insert(
                 id,
                 PtyHandle {
@@ -178,31 +180,73 @@ pub async fn pty_kill(state: State<'_, PtyManager>, id: u32) -> Result<(), Strin
     .await
 }
 
+#[derive(Debug, Serialize)]
+pub struct PtyMetadata {
+    pub cwd: Option<String>,
+    pub process: Option<String>,
+}
+
+fn pty_pid(inner: &Arc<Mutex<HashMap<u32, PtyHandle>>>, id: u32) -> Result<u32, String> {
+    let map = inner
+        .lock()
+        .map_err(|_| "pty manager lock poisoned".to_string())?;
+    map.get(&id)
+        .map(|h| h.pid)
+        .ok_or("pty not found".to_string())
+}
+
+fn query_cwd(pid: u32) -> Result<Option<String>, String> {
+    // Lifted from terminal.class.js legacy behavior — macOS only.
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "lsof -a -d cwd -p {} | tail -1 | awk '{{ for (i=9; i<=NF; i++) printf \"%s \", $i }}'",
+            pid
+        ))
+        .output()
+        .map_err(|e| e.to_string())?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(s))
+    }
+}
+
+fn query_process(pid: u32) -> Result<Option<String>, String> {
+    // Lifted from terminal.class.js legacy behavior.
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("ps -o comm= -g {} 2>/dev/null | tail -1", pid))
+        .output()
+        .map_err(|e| e.to_string())?;
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(s))
+    }
+}
+
+#[tauri::command]
+pub async fn pty_metadata(state: State<'_, PtyManager>, id: u32) -> Result<PtyMetadata, String> {
+    let inner = Arc::clone(&state.inner);
+    blocking_pty(move || {
+        let pid = pty_pid(&inner, id)?;
+        Ok(PtyMetadata {
+            cwd: query_cwd(pid)?,
+            process: query_process(pid)?,
+        })
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn pty_cwd(state: State<'_, PtyManager>, id: u32) -> Result<Option<String>, String> {
     let inner = Arc::clone(&state.inner);
     blocking_pty(move || {
-        let pid = {
-            let map = inner
-                .lock()
-                .map_err(|_| "pty manager lock poisoned".to_string())?;
-            map.get(&id).map(|h| h.pid).ok_or("pty not found")?
-        };
-        // Lifted from terminal.class.js:332 — macOS only.
-        let out = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!(
-                "lsof -a -d cwd -p {} | tail -1 | awk '{{ for (i=9; i<=NF; i++) printf \"%s \", $i }}'",
-                pid
-            ))
-            .output()
-            .map_err(|e| e.to_string())?;
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if s.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(s))
-        }
+        let pid = pty_pid(&inner, id)?;
+        query_cwd(pid)
     })
     .await
 }
@@ -211,24 +255,8 @@ pub async fn pty_cwd(state: State<'_, PtyManager>, id: u32) -> Result<Option<Str
 pub async fn pty_process(state: State<'_, PtyManager>, id: u32) -> Result<Option<String>, String> {
     let inner = Arc::clone(&state.inner);
     blocking_pty(move || {
-        let pid = {
-            let map = inner
-                .lock()
-                .map_err(|_| "pty manager lock poisoned".to_string())?;
-            map.get(&id).map(|h| h.pid).ok_or("pty not found")?
-        };
-        // Lifted from terminal.class.js:351
-        let out = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!("ps -o comm= -g {} 2>/dev/null | tail -1", pid))
-            .output()
-            .map_err(|e| e.to_string())?;
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if s.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(s))
-        }
+        let pid = pty_pid(&inner, id)?;
+        query_process(pid)
     })
     .await
 }

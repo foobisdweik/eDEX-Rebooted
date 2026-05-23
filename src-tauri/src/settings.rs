@@ -81,6 +81,7 @@ fn default_settings() -> Value {
         "nocursor": false,
         "forceFullscreen": false,
         "allowWindowed": true,
+        "keepGeometry": true,
         "excludeThreadsFromToplist": true,
         "hideDotfiles": false,
         "fsListView": false,
@@ -266,6 +267,19 @@ async fn list_json_basenames(dir: &str) -> Vec<String> {
 #[tauri::command]
 pub fn get_boot_log() -> String {
     BOOT_LOG.to_string()
+}
+
+pub fn keep_geometry_enabled_startup() -> bool {
+    let p = paths_internal();
+    let Ok(contents) = fs::read_to_string(&p.settings_file) else {
+        return true;
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&contents) else {
+        return true;
+    };
+    json.get("keepGeometry")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
 }
 
 #[tauri::command]

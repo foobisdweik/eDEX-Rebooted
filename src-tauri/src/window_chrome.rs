@@ -30,7 +30,7 @@ const NS_FULLSIZE_CONTENT: u64 = 1 << 15;
 /// NSWindowTitleVisibility::Hidden.
 const NS_TITLE_HIDDEN: isize = 1;
 
-pub fn configure(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn configure(app: &AppHandle, keep_geometry: bool) -> Result<(), Box<dyn std::error::Error>> {
     debug_assert!(
         is_main_thread(),
         "window_chrome::configure must run on the main thread"
@@ -47,9 +47,14 @@ pub fn configure(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     unsafe {
-        // 1. Lock content area to 16:10. macOS clamps the user's resize
-        //    drag live to maintain this ratio.
-        let aspect = NSSize::new(ASPECT_W, ASPECT_H);
+        // 1. Optionally lock content area to 16:10 based on persisted
+        //    keepGeometry. When disabled, use NSZeroSize to clear the ratio
+        //    lock and keep freeform windowed resizing behavior.
+        let aspect = if keep_geometry {
+            NSSize::new(ASPECT_W, ASPECT_H)
+        } else {
+            NSSize::new(0.0, 0.0)
+        };
         let _: () = msg_send![ns_window, setContentAspectRatio: aspect];
 
         // 2. Borderless aesthetic via transparent titlebar + full-size

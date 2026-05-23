@@ -24,7 +24,7 @@ pub fn run() {
         .manage(NativeMountState::default())
         .setup(|app| {
             settings::ensure_userdata(app.handle())?;
-            window_chrome::configure(app.handle())?;
+            window_chrome::configure(app.handle(), settings::keep_geometry_enabled_startup())?;
             native_mount::install(app.handle())?;
             Ok(())
         })
@@ -34,6 +34,7 @@ pub fn run() {
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
+            pty::pty_metadata,
             pty::pty_cwd,
             pty::pty_process,
             // sysinfo

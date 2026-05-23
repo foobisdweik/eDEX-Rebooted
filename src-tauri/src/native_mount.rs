@@ -200,12 +200,12 @@ pub async fn native_mount_set_rect(
     dpr: f64,
     seq: u64,
 ) -> Result<(), String> {
-    // Latest-wins backpressure: drop anything older than what we've seen.
-    let prev = state.last_seq.load(Ordering::Acquire);
+    // Latest-wins backpressure: atomically publish monotonic sequence updates.
+    // This avoids racing load/store pairs from briefly regressing last_seq.
+    let prev = state.last_seq.fetch_max(seq, Ordering::AcqRel);
     if seq <= prev {
         return Ok(());
     }
-    state.last_seq.store(seq, Ordering::Release);
 
     let handle = {
         let inner = state

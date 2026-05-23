@@ -152,14 +152,13 @@ class Terminal {
             this._poll = setInterval(async () => {
                 if (this.ptyId === null) return;
                 try {
-                    const cwd = await invoke("pty_cwd", { id: this.ptyId });
+                    const metadata = await invoke("pty_metadata", { id: this.ptyId });
+                    const cwd = metadata && metadata.cwd;
                     if (cwd && cwd !== this.cwd) {
                         this.cwd = cwd;
                         this.oncwdchange(cwd);
                     }
-                } catch (_) {}
-                try {
-                    const proc = await invoke("pty_process", { id: this.ptyId });
+                    const proc = metadata && metadata.process;
                     if (proc && this._lastProc !== proc) {
                         this._lastProc = proc;
                         if (this.onprocesschange) this.onprocesschange(proc);
