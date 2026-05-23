@@ -131,6 +131,8 @@ class Terminal {
                 if (now - this.lastRefit > 10000) this.fit();
                 if (chunk instanceof Uint8Array) {
                     this.term.write(chunk);
+                } else if (chunk instanceof ArrayBuffer) {
+                    this.term.write(new Uint8Array(chunk));
                 } else if (typeof chunk === "string") {
                     this.term.write(chunk);
                 }
