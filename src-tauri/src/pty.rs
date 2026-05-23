@@ -164,9 +164,7 @@ pub async fn pty_write(state: State<'_, PtyManager>, id: u32, data: String) -> R
             .writer
             .lock()
             .map_err(|_| "pty writer lock poisoned".to_string())?;
-        writer
-            .write_all(data.as_bytes())
-            .map_err(|e| e.to_string())
+        writer.write_all(data.as_bytes()).map_err(|e| e.to_string())
     })
     .await;
     log_command_latency("pty_write", started, result.is_ok());

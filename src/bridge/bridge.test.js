@@ -175,6 +175,18 @@ test("sysinfo panelSnapshot reuses short-lived cache and in-flight request", asy
     assert.deepEqual(c, a);
 });
 
+test("sysinfo panelSnapshot cache is keyed by collapse and topLimit", async () => {
+    const payloads = [];
+    const window = freshSysinfoBridge((_cmd, payload) => {
+        payloads.push(payload);
+        return Promise.resolve(payload);
+    });
+    await window.bridge.sysinfo.panelSnapshot(false, 5);
+    await window.bridge.sysinfo.panelSnapshot(true, 5);
+    await window.bridge.sysinfo.panelSnapshot(false, 8);
+    assert.equal(payloads.length, 3);
+});
+
 test("sysinfo proxy does not impersonate a thenable when awaited", async () => {
     const window = freshSysinfoBridge(() => Promise.resolve("never invoked"));
     assert.equal(typeof window.bridge.sysinfo.then, "undefined");

@@ -15,11 +15,13 @@
 
     const { invoke } = globalScope.__TAURI__.core;
     const panelSnapshotCache = {
-        inFlight: null,
-        value: null,
-        timestamp: 0,
+        entries: new Map(),
         ttlMs: 900
     };
+
+    function panelSnapshotCacheKey(collapseThreadsByName, topLimit) {
+        return `${collapseThreadsByName ? 1 : 0}:${topLimit}`;
+    }
 
     const proxy = new Proxy({}, {
         apply: () => { throw new Error("Cannot use the sysinfo proxy directly as a function"); },
@@ -42,23 +44,38 @@
                         collapseThreadsByName: args[0] === true,
                         topLimit: Number.isInteger(args[1]) ? args[1] : 5
                     };
+                    const cacheKey = panelSnapshotCacheKey(
+                        payload.collapseThreadsByName,
+                        payload.topLimit
+                    );
                     const now = Date.now();
-                    if (panelSnapshotCache.value && now - panelSnapshotCache.timestamp < panelSnapshotCache.ttlMs) {
-                        return Promise.resolve(panelSnapshotCache.value);
+                    const cached = panelSnapshotCache.entries.get(cacheKey);
+                    if (cached && cached.value && now - cached.timestamp < panelSnapshotCache.ttlMs) {
+                        return Promise.resolve(cached.value);
                     }
-                    if (panelSnapshotCache.inFlight) {
-                        return panelSnapshotCache.inFlight;
+                    if (cached && cached.inFlight) {
+                        return cached.inFlight;
                     }
-                    panelSnapshotCache.inFlight = invoke(cmd, payload)
+                    const inFlight = invoke(cmd, payload)
                         .then(result => {
-                            panelSnapshotCache.value = result;
-                            panelSnapshotCache.timestamp = Date.now();
+                            const entry = panelSnapshotCache.entries.get(cacheKey) || {};
+                            entry.value = result;
+                            entry.timestamp = Date.now();
+                            entry.inFlight = null;
+                            panelSnapshotCache.entries.set(cacheKey, entry);
                             return result;
                         })
-                        .finally(() => {
-                            panelSnapshotCache.inFlight = null;
+                        .catch(err => {
+                            const entry = panelSnapshotCache.entries.get(cacheKey);
+                            if (entry) entry.inFlight = null;
+                            throw err;
                         });
-                    return panelSnapshotCache.inFlight;
+                    panelSnapshotCache.entries.set(cacheKey, {
+                        value: cached ? cached.value : null,
+                        timestamp: cached ? cached.timestamp : 0,
+                        inFlight
+                    });
+                    return inFlight;
                 }
                 return invoke(cmd, payload);
             };
