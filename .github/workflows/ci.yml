@@ -16,6 +16,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -27,6 +29,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -37,11 +41,29 @@ jobs:
       - run: cargo clippy --target aarch64-apple-darwin --all-targets -- -D warnings
         working-directory: src-tauri
 
+  rust-test:
+    name: Rust tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: cargo test --target aarch64-apple-darwin
+        working-directory: src-tauri
+
   js-tests:
     name: JS tests
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -51,9 +73,11 @@ jobs:
   tauri-build:
     name: Tauri build (aarch64-apple-darwin)
     runs-on: macos-latest
-    needs: [rust-fmt, rust-clippy, js-tests]
+    needs: [rust-fmt, rust-clippy, rust-test, js-tests]
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
@@ -72,3 +96,4 @@ jobs:
           path: src-tauri/target/aarch64-apple-darwin/release/edex-ui
           if-no-files-found: error
           retention-days: 7
+
