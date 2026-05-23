@@ -1,0 +1,30 @@
+# Stage intake for Swift/Rust migration: keep runtime/build-critical code,
+# drop large assets, caches, and non-runtime content.
+
+# VCS / local agent state
+.git/
+.cursor/
+.claude/
+.gemini/
+.codex/
+.remember/
+.DS_Store
+
+# Build/cache outputs
+dist/
+node_modules/
+src/node_modules/
+src-tauri/target/
+
+# Large media / binary assets not needed for runtime migration analysis
+media/
+src/assets/audio/
+src/assets/icons/
+src/assets/fonts/
+src/assets/vendor/
+
+# Non-runtime repository content
+docs/
+file-icons/
+src/assets/misc/file-icons-match.js
+LICENSE
