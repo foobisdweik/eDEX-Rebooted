@@ -256,7 +256,12 @@ fn read_pty_process(shell_pid: u32) -> Result<Option<String>, String> {
         }
         if let Ok(comm) = name(pid_i32) {
             let comm = comm.trim().to_string();
-            if !comm.is_empty() && highest.map(|(p, _)| pid_i32 > p).unwrap_or(true) {
+            if !comm.is_empty()
+                && highest
+                    .as_ref()
+                    .map(|(p, _)| pid_i32 > *p)
+                    .unwrap_or(true)
+            {
                 highest = Some((pid_i32, comm));
             }
         }
