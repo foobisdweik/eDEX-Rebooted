@@ -91,6 +91,10 @@ const CA_AUTORESIZE_W_H: std::os::raw::c_uint = 0x02 | 0x10;
 
 /// NSWindowOrderingMode::Above.
 const NS_WINDOW_ABOVE: isize = 1;
+const CLOCK_LAYER_WIDTH: f64 = 260.0;
+const CLOCK_LAYER_HEIGHT: f64 = 36.0;
+const CLOCK_LAYER_MARGIN_RIGHT: f64 = 8.0;
+const CLOCK_LAYER_MARGIN_TOP: f64 = 16.0;
 
 pub fn install(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // Must run on the AppKit main thread because we are about to talk
@@ -179,7 +183,10 @@ unsafe fn build_view(ns_window_ptr: id) -> MountHandle {
     let menlo_bold = NSString::alloc(nil).init_str("Menlo-Bold");
     let _: () = msg_send![clock_layer, setFont: menlo_bold];
     let _: () = msg_send![clock_layer, setAlignmentMode: NSString::alloc(nil).init_str("right")];
-    let clock_rect = NSRect::new(NSPoint::new(8.0, 0.0), NSSize::new(260.0, 36.0));
+    let clock_rect = NSRect::new(
+        NSPoint::new(8.0, 0.0),
+        NSSize::new(CLOCK_LAYER_WIDTH, CLOCK_LAYER_HEIGHT),
+    );
     let _: () = msg_send![clock_layer, setFrame: clock_rect];
     let _: () = msg_send![clock_layer, setWrapped: NO];
     let _: () = msg_send![root_layer, addSublayer: clock_layer];
@@ -277,8 +284,8 @@ unsafe fn apply_rect(handle: MountHandle, rect: WebRect, dpr: f64) {
     let _: () = msg_send![handle.label_layer(), setFrame: label_rect];
 
     let clock_rect = NSRect::new(
-        NSPoint::new(rect.width - 268.0, rect.height - 52.0),
-        NSSize::new(260.0, 36.0),
+        NSPoint::new(rect.width - (CLOCK_LAYER_WIDTH + CLOCK_LAYER_MARGIN_RIGHT), rect.height - (CLOCK_LAYER_HEIGHT + CLOCK_LAYER_MARGIN_TOP)),
+        NSSize::new(CLOCK_LAYER_WIDTH, CLOCK_LAYER_HEIGHT),
     );
     let _: () = msg_send![handle.clock_layer(), setFrame: clock_rect];
 }

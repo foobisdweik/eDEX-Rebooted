@@ -1,5 +1,15 @@
 window.modals = {};
 
+function normalizeNativeModalText(value) {
+    return String(value ?? "")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/[\u0000-\u001F\u007F]/g, c => (c === "\n" || c === "\t") ? c : " ")
+        .replace(/</g, "‹")
+        .replace(/>/g, "›")
+        .replace(/&(?:#(?:x[0-9a-fA-F]+|\d+)|[a-zA-Z][a-zA-Z0-9]+);/g, " ")
+        .trim();
+}
+
 class Modal {
     constructor(options, onclose) {
         if (!options || !options.type) throw "Missing parameters";
@@ -49,13 +59,12 @@ class Modal {
             }
 
             window.modals[this.id] = this;
-            const plainMessage = String(this.message || "")
-                .replace(/<br\s*\/?>/gi, "\n")
-                .replace(/<[^>]*>/g, "");
+            const plainTitle = normalizeNativeModalText(this.title || "Modal");
+            const plainMessage = normalizeNativeModalText(this.message || "");
             const kind = this.type === "error" ? "error" : (this.type === "warning" ? "warning" : "info");
             invoke("native_modal_notify", {
                 kind,
-                title: String(this.title || "Modal"),
+                title: plainTitle,
                 message: plainMessage
             }).catch(e => {
                 console.warn("native_modal_notify failed:", e);
