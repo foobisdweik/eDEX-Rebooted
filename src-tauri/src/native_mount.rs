@@ -284,7 +284,10 @@ unsafe fn apply_rect(handle: MountHandle, rect: WebRect, dpr: f64) {
     let _: () = msg_send![handle.label_layer(), setFrame: label_rect];
 
     let clock_rect = NSRect::new(
-        NSPoint::new(rect.width - (CLOCK_LAYER_WIDTH + CLOCK_LAYER_MARGIN_RIGHT), rect.height - (CLOCK_LAYER_HEIGHT + CLOCK_LAYER_MARGIN_TOP)),
+        NSPoint::new(
+            rect.width - (CLOCK_LAYER_WIDTH + CLOCK_LAYER_MARGIN_RIGHT),
+            rect.height - (CLOCK_LAYER_HEIGHT + CLOCK_LAYER_MARGIN_TOP),
+        ),
         NSSize::new(CLOCK_LAYER_WIDTH, CLOCK_LAYER_HEIGHT),
     );
     let _: () = msg_send![handle.clock_layer(), setFrame: clock_rect];
