@@ -4,12 +4,21 @@ class Clock {
 
         // Load settings
         this.twelveHours = (window.settings.clockHours === 12);
+        this.nativeClock = (
+            window.settings.experimentalNativePanels === true
+            && window.settings.experimentalNativeClock === true
+            && window.bridge
+            && window.bridge.nativeMount
+            && typeof window.bridge.nativeMount.setClockText === "function"
+        );
 
         // Create DOM
         this.parent = document.getElementById(parentId);
-        this.parent.innerHTML += `<div id="mod_clock" class="${(this.twelveHours) ? "mod_clock_twelve" : ""}">
-            <h1 id="mod_clock_text"><span>?</span><span>?</span><span>:</span><span>?</span><span>?</span><span>:</span><span>?</span><span>?</span></h1>
-        </div>`;
+        if (!this.nativeClock) {
+            this.parent.innerHTML += `<div id="mod_clock" class="${(this.twelveHours) ? "mod_clock_twelve" : ""}">
+                <h1 id="mod_clock_text"><span>?</span><span>?</span><span>:</span><span>?</span><span>?</span><span>:</span><span>?</span><span>?</span></h1>
+            </div>`;
+        }
 
         this.lastTime = new Date();
 
@@ -34,6 +43,14 @@ class Clock {
                 array[i] = "0"+e;
             }
         });
+        const plainClock = `${array[0]}:${array[1]}:${array[2]}${this.twelveHours ? " " + this.ampm : ""}`;
+
+        if (this.nativeClock) {
+            window.bridge.nativeMount.setClockText(plainClock);
+            this.lastTime = time;
+            return;
+        }
+
         let clockString = `${array[0]}:${array[1]}:${array[2]}`;
         array = clockString.match(/.{1}/g);
         clockString = "";
@@ -41,10 +58,10 @@ class Clock {
             if (e === ":") clockString += "<em>"+e+"</em>";
             else clockString += "<span>"+e+"</span>";
         });
-        
         if (this.twelveHours) clockString += `<span>${this.ampm}</span>`;
 
-        document.getElementById("mod_clock_text").innerHTML = clockString;
+        const textNode = document.getElementById("mod_clock_text");
+        if (textNode) textNode.innerHTML = clockString;
         this.lastTime = time;
     }
 }

@@ -1,5 +1,15 @@
 window.modals = {};
 
+function normalizeNativeModalText(value) {
+    return String(value ?? "")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/[\u0000-\u001F\u007F]/g, c => (c === "\n" || c === "\t") ? c : " ")
+        .replace(/</g, "‹")
+        .replace(/>/g, "›")
+        .replace(/&(?:#(?:x[0-9a-fA-F]+|\d+)|[a-zA-Z][a-zA-Z0-9]+);/g, " ")
+        .trim();
+}
+
 class Modal {
     constructor(options, onclose) {
         if (!options || !options.type) throw "Missing parameters";
@@ -17,9 +27,52 @@ class Modal {
         let buttons = [];
         let augs = [];
         let zindex = 0;
+        const invoke = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke;
 
         // Reserve a slot in window.modals
         window.modals[this.id] = {};
+
+        const useNativeModal = (
+            window.settings
+            && window.settings.experimentalNativeModal === true
+            && typeof invoke === "function"
+            && this.type !== "custom"
+        );
+        if (useNativeModal) {
+            this.close = () => {
+                delete window.modals[this.id];
+                if (typeof this.onclose === "function") this.onclose();
+            };
+            this.focus = () => {};
+            this.unfocus = () => {};
+
+            switch(this.type) {
+                case "error":
+                    window.audioManager.error.play();
+                    break;
+                case "warning":
+                    window.audioManager.alarm.play();
+                    break;
+                default:
+                    window.audioManager.info.play();
+                    break;
+            }
+
+            window.modals[this.id] = this;
+            const plainTitle = normalizeNativeModalText(this.title || "Modal");
+            const plainMessage = normalizeNativeModalText(this.message || "");
+            const kind = this.type === "error" ? "error" : (this.type === "warning" ? "warning" : "info");
+            invoke("native_modal_notify", {
+                kind,
+                title: plainTitle,
+                message: plainMessage
+            }).catch(e => {
+                console.warn("native_modal_notify failed:", e);
+            }).finally(() => {
+                this.close();
+            });
+            return this.id;
+        }
 
         switch(this.type) {
             case "error":

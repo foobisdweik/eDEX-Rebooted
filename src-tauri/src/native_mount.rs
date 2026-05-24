@@ -48,6 +48,7 @@ struct MountHandle {
     view: usize,
     border_layer: usize,
     label_layer: usize,
+    clock_layer: usize,
 }
 
 // Safety: every method on `*mut Object` is dispatched to the main thread
@@ -65,6 +66,9 @@ impl MountHandle {
     }
     fn label_layer(self) -> id {
         self.label_layer as id
+    }
+    fn clock_layer(self) -> id {
+        self.clock_layer as id
     }
 }
 
@@ -87,6 +91,10 @@ const CA_AUTORESIZE_W_H: std::os::raw::c_uint = 0x02 | 0x10;
 
 /// NSWindowOrderingMode::Above.
 const NS_WINDOW_ABOVE: isize = 1;
+const CLOCK_LAYER_WIDTH: f64 = 260.0;
+const CLOCK_LAYER_HEIGHT: f64 = 36.0;
+const CLOCK_LAYER_MARGIN_RIGHT: f64 = 8.0;
+const CLOCK_LAYER_MARGIN_TOP: f64 = 16.0;
 
 pub fn install(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // Must run on the AppKit main thread because we are about to talk
@@ -164,11 +172,31 @@ unsafe fn build_view(ns_window_ptr: id) -> MountHandle {
     let _: () = msg_send![label_layer, setFrame: label_rect];
     let _: () = msg_send![root_layer, addSublayer: label_layer];
 
+    // Clock text layer. Hidden by default; Slice 1 pilot toggles content from JS
+    // via native_mount_set_clock_text when experimentalNativeClock is enabled.
+    let clock_layer: id = msg_send![class!(CATextLayer), layer];
+    let empty = NSString::alloc(nil).init_str("");
+    let _: () = msg_send![clock_layer, setString: empty];
+    let cyan3 = CGColor::rgb(0.0, 1.0, 1.0, 1.0);
+    let _: () = msg_send![clock_layer, setForegroundColor: cyan3.as_concrete_TypeRef()];
+    let _: () = msg_send![clock_layer, setFontSize: 28.0_f64];
+    let menlo_bold = NSString::alloc(nil).init_str("Menlo-Bold");
+    let _: () = msg_send![clock_layer, setFont: menlo_bold];
+    let _: () = msg_send![clock_layer, setAlignmentMode: NSString::alloc(nil).init_str("right")];
+    let clock_rect = NSRect::new(
+        NSPoint::new(8.0, 0.0),
+        NSSize::new(CLOCK_LAYER_WIDTH, CLOCK_LAYER_HEIGHT),
+    );
+    let _: () = msg_send![clock_layer, setFrame: clock_rect];
+    let _: () = msg_send![clock_layer, setWrapped: NO];
+    let _: () = msg_send![root_layer, addSublayer: clock_layer];
+
     // Retain explicitly — we hand them out as raw pointers and must
     // outlive any contentView ownership churn.
     let _: id = msg_send![view, retain];
     let _: id = msg_send![border_layer, retain];
     let _: id = msg_send![label_layer, retain];
+    let _: id = msg_send![clock_layer, retain];
 
     // Add as subview above the WKWebView (Tauri's first subview of contentView).
     let content_view: id = msg_send![ns_window_ptr, contentView];
@@ -190,6 +218,7 @@ unsafe fn build_view(ns_window_ptr: id) -> MountHandle {
         view: view as usize,
         border_layer: border_layer as usize,
         label_layer: label_layer as usize,
+        clock_layer: clock_layer as usize,
     }
 }
 
@@ -245,6 +274,7 @@ unsafe fn apply_rect(handle: MountHandle, rect: WebRect, dpr: f64) {
     let _: () = msg_send![root_layer, setContentsScale: dpr];
     let _: () = msg_send![handle.border_layer(), setContentsScale: dpr];
     let _: () = msg_send![handle.label_layer(), setContentsScale: dpr];
+    let _: () = msg_send![handle.clock_layer(), setContentsScale: dpr];
 
     // Re-anchor the label to top-left of the (now-resized) view.
     let label_rect = NSRect::new(
@@ -252,6 +282,15 @@ unsafe fn apply_rect(handle: MountHandle, rect: WebRect, dpr: f64) {
         NSSize::new(100.0, 14.0),
     );
     let _: () = msg_send![handle.label_layer(), setFrame: label_rect];
+
+    let clock_rect = NSRect::new(
+        NSPoint::new(
+            rect.width - (CLOCK_LAYER_WIDTH + CLOCK_LAYER_MARGIN_RIGHT),
+            rect.height - (CLOCK_LAYER_HEIGHT + CLOCK_LAYER_MARGIN_TOP),
+        ),
+        NSSize::new(CLOCK_LAYER_WIDTH, CLOCK_LAYER_HEIGHT),
+    );
+    let _: () = msg_send![handle.clock_layer(), setFrame: clock_rect];
 }
 
 #[tauri::command]
@@ -273,6 +312,31 @@ pub async fn native_mount_set_visible(
     Queue::main().exec_async(move || unsafe {
         let hidden = if visible { NO } else { YES };
         let _: () = msg_send![handle.view(), setHidden: hidden];
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn native_mount_set_clock_text(
+    state: State<'_, NativeMountState>,
+    text: String,
+) -> Result<(), String> {
+    let handle = {
+        let inner = state
+            .inner
+            .lock()
+            .map_err(|_| "native_mount: set_clock_text lock poisoned".to_string())?;
+        match *inner {
+            Some(h) => h,
+            None => return Ok(()),
+        }
+    };
+
+    Queue::main().exec_async(move || unsafe {
+        let ns_text = NSString::alloc(nil).init_str(&text);
+        let _: () = msg_send![handle.clock_layer(), setString: ns_text];
+        let _: () = msg_send![ns_text, release];
     });
 
     Ok(())
