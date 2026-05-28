@@ -310,11 +310,11 @@ class FilesystemDisplay {
 
                 if (!this._noTracking) {
                     if (e.type === "dir" || e.type.endsWith("Dir")) {
-                        cmd = `window.term[window.currentTerm].writelr("cd \\""+fsDisp.cwd[${blockIndex}].name+"\\"")`;
+                        cmd = `window.term[window.currentTerm].writelr("cd "+window._shellQuote(fsDisp.cwd[${blockIndex}].name))`;
                     } else if (e.type === "up") {
                         cmd = `window.term[window.currentTerm].writelr("cd ..")`;
                     } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
-                        cmd = `window.term[window.currentTerm].writelr("cd \\""+fsDisp.cwd[${blockIndex}].path+"\\"")`;
+                        cmd = `window.term[window.currentTerm].writelr("cd "+window._shellQuote(fsDisp.cwd[${blockIndex}].path))`;
                     } else {
                         cmd = `window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"")`;
                     }

@@ -154,6 +154,7 @@ pub async fn pty_spawn(
                 if let Some(handle) = map.remove(&id) {
                     if let Ok(mut child) = handle.child.lock() {
                         let _ = child.kill();
+                        let _ = child.wait();
                     }
                 }
             }
@@ -229,11 +230,12 @@ pub async fn pty_kill(state: State<'_, PtyManager>, id: u32) -> Result<(), Strin
             map.remove(&id)
         };
         if let Some(handle) = handle {
-            let _ = handle
+            let mut child = handle
                 .child
                 .lock()
-                .map_err(|_| "pty child lock poisoned".to_string())?
-                .kill();
+                .map_err(|_| "pty child lock poisoned".to_string())?;
+            let _ = child.kill();
+            let _ = child.wait();
         }
         Ok(())
     })

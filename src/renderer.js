@@ -14,6 +14,11 @@ window._escapeHtml = text => {
     };
     return text.replace(/[&<>"']/g, m => map[m]);
 };
+window._shellQuote = path => {
+    if (path === undefined || path === null) return "''";
+    if (typeof path !== "string") path = String(path);
+    return "'" + path.replace(/'/g, "'\\''") + "'";
+};
 window._encodePathURI = uri => encodeURI(uri).replace(/#/g, "%23");
 window._purifyCSS = str => {
     if (typeof str === "undefined") return "";
