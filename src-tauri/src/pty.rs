@@ -128,6 +128,7 @@ pub async fn pty_spawn(
         }
 
         let app_for_reader = app.clone();
+        let inner_for_reader = Arc::clone(&inner);
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
             loop {
@@ -139,6 +140,21 @@ pub async fn pty_spawn(
                         }
                     }
                     Err(_) => break,
+                }
+            }
+            // Self-clean rather than relying solely on the frontend-driven
+            // pty_kill path. The loop also ends when on_data.send() fails —
+            // which is exactly what a WKWebView reload causes: the JS exit
+            // listener is gone, so nothing would otherwise drop the handle or
+            // reap the still-running shell. Reaping here keeps the manager map
+            // and the child process from leaking across reloads. On a natural
+            // exit the child is already dead, so kill() is a harmless no-op,
+            // and a racing pty_kill simply finds the entry already removed.
+            if let Ok(mut map) = inner_for_reader.lock() {
+                if let Some(handle) = map.remove(&id) {
+                    if let Ok(mut child) = handle.child.lock() {
+                        let _ = child.kill();
+                    }
                 }
             }
             let _ = app_for_reader.emit(&format!("pty://{}/exit", id), ());
