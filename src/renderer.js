@@ -386,7 +386,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.terminalTabs = new TerminalTabs({
             containerId: "main_shell",
             shell: shellBin,
-            shellArgs: window.settings.shellArgs ? [window.settings.shellArgs] : [],
+            shellArgs: window.settings.shellArgs ? window.settings.shellArgs.split(/\s+/).filter(Boolean) : [],
             defaultCwd: window.settings.cwd || settingsDir,
             maxTabs: 5,
             onFocus: () => {
@@ -410,6 +410,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         if (window.performance.navigation && window.performance.navigation.type === 1) {
             window.term[window.currentTerm].resendCWD();
         }
+
+        const sb = document.getElementById("settings_button");
+        if (sb) sb.classList.add("ready");
     }
 
     // --- window.* command surface (called from inline onclick handlers, the
@@ -446,6 +449,12 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
             if (tab) tab.innerHTML = "<p>ERROR</p>";
             return false;
         }
+    };
+
+    window.openSettingsButton = () => {
+        if (document.querySelector("div.modal_popup")) return;
+        if (!window.openSettings) return;
+        window.openSettings();
     };
 
     window.openSettings = async () => {
@@ -526,6 +535,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     };
 
     window.writeSettingsFile = async () => {
+        const prevSettings = Object.assign({}, window.settings);
         const newSettings = {
             shell: document.getElementById("settingsEditor-shell").value,
             shellArgs: document.getElementById("settingsEditor-shellArgs").value,
@@ -555,7 +565,13 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         });
         window.settings = newSettings;
         await invoke("write_settings", { contents: newSettings });
-        document.getElementById("settingsEditorStatus").innerText = "New values written to settings.json at " + new Date().toTimeString();
+        const rebootKeys = ["shell", "shellArgs", "cwd", "username", "monitor", "nointro", "forceFullscreen", "allowWindowed", "keepGeometry", "theme", "keyboard"];
+        const changed = rebootKeys.filter(k => prevSettings[k] !== newSettings[k]);
+        const status = document.getElementById("settingsEditorStatus");
+        status.innerText = "New values written to settings.json at " + new Date().toTimeString();
+        if (changed.length) {
+            status.innerHTML += `<br><span class="settingsRebootNotice">Some changes require an application restart to take effect: ${changed.join(", ")}.</span>`;
+        }
     };
 
     window.toggleFullScreen = async () => {

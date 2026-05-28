@@ -70,3 +70,46 @@ section > h3.title:first-child::after {
     bottom: -0.555vh;
     height: 0.46vh;
 }
+
+#settings_button {
+    display: none;
+    position: fixed;
+    top: 1.1vh;
+    right: 1.1vh;
+    width: 3.2vh;
+    height: 3.2vh;
+    padding: 0.4vh;
+    margin: 0;
+    background: rgba(var(--color_r), var(--color_g), var(--color_b), 0.08);
+    color: rgb(var(--color_r), var(--color_g), var(--color_b));
+    border: 0.092vh solid rgba(var(--color_r), var(--color_g), var(--color_b), 0.6);
+    font-family: var(--font_main), sans-serif;
+    cursor: pointer;
+    z-index: 999999;
+    --aug-tl: 0.5vh;
+    --aug-br: 0.5vh;
+    --aug-border-all: 0.092vh;
+    --aug-border-bg: rgba(var(--color_r), var(--color_g), var(--color_b), 0.6);
+    transition: background 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+#settings_button:hover {
+    background: rgba(var(--color_r), var(--color_g), var(--color_b), 0.25);
+    box-shadow: 0 0 0.6vh rgba(var(--color_r), var(--color_g), var(--color_b), 0.6);
+}
+#settings_button:active {
+    background: rgba(var(--color_r), var(--color_g), var(--color_b), 0.4);
+}
+#settings_button > svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+#settings_button.ready {
+    display: block;
+}
+
+.settingsRebootNotice {
+    color: var(--color_yellow);
+    display: inline-block;
+    margin-top: 0.4vh;
+}
