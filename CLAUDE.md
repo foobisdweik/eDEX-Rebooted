@@ -1,41 +1,105 @@
-# eDEX-UI v3 — frontend project notes
+# eDEX-UI v3 Ultrareview Brief
 
-Scope: `src/` WKWebView frontend. Backend (`src-tauri/`) is verified correct against the symptoms tracked below — any apparent struct/command mismatch is intentional serde rename. Do not edit `src-tauri/` for cosmetic/UI work.
+## Project Context
 
-## Shipped on the `frontend-cleanup` pass
+This repository is a fork of a security-hardened fork of the original eDEX-UI: a fullscreen, cross-platform terminal emulator and system monitor with a sci-fi interface. The original application was Electron-based and mostly JavaScript/CSS/HTML.
 
-The seven targeted UI bugs have been resolved (one commit each):
+The intermediate fork hardened the original terminal control path by accepting only local Electron `file://` connections, rejecting `http://` and `https://` connection attempts, and logging rejected attempts in `src/classes/terminal.class.js`.
 
-1. **FS panel blank on boot** — `filesystem.class.js` no longer guards on the WKWebView-stripped `window.performance.navigation`; `readFS` fires at startup with a `window.term[currentTerm]` existence guard.
-2. **On-screen-keyboard shell shortcut** — `keyboard.class.js` `pressKey` calls `term[linebreak ? "writelr" : "write"]` instead of the bare undefined idents.
-3. **Fuzzy-finder Select** — `fuzzyFinder.class.js` uses the existing `_fsPathResolve` helper from `filesystem.class.js` (Node `path` global is gone under Tauri).
-4. **cursorBlink ignores theme `false`** — `terminal.class.js` switched `||` to `??`.
-5. **Acute É** — `keyboard.class.js` `addAcute` returns `"É"` (was bare `"E"`).
-6. **Cedilla dead-key sticks** — `keyboard.class.js` sets `isNextCedilla = "false"` after applying, matching every other dead-key reset.
-7. **`fit()` over-allocates cols/rows** — `terminal.class.js` dropped the `screen.width/height` GCD nudge. `FitAddon.proposeDimensions()` reads the actual parent box and is correct on its own; the legacy nudge was an Electron-fullscreen holdover that produced 1–3 stale extra cols/rows in windowed mode.
+This fork continues that security work by converting the hardened app from web/Electron architecture toward native Swift and Rust for Apple Silicon Macs running macOS Tahoe 26.x. The current implementation is a Tauri 2 app: Rust owns native capabilities and IPC, while `src/` remains a WKWebView frontend payload pending further native migration.
 
-Plus three UX/UI additions on the same pass:
+## Architecture Map
 
-- **Cogwheel settings button** — persistent top-right button (`#settings_button`, augmented-ui `tl-clip br-clip exe`, theme-tinted via `--color_r/g/b`) makes settings discoverable without the `Ctrl+Shift+S` shortcut or the FS-panel pseudo-file. Hidden until `initUI()` adds `.ready`; guards against opening on top of an existing modal.
-- **Reboot-required toast** — `writeSettingsFile` now snapshots `prevSettings` and diffs the reboot-required keys: `shell, shellArgs, cwd, username, monitor, nointro, forceFullscreen, allowWindowed, keepGeometry, theme, keyboard`. When any changed, appends a `.settingsRebootNotice` line under the status text. The modal's existing "Restart eDEX" button is the affordance.
-- **`shellArgs` multi-arg split** — `renderer.js` splits the settings string on whitespace before constructing the `pty_spawn` array, so `"--login --interactive"` becomes two argv entries instead of one concatenated string.
+- `src/ui.html`: static WKWebView shell and script load order.
+- `src/renderer.js`: boot sequence, settings, theme loading, shortcuts, terminal/tab initialization, and top-level UI commands.
+- `src/bridge/`: frontend bridge shims for state, audio, events, sysinfo, and native panel mounting.
+- `src/classes/`: active frontend modules for terminal, tabs, filesystem, keyboard, modals, media, and system panels.
+- `src-tauri/src/`: Rust backend modules for Tauri command registration, PTY lifecycle, filesystem access, settings, sysinfo, native modal, native mount, and macOS window chrome.
+- `src-tauri/capabilities/default.json`: Tauri 2 permission allow-list for the main window.
+- `src-tauri/tauri.conf.json`: app config, CSP, bundle settings, and Tauri global exposure.
+- `src-tauri/tests/sysinfo_contract.rs`: Rust-to-JS JSON wire-shape contract tests.
 
-## DO NOT TOUCH — verified, leave as-is
+Ignore `src-tauri/target/`, vendored browser libraries in `src/assets/vendor/`, generated schemas, screenshots, and media assets unless a finding directly depends on them.
 
-These have been audited end-to-end and are correct despite looking suspicious:
+## Review Objective
 
-- **`attachCustomKeyEventHandler` always returns `true`** (`terminal.class.js`) — the on-screen `keydownHandler` only mutates DOM classes and plays audio; it never calls `term.write` or `pty_write`. Physical and on-screen input flow through two independent paths, so there is no double-input. Returning `false` would silently break physical typing.
-- **`shellArgs` wire shape (JS array ↔ Rust `Vec<String>`)** — `renderer.js` always wraps before invoke and the backend's `SpawnArgs.args` deserializes a JS array directly. Default empty string falls through to `[]` and the backend itself injects `--login`. Protocol is sound.
-- **`reCalculateDiskUsage` inverted `e.size/e.used*100`** — dead path. `renderDiskUsage` reads backend `use` (`use_pct`) first; the inverted branch only fires on `isNaN(e.use)`, which the backend never emits.
-- **Battery panel `bat.hasBattery/isCharging/acConnected`** — Rust `BatteryInfo` has `#[serde(rename_all = "camelCase")]`. Shapes match.
-- **`DiskInfo` / `BlockDevice` field names (`use`, `type`, `fsType`, `removable`)** — per-field serde renames match the frontend reads.
-- **`si_network_connections` empty / conninfo absent** — intentional v0.2 stub per the project README.
-- **"FALLBACK |-- " cwd branch in `filesystem.class.js`** — dead (the Rust side never emits the prefix), but harmless. Sweep with the rest of the dead-code pass if/when one is scheduled.
+Perform a total front-end to back-end code inspection. Prioritize runtime correctness, security boundaries, recoverability, native macOS behavior, and migration risks.
 
-## Conventions
+Treat the Tauri IPC boundary as the main trust boundary. Custom Rust commands are not protected by plugin scopes unless their implementation enforces path, argument, and capability constraints directly.
 
-- No backend edits for UI work, **except** for tiny runtime-introspection facilities that the frontend can't derive on its own (e.g. the `is_dev_build` command added here, returning `cfg!(debug_assertions)` so the JS layer can branch dev-only UX). Behavior-changing backend edits remain off-limits.
-- No dependency changes for UI work.
-- Preserve existing minified style in already-minified files (filesystem/keyboard).
-- No AI-generated explanatory comments. Match the surrounding terse style.
-- One commit per numbered fix when working from a bug list; message format `fix(ui): <n> <short>`. UX/UI features can be combined as a single `feat(ui): ...` commit when cohesive.
+## Primary Review Targets
+
+1. Frontend runtime paths:
+   - `src/renderer.js`
+   - `src/classes/terminal.class.js`
+   - `src/classes/terminalTabs.class.js`
+   - `src/classes/filesystem.class.js`
+   - `src/classes/keyboard.class.js`
+   - `src/classes/modal.class.js`
+   - loaded panel classes and bridge files
+
+2. Rust/Tauri backend paths:
+   - `src-tauri/src/lib.rs`
+   - `src-tauri/src/pty.rs`
+   - `src-tauri/src/fs_cmds.rs`
+   - `src-tauri/src/settings.rs`
+   - `src-tauri/src/sysinfo_cmds.rs`
+   - `src-tauri/src/sysinfo_service.rs`
+   - `src-tauri/src/native_mount.rs`
+   - `src-tauri/src/native_modal.rs`
+   - `src-tauri/src/window_chrome.rs`
+
+3. Configuration and permissions:
+   - `src-tauri/capabilities/default.json`
+   - `src-tauri/tauri.conf.json`
+   - `src-tauri/Cargo.toml`
+   - `src/package.json`
+
+## Security Review Focus
+
+- Tauri 2 capabilities and plugin permissions, especially shell, process, global shortcut, core window, and webview permissions.
+- `withGlobalTauri`, CSP, inline handlers, dynamic HTML construction, and any path from local data into executable JS/HTML/CSS.
+- Custom IPC command scope enforcement for filesystem, shell resolution, PTY spawning, settings writes, and native AppKit calls.
+- Renderer compromise blast radius: what JS can read, write, execute, spawn, resize, or open through Rust/Tauri.
+- Unsafe Rust/AppKit interop: null handling, main-thread assumptions, object lifetime, coordinate transforms, and async dispatch ordering.
+
+## Runtime Review Focus
+
+- Boot recovery if settings, shell, cwd, theme, keyboard layout, sysinfo, or PTY setup fails.
+- PTY lifecycle: spawn, read, write, resize, metadata polling, natural process exit, tab close, app quit, and orphan cleanup.
+- Frontend global state consistency: `window.term`, `window.currentTerm`, `window.keyboard`, `window.settings`, and bridge state.
+- Event/timer cleanup: intervals, global shortcuts, modal listeners, media listeners, ResizeObserver, fullscreen handlers, and reload behavior.
+- Panel polling and cache behavior under slow sysinfo calls.
+- Filesystem navigation, disk display, file preview/editing, external open, and invalid path handling.
+
+## Known Intentional Design Constraints
+
+- macOS Apple Silicon is the only current target.
+- Node/Electron runtime APIs should not be reintroduced.
+- Network globe, connection list, PDF reader, and update checker are deferred.
+- `si_network_connections` is currently a v0.2 stub.
+- Frontend dependencies are vendored into `src/assets/vendor/`; the frontend package manifest records source versions but is not installed at runtime.
+- Keep migration slices shippable; do not remove compatibility bridges in the same change that introduces a native replacement.
+
+## Validation Commands
+
+Use targeted checks first, then broaden if changes are made:
+
+```bash
+node --check src/renderer.js
+node --test src/bridge/bridge.test.js src/bridge/native_mount.test.js src/classes/terminalTabs.class.test.js
+cd src-tauri && cargo check
+cd src-tauri && cargo test --test sysinfo_contract
+cd src-tauri && cargo fmt --check
+cd src-tauri && cargo clippy -- -D warnings
+```
+
+For release-readiness checks:
+
+```bash
+cd src-tauri && cargo tauri build --target aarch64-apple-darwin
+```
+
+## Finding Format
+
+Report findings first, ordered by severity. Include exact file and line references, observed or plausible runtime impact, reproduction conditions when possible, and the minimal safe fix. Avoid broad rewrites unless required by a security boundary or migration constraint.
