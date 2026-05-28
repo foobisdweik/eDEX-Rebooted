@@ -457,6 +457,12 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.openSettings();
     };
 
+    window.restartEdex = async () => {
+        if (!confirm("Restart eDEX-UI?\n\nPending settings will be saved first. Under `cargo tauri dev` the window will go black after exit because cargo cannot re-spawn the child — relaunch from the terminal. Packaged builds restart normally.")) return;
+        try { await window.writeSettingsFile(); } catch (_) {}
+        try { await window.__TAURI__.process.relaunch(); } catch (e) { console.error("relaunch failed:", e); }
+    };
+
     window.openSettings = async () => {
         if (document.getElementById("settingsEditor")) return;
 
@@ -520,7 +526,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
                 { label: "Open in External Editor", action: `window.__TAURI__.shell.open('${settingsFile}');` },
                 { label: "Save to Disk", action: "window.writeSettingsFile()" },
                 { label: "Reload UI", action: "window.location.reload();" },
-                { label: "Restart eDEX", action: "window.__TAURI__.process.relaunch();" }
+                { label: "Save &amp; Restart eDEX", action: "window.restartEdex();" }
             ]
         }, () => {
             window.keyboard.attach();
