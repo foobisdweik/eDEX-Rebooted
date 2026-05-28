@@ -519,7 +519,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
             html: `<table id="settingsEditor">
                         <tr><th>Key</th><th>Description</th><th>Value</th></tr>
                         <tr><td>shell</td><td>The program to run as a terminal emulator</td><td><input type="text" id="settingsEditor-shell" value="${window.settings.shell}"></td></tr>
-                        <tr><td>shellArgs</td><td>Arguments to pass to the shell</td><td><input type="text" id="settingsEditor-shellArgs" value="${window.settings.shellArgs || ''}"></td></tr>
+                        <tr><td>shellArgs</td><td>Shell args (whitespace-separated, include dashes &mdash; e.g. <code>--login -i</code>)</td><td><input type="text" id="settingsEditor-shellArgs" value="${window.settings.shellArgs || ''}" placeholder="--login -i"></td></tr>
                         <tr><td>cwd</td><td>Working Directory to start in</td><td><input type="text" id="settingsEditor-cwd" value="${window.settings.cwd}"></td></tr>
                         <tr><td>username</td><td>Custom username to display at boot</td><td><input type="text" id="settingsEditor-username" value="${window.settings.username || ''}"></td></tr>
                         <tr><td>keyboard</td><td>On-screen keyboard layout code</td><td><select id="settingsEditor-keyboard"><option>${window.settings.keyboard}</option>${keyboards}</select></td></tr>
