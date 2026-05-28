@@ -406,8 +406,7 @@ class Keyboard {
                     window.useAppShortcut(cut.action);
                     shortcutsTriggered = true;
                 } else if (cut.type === "shell") {
-                    let fn = (cut.linebreak) ? writelr : write;
-                    window.term[window.currentTerm][fn](cut.action);
+                    window.term[window.currentTerm][cut.linebreak ? "writelr" : "write"](cut.action);
                 } else {
                     console.warn(`${cut.trigger} has unknown type`);
                 }
@@ -461,7 +460,7 @@ class Keyboard {
         }
         if (this.container.dataset.isNextCedilla === "true") {
             cmd = this.addCedilla(cmd);
-            this.container.dataset.isNextCedilla = "true";
+            this.container.dataset.isNextCedilla = "false";
         }
         if (this.container.dataset.isNextOverring === "true") {
             cmd = this.addOverring(cmd);
@@ -720,7 +719,7 @@ class Keyboard {
             case "e":
                 return "é";
             case "E":
-                return "E";
+                return "É";
             case "g":
                 return "ǵ";
             case "G":

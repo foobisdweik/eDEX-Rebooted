@@ -123,7 +123,7 @@ class FuzzyFinder {
              return;
         }
         
-        let filePath = path.resolve(window.fsDisp.dirpath, file);
+        let filePath = _fsPathResolve(window.fsDisp.dirpath, file);
         
           window.term[window.currentTerm].write(`'${filePath}'`);
           this.disp.close();

@@ -62,6 +62,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     window.shortcuts = await invoke("get_shortcuts");
     window.lastWindowState = await invoke("get_window_state");
     window.appVersion = await invoke("get_app_version");
+    window.__IS_DEV__ = await invoke("is_dev_build").catch(() => false);
 
     // CLI overrides — Tauri's argv plugin is not wired in v1; defaults match the legacy paths.
     window.settings.nointroOverride = false;
@@ -386,7 +387,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.terminalTabs = new TerminalTabs({
             containerId: "main_shell",
             shell: shellBin,
-            shellArgs: window.settings.shellArgs ? [window.settings.shellArgs] : [],
+            shellArgs: typeof window.settings.shellArgs === "string" ? window.settings.shellArgs.split(/\s+/).filter(Boolean) : [],
             defaultCwd: window.settings.cwd || settingsDir,
             maxTabs: 5,
             onFocus: () => {
@@ -410,6 +411,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         if (window.performance.navigation && window.performance.navigation.type === 1) {
             window.term[window.currentTerm].resendCWD();
         }
+
+        const sb = document.getElementById("settings_button");
+        if (sb) sb.classList.add("ready");
     }
 
     // --- window.* command surface (called from inline onclick handlers, the
@@ -448,6 +452,37 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         }
     };
 
+    window.openSettingsButton = () => {
+        if (document.querySelector("div.modal_popup")) return;
+        if (!window.openSettings) return;
+        window.openSettings();
+    };
+
+    window._performRestart = async () => {
+        try { await window.writeSettingsFile(); } catch (_) {}
+        Object.values(window.modals).forEach(m => { try { m.close(); } catch (_) {} });
+        if (window.__IS_DEV__) {
+            new Modal({
+                type: "warning",
+                title: "Settings saved",
+                message: `Cannot relaunch under <code>cargo tauri dev</code> — cargo cannot re-spawn the child. Quit this window and re-run <code>cargo tauri dev</code> in the terminal to apply settings that require a process restart.`
+            });
+            return;
+        }
+        try { await window.__TAURI__.process.relaunch(); } catch (e) { console.error("relaunch failed:", e); }
+    };
+
+    window.restartEdex = () => {
+        new Modal({
+            type: "custom",
+            title: "Save &amp; Restart eDEX-UI?",
+            html: `<h5>Pending settings will be saved, then the process will relaunch.${window.__IS_DEV__ ? `<br><br><span style="color:var(--color_yellow);">You are running under <code>cargo tauri dev</code>. The child process cannot be re-spawned by cargo, so an in-place relaunch is unavailable here. After confirming, your settings will be saved and you will be prompted to relaunch the dev session manually.</span>` : ""}</h5>`,
+            buttons: [
+                { label: "Confirm", action: "window._performRestart();" }
+            ]
+        });
+    };
+
     window.openSettings = async () => {
         if (document.getElementById("settingsEditor")) return;
 
@@ -484,7 +519,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
             html: `<table id="settingsEditor">
                         <tr><th>Key</th><th>Description</th><th>Value</th></tr>
                         <tr><td>shell</td><td>The program to run as a terminal emulator</td><td><input type="text" id="settingsEditor-shell" value="${window.settings.shell}"></td></tr>
-                        <tr><td>shellArgs</td><td>Arguments to pass to the shell</td><td><input type="text" id="settingsEditor-shellArgs" value="${window.settings.shellArgs || ''}"></td></tr>
+                        <tr><td>shellArgs</td><td>Shell args (whitespace-separated, include dashes &mdash; e.g. <code>--login -i</code>)</td><td><input type="text" id="settingsEditor-shellArgs" value="${window.settings.shellArgs || ''}" placeholder="--login -i"></td></tr>
                         <tr><td>cwd</td><td>Working Directory to start in</td><td><input type="text" id="settingsEditor-cwd" value="${window.settings.cwd}"></td></tr>
                         <tr><td>username</td><td>Custom username to display at boot</td><td><input type="text" id="settingsEditor-username" value="${window.settings.username || ''}"></td></tr>
                         <tr><td>keyboard</td><td>On-screen keyboard layout code</td><td><select id="settingsEditor-keyboard"><option>${window.settings.keyboard}</option>${keyboards}</select></td></tr>
@@ -511,7 +546,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
                 { label: "Open in External Editor", action: `window.__TAURI__.shell.open('${settingsFile}');` },
                 { label: "Save to Disk", action: "window.writeSettingsFile()" },
                 { label: "Reload UI", action: "window.location.reload();" },
-                { label: "Restart eDEX", action: "window.__TAURI__.process.relaunch();" }
+                { label: "Save &amp; Restart eDEX", action: "window.restartEdex();" }
             ]
         }, () => {
             window.keyboard.attach();
@@ -526,6 +561,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     };
 
     window.writeSettingsFile = async () => {
+        const prevSettings = Object.assign({}, window.settings);
         const newSettings = {
             shell: document.getElementById("settingsEditor-shell").value,
             shellArgs: document.getElementById("settingsEditor-shellArgs").value,
@@ -555,7 +591,14 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         });
         window.settings = newSettings;
         await invoke("write_settings", { contents: newSettings });
-        document.getElementById("settingsEditorStatus").innerText = "New values written to settings.json at " + new Date().toTimeString();
+        const rebootKeys = ["shell", "shellArgs", "cwd", "username", "monitor", "nointro", "forceFullscreen", "allowWindowed", "keepGeometry", "theme", "keyboard"];
+        const norm = v => (v === undefined || v === null) ? "" : v;
+        const changed = rebootKeys.filter(k => norm(prevSettings[k]) !== norm(newSettings[k]));
+        const status = document.getElementById("settingsEditorStatus");
+        status.innerText = "New values written to settings.json at " + new Date().toTimeString();
+        if (changed.length) {
+            status.innerHTML += `<br><span class="settingsRebootNotice">Some changes require an application restart to take effect: ${changed.join(", ")}.</span>`;
+        }
     };
 
     window.toggleFullScreen = async () => {

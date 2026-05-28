@@ -13,6 +13,11 @@ use settings::OverrideState;
 use std::sync::Arc;
 use sysinfo_service::SysinfoService;
 
+#[tauri::command]
+fn is_dev_build() -> bool {
+    cfg!(debug_assertions)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -88,6 +93,8 @@ pub fn run() {
             native_mount::native_mount_set_clock_text,
             // native modal pilot
             native_modal::native_modal_notify,
+            // runtime introspection
+            is_dev_build,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

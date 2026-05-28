@@ -41,7 +41,7 @@ class Terminal {
         this.term = new XTerm({
             cols: 80,
             rows: 24,
-            cursorBlink: window.theme.terminal.cursorBlink || true,
+            cursorBlink: window.theme.terminal.cursorBlink ?? true,
             cursorStyle: window.theme.terminal.cursorStyle || "block",
             allowTransparency: window.theme.terminal.allowTransparency || false,
             fontFamily: window.theme.terminal.fontFamily || "Fira Mono",
@@ -249,20 +249,7 @@ class Terminal {
             this.lastRefit = Date.now();
             const proposed = fitAddon.proposeDimensions();
             if (!proposed) return;
-            let { cols, rows } = proposed;
-
-            // Aspect-ratio nudge, preserved from the legacy implementation.
-            const w = screen.width;
-            const h = screen.height;
-            let x = 1, y = 0;
-            const gcd = (a, b) => (b == 0) ? a : gcd(b, a % b);
-            const d = gcd(w, h);
-            if (d === 100) { y = 1; x = 3; }
-            if (d === 256) x = 2;
-            if (window.settings.termFontSize < 15) y = y - 1;
-            cols = cols + x;
-            rows = rows + y;
-
+            const { cols, rows } = proposed;
             if (this.term.cols !== cols || this.term.rows !== rows) {
                 this.resize(cols, rows);
             }
