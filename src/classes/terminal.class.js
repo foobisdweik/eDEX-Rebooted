@@ -41,7 +41,7 @@ class Terminal {
         this.term = new XTerm({
             cols: 80,
             rows: 24,
-            cursorBlink: window.theme.terminal.cursorBlink || true,
+            cursorBlink: window.theme.terminal.cursorBlink ?? true,
             cursorStyle: window.theme.terminal.cursorStyle || "block",
             allowTransparency: window.theme.terminal.allowTransparency || false,
             fontFamily: window.theme.terminal.fontFamily || "Fira Mono",
