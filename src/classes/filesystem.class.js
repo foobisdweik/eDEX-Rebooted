@@ -449,8 +449,10 @@ class FilesystemDisplay {
             }
         };
 
-        if (window.performance.navigation && window.performance.navigation.type === 0) {
+        if (window.term && window.term[window.currentTerm]) {
             this.readFS(window.term[window.currentTerm].cwd || window.settings.cwd);
+        } else {
+            this.readFS(window.settings.cwd);
         }
 
         this.openFile = async (name) => {
