@@ -450,9 +450,9 @@ class FilesystemDisplay {
         };
 
         if (window.term && window.term[window.currentTerm]) {
-            this.readFS(window.term[window.currentTerm].cwd || window.settings.cwd);
+            this.readFS(window.term[window.currentTerm].cwd || window.settings.cwd || settingsDir);
         } else {
-            this.readFS(window.settings.cwd);
+            this.readFS(window.settings.cwd || settingsDir);
         }
 
         this.openFile = async (name) => {

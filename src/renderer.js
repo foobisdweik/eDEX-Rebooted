@@ -387,7 +387,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.terminalTabs = new TerminalTabs({
             containerId: "main_shell",
             shell: shellBin,
-            shellArgs: window.settings.shellArgs ? window.settings.shellArgs.split(/\s+/).filter(Boolean) : [],
+            shellArgs: typeof window.settings.shellArgs === "string" ? window.settings.shellArgs.split(/\s+/).filter(Boolean) : [],
             defaultCwd: window.settings.cwd || settingsDir,
             maxTabs: 5,
             onFocus: () => {
@@ -592,7 +592,8 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.settings = newSettings;
         await invoke("write_settings", { contents: newSettings });
         const rebootKeys = ["shell", "shellArgs", "cwd", "username", "monitor", "nointro", "forceFullscreen", "allowWindowed", "keepGeometry", "theme", "keyboard"];
-        const changed = rebootKeys.filter(k => prevSettings[k] !== newSettings[k]);
+        const norm = v => (v === undefined || v === null) ? "" : v;
+        const changed = rebootKeys.filter(k => norm(prevSettings[k]) !== norm(newSettings[k]));
         const status = document.getElementById("settingsEditorStatus");
         status.innerText = "New values written to settings.json at " + new Date().toTimeString();
         if (changed.length) {
