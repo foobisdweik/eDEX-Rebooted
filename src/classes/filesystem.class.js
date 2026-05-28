@@ -314,7 +314,7 @@ class FilesystemDisplay {
                     } else if (e.type === "up") {
                         cmd = `window.term[window.currentTerm].writelr("cd ..")`;
                     } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
-                        cmd = `window.term[window.currentTerm].writelr("cd \\"${e.path.replace(/\\/g, '')}\\"")`;
+                        cmd = `window.term[window.currentTerm].writelr("cd \\""+fsDisp.cwd[${blockIndex}].path+"\\"")`;
                     } else {
                         cmd = `window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"")`;
                     }
@@ -324,7 +324,7 @@ class FilesystemDisplay {
                     } else if (e.type === "up") {
                         cmd = `window.fsDisp.readFS("${_fsPathResolve(this.dirpath, "..")}")`;
                     } else if (e.type === "disk" || e.type === "rom" || e.type === "usb") {
-                        cmd = `window.fsDisp.readFS("${e.path.replace(/\\/g, '')}")`;
+                        cmd = `window.fsDisp.readFS(fsDisp.cwd[${blockIndex}].path)`;
                     } else {
                         cmd = `window.term[window.currentTerm].write("\\""+fsDisp.cwd[${blockIndex}].path+"\\"")`;
                     }
@@ -334,8 +334,8 @@ class FilesystemDisplay {
                 if (e.type === "system") cmd = "";
                 if (e.type === "showDisks") { cmd = `window.fsDisp.readDevices()`; cmdPrefix = ''; cmdSuffix = ''; }
                 if (e.type === "up") { cmdPrefix = ''; cmdSuffix = ''; }
-                if (e.type === "edex-theme") cmd = `window.themeChanger("${e.name.slice(0, -5)}")`;
-                if (e.type === "edex-kblayout") cmd = `window.remakeKeyboard("${e.name.slice(0, -5)}")`;
+                if (e.type === "edex-theme") cmd = `window.themeChanger(fsDisp.cwd[${blockIndex}].name.slice(0, -5))`;
+                if (e.type === "edex-kblayout") cmd = `window.remakeKeyboard(fsDisp.cwd[${blockIndex}].name.slice(0, -5))`;
                 if (e.type === "edex-settings") cmd = `window.openSettings()`;
                 if (e.type === "edex-shortcuts") cmd = `window.openShortcutsHelp()`;
 
@@ -388,8 +388,8 @@ class FilesystemDisplay {
                                 <svg viewBox="0 0 ${icon.width} ${icon.height}" fill="${this.iconcolor}">
                                     ${icon.svg}
                                 </svg>
-                                <h3>${e.name}</h3>
-                                <h4>${type}</h4>
+                                <h3>${window._escapeHtml(e.name)}</h3>
+                                <h4>${window._escapeHtml(type)}</h4>
                                 <h4>${e.size}</h4>
                                 <h4>${e.lastAccessed}</h4>
                             </div>`;

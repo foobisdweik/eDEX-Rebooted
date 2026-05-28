@@ -3,6 +3,8 @@ window.eval = function () {
     throw new Error("eval() is disabled for security reasons.");
 };
 window._escapeHtml = text => {
+    if (text === undefined || text === null) return "";
+    if (typeof text !== "string") text = String(text);
     let map = {
         '&': '&amp;',
         '<': '&lt;',
@@ -634,7 +636,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
             const action = cut.action.startsWith("TAB_") ? "TAB_X" : cut.action;
             appList += `<tr>
                             <td>${cut.enabled ? 'YES' : 'NO'}</td>
-                            <td><input disabled type="text" maxlength=25 value="${cut.trigger}"></td>
+                            <td><input disabled type="text" maxlength=25 value="${window._escapeHtml(cut.trigger)}"></td>
                             <td>${shortcutsDefinition[action]}</td>
                         </tr>`;
         });
@@ -643,9 +645,9 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.shortcuts.filter(e => e.type === "shell").forEach(cut => {
             customList += `<tr>
                                 <td>${cut.enabled ? 'YES' : 'NO'}</td>
-                                <td><input disabled type="text" maxlength=25 value="${cut.trigger}"></td>
+                                <td><input disabled type="text" maxlength=25 value="${window._escapeHtml(cut.trigger)}"></td>
                                 <td>
-                                    <input disabled type="text" placeholder="Run terminal command..." value="${cut.action}">
+                                    <input disabled type="text" placeholder="Run terminal command..." value="${window._escapeHtml(cut.action)}">
                                     <input disabled type="checkbox" name="shortcutsHelpNew_Enter" ${cut.linebreak ? 'checked' : ''}>
                                     <label for="shortcutsHelpNew_Enter">Enter</label>
                                 </td>
