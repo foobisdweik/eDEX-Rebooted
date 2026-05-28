@@ -34,7 +34,7 @@ These have been audited end-to-end and are correct despite looking suspicious:
 
 ## Conventions
 
-- No backend edits for UI work.
+- No backend edits for UI work, **except** for tiny runtime-introspection facilities that the frontend can't derive on its own (e.g. the `is_dev_build` command added here, returning `cfg!(debug_assertions)` so the JS layer can branch dev-only UX). Behavior-changing backend edits remain off-limits.
 - No dependency changes for UI work.
 - Preserve existing minified style in already-minified files (filesystem/keyboard).
 - No AI-generated explanatory comments. Match the surrounding terse style.

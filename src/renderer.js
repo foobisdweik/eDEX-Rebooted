@@ -62,6 +62,7 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
     window.shortcuts = await invoke("get_shortcuts");
     window.lastWindowState = await invoke("get_window_state");
     window.appVersion = await invoke("get_app_version");
+    window.__IS_DEV__ = await invoke("is_dev_build").catch(() => false);
 
     // CLI overrides — Tauri's argv plugin is not wired in v1; defaults match the legacy paths.
     window.settings.nointroOverride = false;
@@ -457,10 +458,29 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
         window.openSettings();
     };
 
-    window.restartEdex = async () => {
-        if (!confirm("Restart eDEX-UI?\n\nPending settings will be saved first. Under `cargo tauri dev` the window will go black after exit because cargo cannot re-spawn the child — relaunch from the terminal. Packaged builds restart normally.")) return;
+    window._performRestart = async () => {
         try { await window.writeSettingsFile(); } catch (_) {}
+        Object.values(window.modals).forEach(m => { try { m.close(); } catch (_) {} });
+        if (window.__IS_DEV__) {
+            new Modal({
+                type: "warning",
+                title: "Settings saved",
+                message: `Cannot relaunch under <code>cargo tauri dev</code> — cargo cannot re-spawn the child. Quit this window and re-run <code>cargo tauri dev</code> in the terminal to apply settings that require a process restart.`
+            });
+            return;
+        }
         try { await window.__TAURI__.process.relaunch(); } catch (e) { console.error("relaunch failed:", e); }
+    };
+
+    window.restartEdex = () => {
+        new Modal({
+            type: "custom",
+            title: "Save &amp; Restart eDEX-UI?",
+            html: `<h5>Pending settings will be saved, then the process will relaunch.${window.__IS_DEV__ ? `<br><br><span style="color:var(--color_yellow);">You are running under <code>cargo tauri dev</code>. The child process cannot be re-spawned by cargo, so an in-place relaunch is unavailable here. After confirming, your settings will be saved and you will be prompted to relaunch the dev session manually.</span>` : ""}</h5>`,
+            buttons: [
+                { label: "Confirm", action: "window._performRestart();" }
+            ]
+        });
     };
 
     window.openSettings = async () => {
