@@ -460,7 +460,7 @@ class Keyboard {
         }
         if (this.container.dataset.isNextCedilla === "true") {
             cmd = this.addCedilla(cmd);
-            this.container.dataset.isNextCedilla = "true";
+            this.container.dataset.isNextCedilla = "false";
         }
         if (this.container.dataset.isNextOverring === "true") {
             cmd = this.addOverring(cmd);
