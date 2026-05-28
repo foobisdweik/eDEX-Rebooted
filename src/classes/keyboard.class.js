@@ -719,7 +719,7 @@ class Keyboard {
             case "e":
                 return "é";
             case "E":
-                return "E";
+                return "É";
             case "g":
                 return "ǵ";
             case "G":
