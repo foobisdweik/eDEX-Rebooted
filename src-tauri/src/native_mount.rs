@@ -163,11 +163,13 @@ unsafe fn build_view(ns_window_ptr: id) -> MountHandle {
     let label_layer: id = msg_send![class!(CATextLayer), layer];
     let ns_label = NSString::alloc(nil).init_str("S1B native");
     let _: () = msg_send![label_layer, setString: ns_label];
+    let _: () = msg_send![ns_label, release];
     let cyan2 = CGColor::rgb(0.0, 1.0, 1.0, 1.0);
     let _: () = msg_send![label_layer, setForegroundColor: cyan2.as_concrete_TypeRef()];
     let _: () = msg_send![label_layer, setFontSize: 11.0_f64];
     let menlo = NSString::alloc(nil).init_str("Menlo");
     let _: () = msg_send![label_layer, setFont: menlo];
+    let _: () = msg_send![menlo, release];
     let label_rect = NSRect::new(NSPoint::new(8.0, 0.0), NSSize::new(100.0, 14.0));
     let _: () = msg_send![label_layer, setFrame: label_rect];
     let _: () = msg_send![root_layer, addSublayer: label_layer];
@@ -177,12 +179,16 @@ unsafe fn build_view(ns_window_ptr: id) -> MountHandle {
     let clock_layer: id = msg_send![class!(CATextLayer), layer];
     let empty = NSString::alloc(nil).init_str("");
     let _: () = msg_send![clock_layer, setString: empty];
+    let _: () = msg_send![empty, release];
     let cyan3 = CGColor::rgb(0.0, 1.0, 1.0, 1.0);
     let _: () = msg_send![clock_layer, setForegroundColor: cyan3.as_concrete_TypeRef()];
     let _: () = msg_send![clock_layer, setFontSize: 28.0_f64];
     let menlo_bold = NSString::alloc(nil).init_str("Menlo-Bold");
     let _: () = msg_send![clock_layer, setFont: menlo_bold];
-    let _: () = msg_send![clock_layer, setAlignmentMode: NSString::alloc(nil).init_str("right")];
+    let _: () = msg_send![menlo_bold, release];
+    let align_right = NSString::alloc(nil).init_str("right");
+    let _: () = msg_send![clock_layer, setAlignmentMode: align_right];
+    let _: () = msg_send![align_right, release];
     let clock_rect = NSRect::new(
         NSPoint::new(8.0, 0.0),
         NSSize::new(CLOCK_LAYER_WIDTH, CLOCK_LAYER_HEIGHT),
@@ -222,6 +228,13 @@ unsafe fn build_view(ns_window_ptr: id) -> MountHandle {
     }
 }
 
+// Trust-boundary note: the `native_mount_set_*` commands are reachable from the
+// renderer regardless of the `experimentalNativePanels` / `experimentalNativeClock`
+// settings — those flags are enforced only on the JS side. That is acceptable
+// today because the mounted view is created hidden at NSZeroRect and only ever
+// renders geometry plus caller-supplied text (no code path, no privileged
+// resource). If this view ever gains privileged behavior, gate these commands
+// on the persisted setting here rather than trusting the client.
 #[tauri::command]
 pub async fn native_mount_set_rect(
     state: State<'_, NativeMountState>,
