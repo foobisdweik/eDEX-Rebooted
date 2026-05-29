@@ -174,7 +174,7 @@ fn is_main_thread() -> bool {
 
 #[tauri::command]
 pub async fn native_set_theme(
-    panels: State<'_, NativePanelsState>,
+    app: AppHandle,
     theme_state: State<'_, NativeThemeState>,
     theme: ThemePayload,
 ) -> Result<(), String> {
@@ -193,17 +193,14 @@ pub async fn native_set_theme(
         *guard = snapshot.clone();
     }
 
-    let slots: Vec<Slot> = panels
-        .slots
-        .lock()
-        .map_err(|_| "native_panels: slots lock poisoned".to_string())?
-        .values()
-        .cloned()
-        .collect();
-
     Queue::main().exec_async(move || unsafe {
-        for slot in slots {
-            restyle_slot(&slot, &snapshot);
+        let panels = app.state::<NativePanelsState>();
+        let Ok(slots) = panels.slots.lock() else {
+            eprintln!("native_panels: set_theme slots lock poisoned");
+            return;
+        };
+        for slot in slots.values() {
+            restyle_slot(slot, &snapshot);
         }
     });
 
@@ -247,18 +244,24 @@ pub async fn native_panel_mount(
         Queue::main().exec_sync(move || unsafe { build_slot(&build_anchor, host, &snapshot) })
     };
 
-    state
+    let mut slots = state
         .slots
         .lock()
-        .map_err(|_| "native_panels: mount insert lock poisoned".to_string())?
-        .entry(anchor)
-        .or_insert(slot);
+        .map_err(|_| "native_panels: mount insert lock poisoned".to_string())?;
+    if let std::collections::hash_map::Entry::Vacant(entry) = slots.entry(anchor) {
+        entry.insert(slot);
+    } else {
+        Queue::main().exec_async(move || unsafe {
+            release_slot(&slot);
+        });
+    }
 
     Ok(())
 }
 
 #[tauri::command]
 pub async fn native_panel_set_rect(
+    app: AppHandle,
     state: State<'_, NativePanelsState>,
     anchor: String,
     rect: WebRect,
@@ -270,7 +273,7 @@ pub async fn native_panel_set_rect(
         return Ok(());
     }
 
-    let slot = {
+    {
         let mut slots = state
             .slots
             .lock()
@@ -282,11 +285,20 @@ pub async fn native_panel_set_rect(
             return Ok(());
         }
         slot.last_seq = seq;
-        slot.clone()
-    };
+    }
 
     Queue::main().exec_async(move || unsafe {
-        apply_slot_rect(&slot, rect, dpr);
+        let state = app.state::<NativePanelsState>();
+        let Ok(slots) = state.slots.lock() else {
+            eprintln!("native_panels: set_rect main lock poisoned");
+            return;
+        };
+        let Some(slot) = slots.get(&anchor) else {
+            return;
+        };
+        if slot.last_seq == seq {
+            apply_slot_rect(slot, rect, dpr);
+        }
     });
 
     Ok(())
@@ -294,6 +306,7 @@ pub async fn native_panel_set_rect(
 
 #[tauri::command]
 pub async fn native_panel_set_visible(
+    app: AppHandle,
     state: State<'_, NativePanelsState>,
     anchor: String,
     visible: bool,
@@ -302,18 +315,24 @@ pub async fn native_panel_set_visible(
         eprintln!("native_panels: unknown anchor `{anchor}`");
         return Ok(());
     }
-    let slot = {
-        let slots = state
-            .slots
-            .lock()
-            .map_err(|_| "native_panels: set_visible lock poisoned".to_string())?;
-        match slots.get(&anchor) {
-            Some(s) => s.clone(),
-            None => return Ok(()),
-        }
-    };
+    if !state
+        .slots
+        .lock()
+        .map_err(|_| "native_panels: set_visible lock poisoned".to_string())?
+        .contains_key(&anchor)
+    {
+        return Ok(());
+    }
 
     Queue::main().exec_async(move || unsafe {
+        let state = app.state::<NativePanelsState>();
+        let Ok(slots) = state.slots.lock() else {
+            eprintln!("native_panels: set_visible main lock poisoned");
+            return;
+        };
+        let Some(slot) = slots.get(&anchor) else {
+            return;
+        };
         let hidden = if visible { NO } else { YES };
         let _: () = msg_send![slot.view(), setHidden: hidden];
     });
@@ -323,6 +342,7 @@ pub async fn native_panel_set_visible(
 
 #[tauri::command]
 pub async fn native_panel_set_text(
+    app: AppHandle,
     state: State<'_, NativePanelsState>,
     theme: State<'_, NativeThemeState>,
     anchor: String,
@@ -333,28 +353,37 @@ pub async fn native_panel_set_text(
         eprintln!("native_panels: unknown anchor `{anchor}`");
         return Ok(());
     }
-    let slot = {
+    {
         let slots = state
             .slots
             .lock()
             .map_err(|_| "native_panels: set_text lock poisoned".to_string())?;
-        match slots.get(&anchor) {
-            Some(s) => s.clone(),
-            None => return Ok(()),
+        let Some(slot) = slots.get(&anchor) else {
+            return Ok(());
+        };
+        if !slot.text_layers.contains_key(&key) {
+            eprintln!("native_panels: unknown text key `{key}` for `{anchor}`");
+            return Ok(());
         }
-    };
-    let Some(layer) = slot.text_layers.get(&key).copied() else {
-        eprintln!("native_panels: unknown text key `{key}` for `{anchor}`");
-        return Ok(());
-    };
+    }
     let snapshot = theme.snapshot();
 
     Queue::main().exec_async(move || unsafe {
+        let state = app.state::<NativePanelsState>();
+        let Ok(slots) = state.slots.lock() else {
+            eprintln!("native_panels: set_text main lock poisoned");
+            return;
+        };
+        let Some(slot) = slots.get(&anchor) else {
+            return;
+        };
+        let Some(layer) = slot.text_layers.get(&key).copied() else {
+            return;
+        };
         let ns_text = NSString::alloc(nil).init_str(&text);
-        let layer = layer as id;
-        let _: () = msg_send![layer, setString: ns_text];
+        let _: () = msg_send![layer as id, setString: ns_text];
         let _: () = msg_send![ns_text, release];
-        restyle_slot(&slot, &snapshot);
+        restyle_slot(slot, &snapshot);
     });
 
     Ok(())
@@ -446,7 +475,6 @@ unsafe fn build_slot(anchor: &str, host: PanelHost, theme: &ThemeSnapshot) -> Sl
     }
     restyle_slot(&slot, theme);
 
-    let _: id = msg_send![view, retain];
     let _: id = msg_send![root_layer, retain];
 
     let content_view = host.content_view();
@@ -576,7 +604,7 @@ unsafe fn layout_accents(slot: &Slot, width: f64, height: f64) {
     let left = slot.border_layers[1] as id;
     let right = slot.border_layers[2] as id;
     let line_h = 1.0;
-    let tick_h = height.clamp(6.0, 10.0);
+    let tick_h = tick_height(height);
     let _: () = msg_send![
         top,
         setFrame: NSRect::new(
@@ -724,6 +752,14 @@ fn themed_color(theme: &ThemeSnapshot, alpha: f64) -> CGColor {
     )
 }
 
+fn tick_height(height: f64) -> f64 {
+    if height.is_nan() {
+        6.0
+    } else {
+        height.clamp(6.0, 10.0)
+    }
+}
+
 unsafe fn release_slot(slot: &Slot) {
     let _: () = msg_send![slot.view(), removeFromSuperview];
     for layer in slot
@@ -780,5 +816,13 @@ mod tests {
         };
         assert_eq!(updated.r, 0);
         assert_eq!(updated.font_main_light, "Font B");
+    }
+
+    #[test]
+    fn tick_height_handles_nan_without_panicking() {
+        assert_eq!(tick_height(f64::NAN), 6.0);
+        assert_eq!(tick_height(2.0), 6.0);
+        assert_eq!(tick_height(8.0), 8.0);
+        assert_eq!(tick_height(20.0), 10.0);
     }
 }
