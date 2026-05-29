@@ -222,8 +222,26 @@ pub async fn write_window_state(contents: Value) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Reject anything that is not a bare file stem. Theme and keyboard `name`s are
+/// joined onto a trusted base dir and suffixed with `.json`; without this guard
+/// a renderer-supplied `name` such as `../../../../etc/hosts` would let the IPC
+/// layer read arbitrary `*.json` files anywhere on disk via path traversal.
+fn validate_basename(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name.len() > 128
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0')
+        || name.contains("..")
+    {
+        return Err(format!("invalid name: {name:?}"));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_theme(name: String) -> Result<Value, String> {
+    validate_basename(&name)?;
     let p = paths_internal();
     let path = PathBuf::from(&p.themes_dir).join(format!("{}.json", name));
     let contents = tokio::fs::read_to_string(&path)
@@ -234,6 +252,7 @@ pub async fn get_theme(name: String) -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn get_keyboard_layout(name: String) -> Result<Value, String> {
+    validate_basename(&name)?;
     let p = paths_internal();
     let path = PathBuf::from(&p.keyboards_dir).join(format!("{}.json", name));
     let contents = tokio::fs::read_to_string(&path)
@@ -342,4 +361,47 @@ pub fn get_displays() -> Vec<DisplayInfo> {
         index: 0,
         primary: true,
     }]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_basename;
+
+    #[test]
+    fn accepts_real_theme_and_keyboard_names() {
+        for ok in [
+            "tron",
+            "apollo-notype",
+            "tron-colorfilter",
+            "navy-disrupted",
+            "en-US",
+            "fr-BEPO",
+            "tr-TR-F",
+            "pt-BR",
+        ] {
+            assert!(
+                validate_basename(ok).is_ok(),
+                "expected {ok:?} to be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_traversal_and_separators() {
+        for bad in [
+            "",
+            "..",
+            "../../../../etc/hosts",
+            "a/../b",
+            "foo/bar",
+            "foo\\bar",
+            "with\0null",
+            "/etc/passwd",
+        ] {
+            assert!(
+                validate_basename(bad).is_err(),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
 }
