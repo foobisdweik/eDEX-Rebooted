@@ -8,6 +8,11 @@ class Sysinfo {
 
         // Create DOM
         this.parent = document.getElementById(parentId);
+        this._native = window.settings
+            && window.settings.experimentalNativePanels === true
+            && window.settings.experimentalNativeSysinfo === true
+            && window.bridge
+            && window.bridge.nativePanels;
         this.parent.innerHTML += `<div id="mod_sysinfo">
             <div>
                 <h1>1970</h1>
@@ -27,6 +32,10 @@ class Sysinfo {
             </div>
         </div>`;
 
+        if (this._native) {
+            window.bridge.nativePanels.mountPanel("mod_sysinfo");
+            window.bridge.nativePanels.setPanelText("mod_sysinfo", "type_value", os);
+        }
         this.updateDate();
         this.updateUptime();
         this.uptimeUpdater = setInterval(() => {
@@ -40,7 +49,8 @@ class Sysinfo {
     updateDate() {
         let time = new Date();
 
-        document.querySelector("#mod_sysinfo > div:first-child > h1").innerHTML = time.getFullYear();
+        const year = time.getFullYear().toString();
+        document.querySelector("#mod_sysinfo > div:first-child > h1").innerHTML = year;
 
         let month = time.getMonth();
         switch(month) {
@@ -81,7 +91,12 @@ class Sysinfo {
                 month = "DEC";
                 break;
         }
-        document.querySelector("#mod_sysinfo > div:first-child > h2").innerHTML = month+" "+time.getDate();
+        const dateSubvalue = month+" "+time.getDate();
+        document.querySelector("#mod_sysinfo > div:first-child > h2").innerHTML = dateSubvalue;
+        if (this._native) {
+            window.bridge.nativePanels.setPanelText("mod_sysinfo", "date_value", year);
+            window.bridge.nativePanels.setPanelText("mod_sysinfo", "date_subvalue", dateSubvalue);
+        }
 
         let timeToNewDay = ((23 - time.getHours()) * 3600000) + ((59 - time.getMinutes()) * 60000);
         setTimeout(() => {
@@ -107,21 +122,30 @@ class Sysinfo {
         if (uptime.hours.toString().length !== 2) uptime.hours = "0"+uptime.hours;
         if (uptime.minutes.toString().length !== 2) uptime.minutes = "0"+uptime.minutes;
 
+        const uptimeText = uptime.days + "d" + uptime.hours + ":" + uptime.minutes;
         document.querySelector("#mod_sysinfo > div:nth-child(2) > h2").innerHTML = uptime.days + '<span style="opacity:0.5;">d</span>' + uptime.hours + '<span style="opacity:0.5;">:</span>' + uptime.minutes;
+        if (this._native) {
+            window.bridge.nativePanels.setPanelText("mod_sysinfo", "uptime_value", uptimeText);
+        }
     }
     updateBattery() {
         window.si.battery().then(bat => {
             let indicator = document.querySelector("#mod_sysinfo > div:last-child > h2");
+            let powerText;
             if (bat.hasBattery) {
                 if (bat.isCharging) {
-                    indicator.innerHTML = "CHARGE";
+                    powerText = "CHARGE";
                 } else if (bat.acConnected) {
-                    indicator.innerHTML = "WIRED";
+                    powerText = "WIRED";
                 } else {
-                    indicator.innerHTML = bat.percent+"%";
+                    powerText = bat.percent+"%";
                 }
             } else {
-                indicator.innerHTML = "ON";
+                powerText = "ON";
+            }
+            indicator.innerHTML = powerText;
+            if (this._native) {
+                window.bridge.nativePanels.setPanelText("mod_sysinfo", "power_value", powerText);
             }
         });
     }

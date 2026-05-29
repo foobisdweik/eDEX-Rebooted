@@ -4,6 +4,11 @@ class HardwareInspector {
 
         // Create DOM
         this.parent = document.getElementById(parentId);
+        this._native = window.settings
+            && window.settings.experimentalNativePanels === true
+            && window.settings.experimentalNativeHwInspector === true
+            && window.bridge
+            && window.bridge.nativePanels;
         this._element = document.createElement("div");
         this._element.setAttribute("id", "mod_hardwareInspector");
         this._element.innerHTML = `<div id="mod_hardwareInspector_inner">
@@ -23,6 +28,9 @@ class HardwareInspector {
 
         this.parent.append(this._element);
 
+        if (this._native) {
+            window.bridge.nativePanels.mountPanel("mod_hardwareInspector");
+        }
         this.updateInfo();
         this.infoUpdater = setInterval(() => {
             this.updateInfo();
@@ -31,9 +39,17 @@ class HardwareInspector {
     updateInfo() {
         window.si.system().then(d => {
             window.si.chassis().then(e => {
-                document.getElementById("mod_hardwareInspector_manufacturer").innerText = this._trimDataString(d.manufacturer);
-                document.getElementById("mod_hardwareInspector_model").innerText = this._trimDataString(d.model, d.manufacturer, e.type);
-                document.getElementById("mod_hardwareInspector_chassis").innerText = e.type;
+                const manufacturer = this._trimDataString(d.manufacturer);
+                const model = this._trimDataString(d.model, d.manufacturer, e.type);
+                const chassis = e.type;
+                document.getElementById("mod_hardwareInspector_manufacturer").innerText = manufacturer;
+                document.getElementById("mod_hardwareInspector_model").innerText = model;
+                document.getElementById("mod_hardwareInspector_chassis").innerText = chassis;
+                if (this._native) {
+                    window.bridge.nativePanels.setPanelText("mod_hardwareInspector", "manufacturer_value", manufacturer);
+                    window.bridge.nativePanels.setPanelText("mod_hardwareInspector", "model_value", model);
+                    window.bridge.nativePanels.setPanelText("mod_hardwareInspector", "chassis_value", chassis);
+                }
             });
         });
     }

@@ -1,6 +1,7 @@
 mod fs_cmds;
 mod native_modal;
 mod native_mount;
+mod native_panels;
 mod pty;
 mod settings;
 mod sysinfo_cmds;
@@ -28,10 +29,13 @@ pub fn run() {
         .manage(OverrideState::default())
         .manage(Arc::new(SysinfoService::new()))
         .manage(NativeMountState::default())
+        .manage(native_panels::NativePanelsState::default())
+        .manage(native_panels::NativeThemeState::default())
         .setup(|app| {
             settings::ensure_userdata(app.handle())?;
             window_chrome::configure(app.handle(), settings::keep_geometry_enabled_startup())?;
             native_mount::install(app.handle())?;
+            native_panels::install(app.handle())?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -93,6 +97,13 @@ pub fn run() {
             native_mount::native_mount_set_clock_text,
             // native modal pilot
             native_modal::native_modal_notify,
+            // native panels (Approach A)
+            native_panels::native_set_theme,
+            native_panels::native_panel_mount,
+            native_panels::native_panel_set_rect,
+            native_panels::native_panel_set_visible,
+            native_panels::native_panel_set_text,
+            native_panels::native_panel_unmount,
             // runtime introspection
             is_dev_build,
         ])
