@@ -77,3 +77,8 @@ body.native-left-active #mod_column_left {
     visibility: hidden;
     pointer-events: none;
 }
+
+.native-panel-hidden {
+    visibility: hidden;
+    pointer-events: none;
+}

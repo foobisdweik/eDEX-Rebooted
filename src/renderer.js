@@ -154,6 +154,18 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
 
     const theme = await invoke("get_theme", { name: window.settings.theme });
     await window._loadTheme(theme);
+    if (window.settings.experimentalNativePanels === true
+            && window.bridge && window.bridge.nativePanels) {
+        const nativeTheme = {
+            r: Number(theme.colors.r),
+            g: Number(theme.colors.g),
+            b: Number(theme.colors.b),
+            font_main: theme.cssvars.font_main,
+            font_main_light: theme.cssvars.font_main_light,
+        };
+        window.bridge.nativePanels.setTheme(nativeTheme)
+            .catch(e => console.warn("native setTheme failed:", e));
+    }
 
     function initGraphicalErrorHandling() {
         window.edexErrorsModals = [];
@@ -369,11 +381,11 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
 
         await window._delay(100);
 
-        // Slice 1b: opt-in native panel mount. Defaults false; users enable
-        // via settings.json. Activation hides the JS panels in #mod_column_left
-        // and shows the native NSView placeholder in their slot. Must run
-        // after panels mount so #mod_column_left has its final layout rect.
+        // Slice 1b: the old native_mount bridge is column-granular and belongs
+        // only to the clock pilot. Per-panel slots use bridge.nativePanels from
+        // each panel class so unconverted left-column panels remain visible.
         if (window.settings.experimentalNativePanels === true
+                && window.settings.experimentalNativeClock === true
                 && window.bridge && window.bridge.nativeMount) {
             try {
                 await window.bridge.nativeMount.activate();

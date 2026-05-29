@@ -89,6 +89,8 @@ fn default_settings() -> Value {
         "experimentalFeatures": false,
         "experimentalNativePanels": false,
         "experimentalNativeClock": false,
+        "experimentalNativeSysinfo": false,
+        "experimentalNativeHwInspector": false,
         "experimentalNativeModal": false
     })
 }
