@@ -1,6 +1,9 @@
-//! Slice 1b: sibling NSView mounted into the Tauri window for the future
-//! gpui-rendered panel column. Holds geometry only — no rendering content
-//! here; that arrives in Slice 1c.
+//! Retired Slice 1b column-granular native pilot.
+//!
+//! Kept only as compatibility scaffolding for existing commands/tests. Do not
+//! add new panel functionality here; per-panel native work belongs in
+//! `native_panels.rs`, and the clock remains DOM-rendered until it moves there
+//! or to the Swift app.
 //!
 //! Lifecycle:
 //!   - `install()` runs once during Tauri's setup hook (main thread).

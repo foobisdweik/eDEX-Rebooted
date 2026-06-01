@@ -4,13 +4,9 @@ class Clock {
 
         // Load settings
         this.twelveHours = (window.settings.clockHours === 12);
-        this.nativeClock = (
-            window.settings.experimentalNativePanels === true
-            && window.settings.experimentalNativeClock === true
-            && window.bridge
-            && window.bridge.nativeMount
-            && typeof window.bridge.nativeMount.setClockText === "function"
-        );
+        // Phase 2.3: retire the old column-granular native_mount clock pilot.
+        // Keep rendering the clock in DOM until it moves to per-panel slots or Swift.
+        this.nativeClock = false;
 
         // Create DOM
         this.parent = document.getElementById(parentId);
