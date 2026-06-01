@@ -381,18 +381,8 @@ const pathJoin = (...parts) => parts.filter(Boolean).join("/").replace(/\/+/g, "
 
         await window._delay(100);
 
-        // Slice 1b: the old native_mount bridge is column-granular and belongs
-        // only to the clock pilot. Per-panel slots use bridge.nativePanels from
-        // each panel class so unconverted left-column panels remain visible.
-        if (window.settings.experimentalNativePanels === true
-                && window.settings.experimentalNativeClock === true
-                && window.bridge && window.bridge.nativeMount) {
-            try {
-                await window.bridge.nativeMount.activate();
-            } catch (e) {
-                console.warn("native_mount.activate() failed:", e);
-            }
-        }
+        // Phase 2.3: native_mount's column-granular clock pilot is retired.
+        // Keep clock DOM-rendered; per-panel native work must use bridge.nativePanels.
 
         // Resolve the shell binary up-front (legacy did this in main).
         let shellBin;

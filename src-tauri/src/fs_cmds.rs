@@ -1,16 +1,6 @@
-use serde::Serialize;
-use std::fs;
-use std::path::Path;
 use tauri::async_runtime;
 
-#[derive(Serialize)]
-pub struct DirEntry {
-    pub name: String,
-    pub category: String,
-    pub hidden: bool,
-    pub size: u64,
-    pub r#type: String,
-}
+pub use edex_core::fs::DirEntry;
 
 async fn blocking_fs<T, F>(f: F) -> Result<T, String>
 where
@@ -24,82 +14,30 @@ where
 
 #[tauri::command]
 pub async fn fs_readdir(path: String) -> Result<Vec<DirEntry>, String> {
-    blocking_fs(move || {
-        let mut out = Vec::new();
-        let read = fs::read_dir(&path).map_err(|e| e.to_string())?;
-        for entry in read.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let hidden = name.starts_with('.');
-            let (category, size, t) = match entry.metadata() {
-                Ok(md) => {
-                    if md.file_type().is_dir() {
-                        ("dir".to_string(), 0u64, "dir".to_string())
-                    } else if md.file_type().is_symlink() {
-                        ("symlink".to_string(), md.len(), "symlink".to_string())
-                    } else if md.file_type().is_file() {
-                        ("file".to_string(), md.len(), "file".to_string())
-                    } else {
-                        ("other".to_string(), md.len(), "other".to_string())
-                    }
-                }
-                Err(_) => ("other".to_string(), 0, "other".to_string()),
-            };
-            out.push(DirEntry {
-                name,
-                category,
-                hidden,
-                size,
-                r#type: t,
-            });
-        }
-        Ok(out)
-    })
-    .await
+    blocking_fs(move || edex_core::fs::readdir(&path)).await
 }
 
 #[tauri::command]
 pub async fn fs_stat(path: String) -> Result<serde_json::Value, String> {
-    blocking_fs(move || {
-        let md = fs::metadata(&path).map_err(|e| e.to_string())?;
-        Ok(serde_json::json!({
-            "size": md.len(),
-            "isDirectory": md.is_dir(),
-            "isFile": md.is_file(),
-            "isSymlink": md.file_type().is_symlink(),
-            "modified": md.modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0)
-        }))
-    })
-    .await
+    blocking_fs(move || edex_core::fs::stat(&path)).await
 }
 
 #[tauri::command]
 pub async fn fs_readfile(path: String) -> Result<String, String> {
-    blocking_fs(move || fs::read_to_string(&path).map_err(|e| e.to_string())).await
+    blocking_fs(move || edex_core::fs::readfile(&path)).await
 }
 
 #[tauri::command]
 pub async fn fs_writefile(path: String, content: String) -> Result<(), String> {
-    blocking_fs(move || fs::write(&path, content).map_err(|e| e.to_string())).await
+    blocking_fs(move || edex_core::fs::writefile(&path, &content)).await
 }
 
 #[tauri::command]
 pub async fn fs_exists(path: String) -> Result<bool, String> {
-    blocking_fs(move || Ok(Path::new(&path).exists())).await
+    blocking_fs(move || Ok(edex_core::fs::exists(&path))).await
 }
 
 #[tauri::command]
 pub async fn fs_open_external(path: String) -> Result<(), String> {
-    blocking_fs(move || {
-        // macOS `open` opens with the default handler.
-        std::process::Command::new("open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(())
-    })
-    .await
+    blocking_fs(move || edex_core::fs::open_external(&path)).await
 }

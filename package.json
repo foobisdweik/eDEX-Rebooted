@@ -28,5 +28,12 @@
   "homepage": "https://github.com/theelderemo/edex-ui-security-patched#readme",
   "dependencies": {
     "cson-parser": "4.0.9"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
   }
 }

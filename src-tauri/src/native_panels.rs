@@ -34,7 +34,26 @@ pub(crate) fn seq_wins(prev: u64, seq: u64) -> bool {
 /// Web (top-left origin) -> AppKit (bottom-left origin) y-flip.
 /// `content_h` is the window contentView height in points.
 pub(crate) fn flip_y(content_h: f64, y: f64, h: f64) -> f64 {
-    content_h - (y + h)
+    if !content_h.is_finite() || !y.is_finite() || !h.is_finite() {
+        return 0.0;
+    }
+    (content_h - (y + h)).max(0.0)
+}
+
+fn finite_nonnegative(value: f64) -> f64 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+fn contents_scale(dpr: f64) -> f64 {
+    if dpr.is_finite() && dpr > 0.0 {
+        dpr
+    } else {
+        1.0
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -555,6 +574,13 @@ unsafe fn make_text_layer(root_layer: id, text: &str, font_size: f64, alignment:
 }
 
 unsafe fn apply_slot_rect(slot: &Slot, rect: WebRect, dpr: f64) {
+    let rect = WebRect {
+        x: finite_nonnegative(rect.x),
+        y: finite_nonnegative(rect.y),
+        width: finite_nonnegative(rect.width),
+        height: finite_nonnegative(rect.height),
+    };
+    let dpr = contents_scale(dpr);
     let view = slot.view();
     let window: id = msg_send![view, window];
     if window.is_null() {
@@ -798,6 +824,23 @@ mod tests {
     fn flip_y_inverts_origin() {
         assert_eq!(flip_y(1000.0, 0.0, 100.0), 900.0);
         assert_eq!(flip_y(1000.0, 200.0, 100.0), 700.0);
+    }
+
+    #[test]
+    fn flip_y_clamps_invalid_or_offscreen_values() {
+        assert_eq!(flip_y(100.0, 120.0, 20.0), 0.0);
+        assert_eq!(flip_y(f64::NAN, 0.0, 20.0), 0.0);
+        assert_eq!(flip_y(100.0, f64::INFINITY, 20.0), 0.0);
+    }
+
+    #[test]
+    fn rect_helpers_sanitize_nonfinite_values() {
+        assert_eq!(finite_nonnegative(12.0), 12.0);
+        assert_eq!(finite_nonnegative(-1.0), 0.0);
+        assert_eq!(finite_nonnegative(f64::NAN), 0.0);
+        assert_eq!(contents_scale(2.0), 2.0);
+        assert_eq!(contents_scale(0.0), 1.0);
+        assert_eq!(contents_scale(f64::NAN), 1.0);
     }
 
     #[test]

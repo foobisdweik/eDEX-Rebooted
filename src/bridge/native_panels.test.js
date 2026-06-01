@@ -5,6 +5,9 @@ function freshBridge({ anchors = ["mod_sysinfo"], dpr = 2, invokeImpl = null, in
     const rafQueue = [];
     const observerInstances = [];
     const elements = new Map();
+    const windowListeners = new Map();
+    const documentListeners = new Map();
+    const elementListeners = new Map();
 
     class FakeResizeObserver {
         constructor(cb) { this.cb = cb; observerInstances.push(this); }
@@ -22,6 +25,22 @@ function freshBridge({ anchors = ["mod_sysinfo"], dpr = 2, invokeImpl = null, in
             id,
             getBoundingClientRect: () => ({ ...rect }),
             setRect: next => { rect = { ...next }; },
+            addEventListener(event, cb) {
+                const key = `${id}:${event}`;
+                if (!elementListeners.has(key)) elementListeners.set(key, []);
+                elementListeners.get(key).push(cb);
+            },
+            removeEventListener(event, cb) {
+                const key = `${id}:${event}`;
+                const listeners = elementListeners.get(key) || [];
+                elementListeners.set(key, listeners.filter(listener => listener !== cb));
+            },
+            fireEvent(event) {
+                for (const cb of elementListeners.get(`${id}:${event}`) || []) cb();
+            },
+            listenerCount(event) {
+                return (elementListeners.get(`${id}:${event}`) || []).length;
+            },
             classList: {
                 add(c) { classes.add(c); },
                 remove(c) { classes.delete(c); },
@@ -47,6 +66,28 @@ function freshBridge({ anchors = ["mod_sysinfo"], dpr = 2, invokeImpl = null, in
         cancelAnimationFrame: () => {},
         document: {
             getElementById: id => elements.get(id) || null,
+            addEventListener(event, cb) {
+                if (!documentListeners.has(event)) documentListeners.set(event, []);
+                documentListeners.get(event).push(cb);
+            },
+            removeEventListener(event, cb) {
+                const listeners = documentListeners.get(event) || [];
+                documentListeners.set(event, listeners.filter(listener => listener !== cb));
+            },
+        },
+        addEventListener(event, cb) {
+            if (!windowListeners.has(event)) windowListeners.set(event, []);
+            windowListeners.get(event).push(cb);
+        },
+        removeEventListener(event, cb) {
+            const listeners = windowListeners.get(event) || [];
+            windowListeners.set(event, listeners.filter(listener => listener !== cb));
+        },
+        fireWindowEvent(event) {
+            for (const cb of windowListeners.get(event) || []) cb();
+        },
+        fireDocumentEvent(event) {
+            for (const cb of documentListeners.get(event) || []) cb();
         },
         ResizeObserver: FakeResizeObserver,
     };
@@ -65,6 +106,8 @@ function freshBridge({ anchors = ["mod_sysinfo"], dpr = 2, invokeImpl = null, in
         invokeCalls,
         observerInstances,
         elements,
+        windowListeners,
+        documentListeners,
         flushRaf,
         setDpr(next) { sandbox.devicePixelRatio = next; },
     };
@@ -195,6 +238,53 @@ test("unmountPanel disconnects observer, unhides DOM element, invokes unmount, a
     assert.equal(h.invokeCalls.filter(c => c.cmd === "native_panel_mount").length, 2);
 });
 
+test("window resize and fullscreen changes reship rects with latest seq", async () => {
+    const h = freshBridge();
+    await h.window.bridge.nativePanels.mountPanel("mod_sysinfo");
+
+    h.elements.get("mod_sysinfo").setRect({ left: 12, top: 24, width: 100, height: 200 });
+    h.window.fireWindowEvent("resize");
+    h.flushRaf();
+
+    h.elements.get("mod_sysinfo").setRect({ left: 14, top: 28, width: 100, height: 200 });
+    h.window.fireDocumentEvent("fullscreenchange");
+    h.flushRaf();
+
+    const rectCalls = h.invokeCalls.filter(c => c.cmd === "native_panel_set_rect");
+    assert.equal(rectCalls.at(-2).payload.seq, 2);
+    assert.equal(rectCalls.at(-1).payload.seq, 3);
+    assert.deepEqual(rectCalls.at(-1).payload.rect, { x: 14, y: 28, width: 100, height: 200 });
+});
+
+test("zero-sized rect hides native slot without unmounting", async () => {
+    const h = freshBridge();
+    await h.window.bridge.nativePanels.mountPanel("mod_sysinfo");
+
+    h.elements.get("mod_sysinfo").setRect({ left: 10, top: 20, width: 0, height: 0 });
+    h.observerInstances[0].fire();
+    h.flushRaf();
+
+    const visibleCalls = h.invokeCalls.filter(c => c.cmd === "native_panel_set_visible");
+    assert.deepEqual(visibleCalls.at(-1), {
+        cmd: "native_panel_set_visible",
+        payload: { anchor: "mod_sysinfo", visible: false },
+    });
+});
+
+test("unmountPanel removes event listeners to avoid leaked schedulers", async () => {
+    const h = freshBridge();
+    await h.window.bridge.nativePanels.mountPanel("mod_sysinfo");
+    assert.equal((h.windowListeners.get("resize") || []).length, 1);
+    assert.equal((h.documentListeners.get("fullscreenchange") || []).length, 1);
+    assert.equal(h.elements.get("mod_sysinfo").listenerCount("animationend"), 1);
+
+    await h.window.bridge.nativePanels.unmountPanel("mod_sysinfo");
+
+    assert.equal((h.windowListeners.get("resize") || []).length, 0);
+    assert.equal((h.documentListeners.get("fullscreenchange") || []).length, 0);
+    assert.equal(h.elements.get("mod_sysinfo").listenerCount("animationend"), 0);
+});
+
 test("setTheme invokes native_set_theme with theme payload", async () => {
     const h = freshBridge();
     const theme = { r: 1, g: 2, b: 3, font_main: "Main", font_main_light: "Light" };
@@ -203,6 +293,18 @@ test("setTheme invokes native_set_theme with theme payload", async () => {
     assert.deepEqual(h.invokeCalls, [
         { cmd: "native_set_theme", payload: { theme } },
     ]);
+});
+
+test("setTheme forces mounted panels to reship rect after native restyle", async () => {
+    const h = freshBridge();
+    await h.window.bridge.nativePanels.mountPanel("mod_sysinfo");
+    const theme = { r: 1, g: 2, b: 3, font_main: "Main", font_main_light: "Light" };
+
+    await h.window.bridge.nativePanels.setTheme(theme);
+    h.flushRaf();
+
+    const rectCalls = h.invokeCalls.filter(c => c.cmd === "native_panel_set_rect");
+    assert.equal(rectCalls.at(-1).payload.seq, 2);
 });
 
 test("missing anchor logs and does not invoke", async () => {

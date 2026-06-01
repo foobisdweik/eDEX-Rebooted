@@ -13,6 +13,8 @@ class Sysinfo {
             && window.settings.experimentalNativeSysinfo === true
             && window.bridge
             && window.bridge.nativePanels;
+        this._uptimeSeq = 0;
+        this._batterySeq = 0;
         this.parent.innerHTML += `<div id="mod_sysinfo">
             <div>
                 <h1>1970</h1>
@@ -104,6 +106,7 @@ class Sysinfo {
         }, timeToNewDay);
     }
     async updateUptime() {
+        const seq = ++this._uptimeSeq;
         // Tauri port: require("os").uptime() replaced by the si_uptime invoke
         // (window.si.uptime → snake_case-mapped by the renderer Proxy).
         let uptime = {
@@ -112,6 +115,7 @@ class Sysinfo {
             hours: 0,
             minutes: 0
         };
+        if (seq !== this._uptimeSeq) return;
 
         uptime.days = Math.floor(uptime.raw/86400);
         uptime.raw -= uptime.days*86400;
@@ -129,7 +133,9 @@ class Sysinfo {
         }
     }
     updateBattery() {
+        const seq = ++this._batterySeq;
         window.si.battery().then(bat => {
+            if (seq !== this._batterySeq) return;
             let indicator = document.querySelector("#mod_sysinfo > div:last-child > h2");
             let powerText;
             if (bat.hasBattery) {

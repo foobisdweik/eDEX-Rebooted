@@ -9,6 +9,7 @@ class HardwareInspector {
             && window.settings.experimentalNativeHwInspector === true
             && window.bridge
             && window.bridge.nativePanels;
+        this._infoSeq = 0;
         this._element = document.createElement("div");
         this._element.setAttribute("id", "mod_hardwareInspector");
         this._element.innerHTML = `<div id="mod_hardwareInspector_inner">
@@ -37,8 +38,10 @@ class HardwareInspector {
         }, 20000);
     }
     updateInfo() {
+        const seq = ++this._infoSeq;
         window.si.system().then(d => {
             window.si.chassis().then(e => {
+                if (seq !== this._infoSeq) return;
                 const manufacturer = this._trimDataString(d.manufacturer);
                 const model = this._trimDataString(d.model, d.manufacturer, e.type);
                 const chassis = e.type;
@@ -54,7 +57,7 @@ class HardwareInspector {
         });
     }
     _trimDataString(str, ...filters) {
-        return str.trim().split(" ").filter(word => {
+        return String(str || "").trim().split(" ").filter(word => {
             if (typeof filters !== "object") return true;
 
             return !filters.includes(word);

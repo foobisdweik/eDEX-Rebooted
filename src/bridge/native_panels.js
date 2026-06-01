@@ -15,7 +15,18 @@
             || Math.abs(a.height - b.height) > 0.5;
     }
 
-    function measureAndShip(anchorId) {
+    function rectIsVisible(rect) {
+        return rect.width > 0 && rect.height > 0;
+    }
+
+    function invokeVisible(anchorId, state, visible) {
+        if (state.lastVisible === visible) return Promise.resolve();
+        state.lastVisible = visible;
+        return invoke("native_panel_set_visible", { anchor: anchorId, visible })
+            .catch(e => console.warn("native_panel_set_visible failed:", e));
+    }
+
+    function measureAndShip(anchorId, { force = false } = {}) {
         const state = states.get(anchorId);
         if (!state) return;
         state.rafId = 0;
@@ -24,18 +35,43 @@
         const r = el.getBoundingClientRect();
         const dpr = globalScope.devicePixelRatio || 1;
         const rect = { x: r.left, y: r.top, width: r.width, height: r.height };
-        if (!epsilonDiffers(rect, state.lastRect) && dpr === state.lastDpr) return;
-        state.lastRect = rect;
-        state.lastDpr = dpr;
-        const mySeq = ++state.seq;
-        invoke("native_panel_set_rect", { anchor: anchorId, rect, dpr, seq: mySeq })
-            .catch(e => console.warn("native_panel_set_rect failed:", e));
+        const visible = rectIsVisible(rect);
+        const rectChanged = force || epsilonDiffers(rect, state.lastRect) || dpr !== state.lastDpr;
+        if (rectChanged) {
+            state.lastRect = rect;
+            state.lastDpr = dpr;
+            const mySeq = ++state.seq;
+            invoke("native_panel_set_rect", { anchor: anchorId, rect, dpr, seq: mySeq })
+                .catch(e => console.warn("native_panel_set_rect failed:", e));
+        }
+        invokeVisible(anchorId, state, visible);
     }
 
-    function schedule(anchorId) {
+    function schedule(anchorId, options) {
         const state = states.get(anchorId);
         if (!state || state.rafId) return;
-        state.rafId = globalScope.requestAnimationFrame(() => measureAndShip(anchorId));
+        state.rafId = globalScope.requestAnimationFrame(() => measureAndShip(anchorId, options));
+    }
+
+    function scheduleAll(options) {
+        for (const anchorId of states.keys()) {
+            schedule(anchorId, options);
+        }
+    }
+
+    function addListener(state, target, event, handler) {
+        if (!target || typeof target.addEventListener !== "function") return;
+        target.addEventListener(event, handler);
+        state.listeners.push({ target, event, handler });
+    }
+
+    function removeListeners(state) {
+        for (const { target, event, handler } of state.listeners) {
+            if (target && typeof target.removeEventListener === "function") {
+                target.removeEventListener(event, handler);
+            }
+        }
+        state.listeners = [];
     }
 
     async function mountPanel(anchorId) {
@@ -52,24 +88,29 @@
             seq: 0,
             lastRect: null,
             lastDpr: null,
+            lastVisible: null,
             rafId: 0,
             observer: null,
+            listeners: [],
         };
         states.set(anchorId, state);
         state.observer = new globalScope.ResizeObserver(() => schedule(anchorId));
         state.observer.observe(target);
+        addListener(state, globalScope, "resize", () => schedule(anchorId));
+        addListener(state, globalScope.document, "fullscreenchange", () => schedule(anchorId, { force: true }));
+        addListener(state, target, "transitionend", () => schedule(anchorId, { force: true }));
+        addListener(state, target, "animationstart", () => schedule(anchorId, { force: true }));
+        addListener(state, target, "animationend", () => schedule(anchorId, { force: true }));
+        if (globalScope.visualViewport) {
+            addListener(state, globalScope.visualViewport, "resize", () => schedule(anchorId, { force: true }));
+        }
         state.mountPromise = invoke("native_panel_mount", { anchor: anchorId })
             .catch(e => {
                 console.warn("native_panel_mount failed:", e);
             });
 
         await state.mountPromise;
-        measureAndShip(anchorId);
-        try {
-            await invoke("native_panel_set_visible", { anchor: anchorId, visible: true });
-        } catch (e) {
-            console.warn("native_panel_set_visible failed:", e);
-        }
+        measureAndShip(anchorId, { force: true });
     }
 
     async function setPanelText(anchorId, key, text) {
@@ -91,6 +132,7 @@
             if (state.observer && typeof state.observer.disconnect === "function") {
                 state.observer.disconnect();
             }
+            removeListeners(state);
             if (state.rafId && typeof globalScope.cancelAnimationFrame === "function") {
                 globalScope.cancelAnimationFrame(state.rafId);
             }
@@ -109,6 +151,7 @@
     async function setTheme(theme) {
         try {
             await invoke("native_set_theme", { theme });
+            scheduleAll({ force: true });
         } catch (e) {
             console.warn("native_set_theme failed:", e);
         }
@@ -119,6 +162,7 @@
             if (state.observer && typeof state.observer.disconnect === "function") {
                 state.observer.disconnect();
             }
+            removeListeners(state);
             if (state.rafId && typeof globalScope.cancelAnimationFrame === "function") {
                 globalScope.cancelAnimationFrame(state.rafId);
             }

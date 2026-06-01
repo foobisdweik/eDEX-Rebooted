@@ -49,3 +49,6 @@ jspm_packages
 dist
 prebuild-src
 src/node_modules
+crates/*/target/
+crates/*/Cargo.lock
+macos/eDEXNative/.build/
