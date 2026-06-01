@@ -22,15 +22,26 @@ let package = Package(
         .executable(name: "eDEXNative", targets: ["eDEXNative"])
     ],
     targets: [
+        .target(
+            name: "ThemeSupport",
+            path: "Sources/ThemeSupport"
+        ),
         .executableTarget(
             name: "eDEXNative",
+            dependencies: ["ThemeSupport"],
             path: ".",
             exclude: [
                 "README.md",
-                "Scripts"
+                "Scripts",
+                "Sources/ThemeSupport",
+                "Tests"
             ],
             sources: [
-                "Sources",
+                "Sources/App",
+                "Sources/Services",
+                "Sources/Stores",
+                "Sources/Support",
+                "Sources/Views",
                 "Generated/edex_ffi.swift"
             ],
             swiftSettings: [
@@ -47,6 +58,11 @@ let package = Package(
                     "-Xlinker", rustReleaseDirectory
                 ])
             ]
+        ),
+        .testTarget(
+            name: "eDEXNativeTests",
+            dependencies: ["ThemeSupport"],
+            path: "Tests"
         )
     ],
     swiftLanguageModes: [.v5]
