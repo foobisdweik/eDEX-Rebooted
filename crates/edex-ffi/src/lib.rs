@@ -154,6 +154,12 @@ impl EdexCore {
         opts: FfiPtySpawnOptions,
         sink: Box<dyn PtyOutputSink>,
     ) -> Result<u32, EdexError> {
+        if opts.env_keys.len() != opts.env_values.len() {
+            return Err(EdexError::Core {
+                message: "env_keys and env_values must have the same length".to_string(),
+            });
+        }
+
         let env = opts
             .env_keys
             .into_iter()
@@ -189,5 +195,45 @@ impl EdexCore {
             cwd: metadata.cwd,
             process: metadata.process,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoopSink;
+
+    impl PtyOutputSink for NoopSink {
+        fn on_output(&self, _id: u32, _bytes: Vec<u8>) {}
+        fn on_exit(&self, _id: u32, _status: Option<i32>) {}
+        fn on_metadata(&self, _id: u32, _cwd: Option<String>, _process: Option<String>) {}
+    }
+
+    #[test]
+    fn spawn_pty_rejects_mismatched_env_vectors() {
+        let core = EdexCore::new();
+        let result = core.spawn_pty(
+            FfiPtySpawnOptions {
+                shell: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "sleep 1".to_string()],
+                cwd: "/".to_string(),
+                env_keys: vec!["ONE".to_string()],
+                env_values: vec![],
+                cols: 80,
+                rows: 24,
+            },
+            Box::new(NoopSink),
+        );
+
+        if let Ok(id) = result {
+            let _ = core.kill_pty(id);
+            panic!("mismatched env vectors should be rejected before spawning a PTY");
+        }
+        assert!(matches!(
+            result,
+            Err(EdexError::Core { message })
+                if message == "env_keys and env_values must have the same length"
+        ));
     }
 }
