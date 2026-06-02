@@ -1,3 +1,4 @@
+import BorderSupport
 import LayoutSupport
 import SwiftUI
 import ThemeSupport
@@ -17,14 +18,14 @@ struct ContentView: View {
 
             ZStack(alignment: .topLeading) {
                 background(size: proxy.size)
-                column(layout.leftColumn, title: "PANEL", subtitle: "SYSTEM", side: .left)
-                mainShell(layout.mainShell)
-                column(layout.rightColumn, title: "PANEL", subtitle: "NETWORK", side: .right)
+                column(layout.leftColumn, title: "PANEL", subtitle: "SYSTEM", side: .left, vh: layout.vh)
+                mainShell(layout.mainShell, vh: layout.vh)
+                column(layout.rightColumn, title: "PANEL", subtitle: "NETWORK", side: .right, vh: layout.vh)
                 if !layout.filesystem.isHidden {
-                    filesystem(layout.filesystem)
+                    filesystem(layout.filesystem, vh: layout.vh)
                 }
-                keyboard(layout.keyboard)
-                statusRibbon
+                keyboard(layout.keyboard, vh: layout.vh)
+                statusRibbon(vh: layout.vh)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
@@ -52,24 +53,28 @@ struct ContentView: View {
         .ignoresSafeArea()
     }
 
-    private func column(_ frame: LayoutRect, title: String, subtitle: String, side: ColumnSide) -> some View {
+    private func column(_ frame: LayoutRect, title: String, subtitle: String, side: ColumnSide, vh: Double) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle(title, subtitle)
             Spacer(minLength: 0)
             ForEach(side.placeholders, id: \.self) { label in
-                panelStub(label)
+                panelStub(label, vh: vh)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(state.theme.panelBackground.opacity(0.82))
-        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.28), lineWidth: 1))
+        .augmentedSurface(
+            style: .panel(vh: vh),
+            fill: state.theme.panelBackground.opacity(0.82),
+            stroke: state.theme.accent
+        )
         .positioned(in: frame)
     }
 
-    private func mainShell(_ frame: LayoutRect) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
+    private func mainShell(_ frame: LayoutRect, vh: Double) -> some View {
+        let shellStyle = AugmentedBorderStyle.mainShell(vh: vh)
+        return VStack(alignment: .leading, spacing: 7) {
             sectionTitle("TERMINAL", "MAIN SHELL")
             HStack(spacing: 0) {
                 ForEach(1...5, id: \.self) { index in
@@ -78,7 +83,11 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, minHeight: 30)
                         .background(index == 1 ? state.theme.accent : state.theme.panelBackground)
                         .foregroundStyle(index == 1 ? state.theme.panelBackground : state.theme.accent)
-                        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.35), lineWidth: 1))
+                        .augmentedSurface(
+                            style: .settingsButton(vh: vh),
+                            fill: index == 1 ? state.theme.accent.opacity(0.2) : state.theme.panelBackground.opacity(0.25),
+                            stroke: state.theme.accent
+                        )
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
@@ -100,19 +109,27 @@ struct ContentView: View {
             .foregroundStyle(state.theme.terminalForeground)
         }
         .padding(8)
-        .background(state.theme.panelBackground.opacity(0.74))
-        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.5), lineWidth: 1.5))
+        .augmentedSurface(
+            style: shellStyle,
+            fill: state.theme.panelBackground.opacity(0.74),
+            stroke: state.theme.accent
+        )
         .positioned(in: frame)
     }
 
-    private func filesystem(_ frame: LayoutRect) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func filesystem(_ frame: LayoutRect, vh: Double) -> some View {
+        let panelStyle = AugmentedBorderStyle.panel(vh: vh)
+        return VStack(alignment: .leading, spacing: 10) {
             sectionTitle("FILESYSTEM", "TRACKING ACTIVE")
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
                 ForEach(["..", "src", "crates", "macos", "docs", "themes"], id: \.self) { item in
                     VStack(spacing: 4) {
-                        RoundedRectangle(cornerRadius: 2)
+                        AugmentedBorderShape(style: .settingsButton(vh: vh))
                             .stroke(state.theme.accent.opacity(0.45), lineWidth: 1)
+                            .background(
+                                AugmentedBorderShape(style: .settingsButton(vh: vh))
+                                    .fill(state.theme.accent.opacity(0.04))
+                            )
                             .frame(width: 34, height: 28)
                         Text(item)
                             .font(.custom(state.theme.fonts.terminal, size: 10))
@@ -132,24 +149,31 @@ struct ContentView: View {
                 }
         }
         .padding(10)
-        .background(state.theme.panelBackground.opacity(0.72))
-        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.34), lineWidth: 1))
+        .augmentedSurface(
+            style: panelStyle,
+            fill: state.theme.panelBackground.opacity(0.72),
+            stroke: state.theme.accent
+        )
         .positioned(in: frame)
     }
 
-    private func keyboard(_ metrics: KeyboardLayoutMetrics) -> some View {
+    private func keyboard(_ metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
         VStack(spacing: CGFloat(metrics.rowGap)) {
             ForEach(0..<5, id: \.self) { row in
                 HStack(spacing: 6) {
                     ForEach(0..<keyboardKeyCount(for: row), id: \.self) { index in
-                        keyStub(width: keyboardKeyWidth(row: row, index: index, metrics: metrics))
+                        keyStub(width: keyboardKeyWidth(row: row, index: index, metrics: metrics), vh: vh)
                     }
                 }
                 .frame(height: CGFloat(metrics.rowHeight))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(state.theme.panelBackground.opacity(0.42))
+        .augmentedSurface(
+            style: .panel(vh: vh),
+            fill: state.theme.panelBackground.opacity(0.42),
+            stroke: state.theme.accent
+        )
         .positioned(in: metrics.frame)
     }
 
@@ -170,7 +194,7 @@ struct ContentView: View {
         }
     }
 
-    private func panelStub(_ label: String) -> some View {
+    private func panelStub(_ label: String, vh: Double) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.custom(state.theme.fonts.main, size: 12))
@@ -181,22 +205,25 @@ struct ContentView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-        .background(state.theme.terminalBackground.opacity(0.72))
-        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.24), lineWidth: 1))
+        .augmentedSurface(
+            style: .panel(vh: vh),
+            fill: state.theme.terminalBackground.opacity(0.72),
+            stroke: state.theme.accent
+        )
     }
 
-    private func keyStub(width: Double) -> some View {
-        RoundedRectangle(cornerRadius: 4)
+    private func keyStub(width: Double, vh: Double) -> some View {
+        AugmentedBorderShape(style: .settingsButton(vh: vh))
             .stroke(state.theme.accent.opacity(0.45), lineWidth: 1)
             .background(
-                RoundedRectangle(cornerRadius: 4)
+                AugmentedBorderShape(style: .settingsButton(vh: vh))
                     .fill(state.theme.accent.opacity(0.06))
             )
             .frame(width: CGFloat(width), height: 28)
     }
 
-    private var statusRibbon: some View {
-        HStack(spacing: 14) {
+    private func statusRibbon(vh: Double) -> some View {
+        return HStack(spacing: 14) {
             Text("eDEX NATIVE")
                 .font(.custom(state.theme.fonts.main, size: 13))
             Text(state.settingsSummary.theme)
@@ -208,8 +235,11 @@ struct ContentView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(state.theme.panelBackground.opacity(0.78))
-        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.32), lineWidth: 1))
+        .augmentedSurface(
+            style: .settingsButton(vh: vh),
+            fill: state.theme.panelBackground.opacity(0.78),
+            stroke: state.theme.accent
+        )
         .position(x: 132, y: 23)
     }
 
@@ -227,6 +257,49 @@ struct ContentView: View {
             return metrics.keySide * 1.7
         }
         return metrics.keySide
+    }
+}
+
+private extension EdexLayout {
+    var vh: Double {
+        viewport.height / 100
+    }
+}
+
+private struct AugmentedBorderShape: Shape {
+    let style: AugmentedBorderStyle
+
+    func path(in rect: CGRect) -> Path {
+        let geometry = AugmentedBorderGeometry(
+            size: AugmentedBorderSize(width: rect.width.doubleValue, height: rect.height.doubleValue),
+            style: style
+        )
+        var path = Path()
+        guard let first = geometry.outlinePoints.first else { return path }
+
+        path.move(to: first.cgPoint(offsetBy: rect.origin))
+        for point in geometry.outlinePoints.dropFirst() {
+            path.addLine(to: point.cgPoint(offsetBy: rect.origin))
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct AugmentedTickShape: Shape {
+    let style: AugmentedBorderStyle
+
+    func path(in rect: CGRect) -> Path {
+        let geometry = AugmentedBorderGeometry(
+            size: AugmentedBorderSize(width: rect.width.doubleValue, height: rect.height.doubleValue),
+            style: style
+        )
+        var path = Path()
+        for segment in geometry.tickSegments {
+            path.move(to: segment.start.cgPoint(offsetBy: rect.origin))
+            path.addLine(to: segment.end.cgPoint(offsetBy: rect.origin))
+        }
+        return path
     }
 }
 
@@ -279,5 +352,30 @@ private extension View {
                 x: CGFloat(rect.x + (rect.width / 2)),
                 y: CGFloat(rect.y + (rect.height / 2))
             )
+    }
+
+    func augmentedSurface(style: AugmentedBorderStyle, fill: Color, stroke: Color) -> some View {
+        background(AugmentedBorderShape(style: style).fill(fill))
+            .clipShape(AugmentedBorderShape(style: style))
+            .overlay(
+                AugmentedBorderShape(style: style)
+                    .stroke(stroke.opacity(style.borderOpacity), lineWidth: CGFloat(style.borderWidth))
+            )
+            .overlay(
+                AugmentedTickShape(style: style)
+                    .stroke(stroke.opacity(style.tickOpacity), lineWidth: max(1, CGFloat(style.borderWidth)))
+            )
+    }
+}
+
+private extension AugmentedPoint {
+    func cgPoint(offsetBy origin: CGPoint) -> CGPoint {
+        CGPoint(x: origin.x + CGFloat(x), y: origin.y + CGFloat(y))
+    }
+}
+
+private extension CGFloat {
+    var doubleValue: Double {
+        Double(self)
     }
 }
