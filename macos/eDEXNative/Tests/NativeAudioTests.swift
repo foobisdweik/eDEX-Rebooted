@@ -86,4 +86,14 @@ final class NativeAudioTests: XCTestCase {
         XCTAssertEqual(resolver.url(for: .stdout), stdout)
         XCTAssertNil(resolver.url(for: .keyboard))
     }
+
+    func testUpdatePlanReusesExistingEnabledPlayersAndRemovesDisabledFeedback() {
+        let catalog = EdexAudioCatalog(settings: EdexAudioSettings(audio: true, audioVolume: 0.5, disableFeedbackAudio: true))
+        let plan = catalog.updatePlan(existing: [.stdout, .keyboard])
+
+        XCTAssertTrue(plan.remove.contains(.stdout))
+        XCTAssertTrue(plan.update.contains(.keyboard))
+        XCTAssertFalse(plan.load.contains(.keyboard))
+        XCTAssertTrue(plan.load.contains(.theme))
+    }
 }

@@ -89,6 +89,32 @@ public struct EdexAudioCatalog: Sendable {
         guard shouldLoad(cue) else { return 0.0 }
         return settings.audioVolume * cue.cueGain
     }
+
+    public func updatePlan(existing: Set<EdexAudioCue>) -> EdexAudioUpdatePlan {
+        var load = Set<EdexAudioCue>()
+        var update = Set<EdexAudioCue>()
+        var remove = Set<EdexAudioCue>()
+
+        for cue in EdexAudioCue.allCases {
+            if shouldLoad(cue) {
+                if existing.contains(cue) {
+                    update.insert(cue)
+                } else {
+                    load.insert(cue)
+                }
+            } else if existing.contains(cue) {
+                remove.insert(cue)
+            }
+        }
+
+        return EdexAudioUpdatePlan(load: load, update: update, remove: remove)
+    }
+}
+
+public struct EdexAudioUpdatePlan: Equatable, Sendable {
+    public var load: Set<EdexAudioCue>
+    public var update: Set<EdexAudioCue>
+    public var remove: Set<EdexAudioCue>
 }
 
 public struct EdexAudioAssetResolver: Sendable {

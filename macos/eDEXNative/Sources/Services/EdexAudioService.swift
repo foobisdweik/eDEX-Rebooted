@@ -14,10 +14,18 @@ final class EdexAudioService {
 
     func configure(settings: EdexAudioSettings) {
         catalog = EdexAudioCatalog(settings: settings)
-        players.removeAll()
-
         let resolver = EdexAudioAssetResolver(assetDirectory: assetDirectory)
-        for cue in EdexAudioCue.allCases where catalog.shouldLoad(cue) {
+        let plan = catalog.updatePlan(existing: Set(players.keys))
+
+        for cue in plan.remove {
+            players[cue] = nil
+        }
+
+        for cue in plan.update {
+            players[cue]?.volume = Float(catalog.effectiveVolume(for: cue))
+        }
+
+        for cue in plan.load {
             guard let url = resolver.url(for: cue) else { continue }
             do {
                 let player = try AVAudioPlayer(contentsOf: url)
