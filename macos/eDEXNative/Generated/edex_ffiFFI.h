@@ -331,6 +331,11 @@ RustBuffer uniffi_edex_ffi_fn_method_edexcore_load_settings_json(uint64_t ptr, R
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_load_theme_json(uint64_t ptr, RustBuffer name, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_MEM_SNAPSHOT
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_MEM_SNAPSHOT
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_mem_snapshot(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_PATHS
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_PATHS
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_paths(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -676,6 +681,12 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_load_settings_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LOAD_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LOAD_THEME_JSON
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_load_theme_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_MEM_SNAPSHOT
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_MEM_SNAPSHOT
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_mem_snapshot(void
     
 );
 #endif
