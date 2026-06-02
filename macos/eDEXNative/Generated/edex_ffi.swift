@@ -505,6 +505,22 @@ fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -594,6 +610,12 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
      * Battery/power state (sysinfo panel POWER cell).
      */
     func battery() throws  -> FfiBattery
+    
+    /**
+     * Live CPU snapshot for the cpuinfo panel: identity, clock, temperature,
+     * task count, and per-core load. Always a fresh refresh (panel polls 1 Hz).
+     */
+    func cpuSnapshot() throws  -> FfiCpuSnapshot
     
     func ensureUserdata() throws 
     
@@ -696,6 +718,18 @@ public convenience init() {
 open func battery()throws  -> FfiBattery  {
     return try  FfiConverterTypeFfiBattery_lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
     uniffi_edex_ffi_fn_method_edexcore_battery(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Live CPU snapshot for the cpuinfo panel: identity, clock, temperature,
+     * task count, and per-core load. Always a fresh refresh (panel polls 1 Hz).
+     */
+open func cpuSnapshot()throws  -> FfiCpuSnapshot  {
+    return try  FfiConverterTypeFfiCpuSnapshot_lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_cpu_snapshot(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -931,6 +965,89 @@ public func FfiConverterTypeFfiBattery_lift(_ buf: RustBuffer) throws -> FfiBatt
 #endif
 public func FfiConverterTypeFfiBattery_lower(_ value: FfiBattery) -> RustBuffer {
     return FfiConverterTypeFfiBattery.lower(value)
+}
+
+
+/**
+ * The fields of `PanelSnapshot` the native cpuinfo panel consumes (mirrors the
+ * `window.si.panelSnapshot(...)` reads in cpuinfo.class.js). `loads` is the
+ * per-logical-core current load 0–100, one entry per core.
+ */
+public struct FfiCpuSnapshot: Equatable, Hashable {
+    public var manufacturer: String
+    public var brand: String
+    public var cores: UInt32
+    public var speed: String
+    public var speedMax: String
+    public var temperatureMax: Double
+    public var processCount: UInt32
+    public var loads: [Double]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(manufacturer: String, brand: String, cores: UInt32, speed: String, speedMax: String, temperatureMax: Double, processCount: UInt32, loads: [Double]) {
+        self.manufacturer = manufacturer
+        self.brand = brand
+        self.cores = cores
+        self.speed = speed
+        self.speedMax = speedMax
+        self.temperatureMax = temperatureMax
+        self.processCount = processCount
+        self.loads = loads
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCpuSnapshot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCpuSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCpuSnapshot {
+        return
+            try FfiCpuSnapshot(
+                manufacturer: FfiConverterString.read(from: &buf), 
+                brand: FfiConverterString.read(from: &buf), 
+                cores: FfiConverterUInt32.read(from: &buf), 
+                speed: FfiConverterString.read(from: &buf), 
+                speedMax: FfiConverterString.read(from: &buf), 
+                temperatureMax: FfiConverterDouble.read(from: &buf), 
+                processCount: FfiConverterUInt32.read(from: &buf), 
+                loads: FfiConverterSequenceDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCpuSnapshot, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.manufacturer, into: &buf)
+        FfiConverterString.write(value.brand, into: &buf)
+        FfiConverterUInt32.write(value.cores, into: &buf)
+        FfiConverterString.write(value.speed, into: &buf)
+        FfiConverterString.write(value.speedMax, into: &buf)
+        FfiConverterDouble.write(value.temperatureMax, into: &buf)
+        FfiConverterUInt32.write(value.processCount, into: &buf)
+        FfiConverterSequenceDouble.write(value.loads, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCpuSnapshot_lift(_ buf: RustBuffer) throws -> FfiCpuSnapshot {
+    return try FfiConverterTypeFfiCpuSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCpuSnapshot_lower(_ value: FfiCpuSnapshot) -> RustBuffer {
+    return FfiConverterTypeFfiCpuSnapshot.lower(value)
 }
 
 
@@ -1514,6 +1631,31 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceDouble: FfiConverterRustBuffer {
+    typealias SwiftType = [Double]
+
+    public static func write(_ value: [Double], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterDouble.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Double] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Double]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterDouble.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]
 
@@ -1552,6 +1694,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_battery() != 14711) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_cpu_snapshot() != 19571) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_ensure_userdata() != 25364) {

@@ -90,6 +90,21 @@ pub struct FfiHardware {
     pub chassis_type: String,
 }
 
+/// The fields of `PanelSnapshot` the native cpuinfo panel consumes (mirrors the
+/// `window.si.panelSnapshot(...)` reads in cpuinfo.class.js). `loads` is the
+/// per-logical-core current load 0–100, one entry per core.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiCpuSnapshot {
+    pub manufacturer: String,
+    pub brand: String,
+    pub cores: u32,
+    pub speed: String,
+    pub speed_max: String,
+    pub temperature_max: f64,
+    pub process_count: u32,
+    pub loads: Vec<f64>,
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct FfiPtySpawnOptions {
     pub shell: String,
@@ -193,6 +208,27 @@ impl EdexCore {
             .map_err(EdexError::from)
     }
 
+    /// Live CPU snapshot for the cpuinfo panel: identity, clock, temperature,
+    /// task count, and per-core load. Always a fresh refresh (panel polls 1 Hz).
+    pub fn cpu_snapshot(&self) -> Result<FfiCpuSnapshot, EdexError> {
+        let snapshot = self.sysinfo.panel_snapshot(false, 5, false)?;
+        Ok(FfiCpuSnapshot {
+            manufacturer: snapshot.cpu.manufacturer,
+            brand: snapshot.cpu.brand,
+            cores: snapshot.cpu.cores as u32,
+            speed: snapshot.cpu.speed,
+            speed_max: snapshot.cpu.speed_max,
+            temperature_max: snapshot.cpu_temperature.max,
+            process_count: snapshot.process_count as u32,
+            loads: snapshot
+                .current_load
+                .cpus
+                .into_iter()
+                .map(|cpu| cpu.load)
+                .collect(),
+        })
+    }
+
     /// Host hardware identity (hardware-inspector panel). Combines the two
     /// sources the JS panel reads: manufacturer/model from `system()` and the
     /// chassis type from `chassis()`.
@@ -284,6 +320,19 @@ mod tests {
         // edex-core hard-codes Apple on the macOS-only target.
         assert_eq!(hw.manufacturer, "Apple");
         assert!(!hw.chassis_type.is_empty());
+    }
+
+    #[test]
+    fn cpu_snapshot_reports_one_load_per_core() {
+        let core = EdexCore::new();
+        let snapshot = core.cpu_snapshot().expect("cpu snapshot should succeed");
+        assert!(snapshot.cores > 0, "a running host should report cores");
+        assert_eq!(
+            snapshot.loads.len(),
+            snapshot.cores as usize,
+            "one load sample per logical core"
+        );
+        assert!(snapshot.loads.iter().all(|&l| (0.0..=100.0).contains(&l)));
     }
 
     #[test]

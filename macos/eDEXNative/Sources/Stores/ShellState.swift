@@ -1,4 +1,5 @@
 import AppKit
+import CpuinfoSupport
 import Darwin
 import Foundation
 import HardwareSupport
@@ -20,6 +21,14 @@ final class ShellState {
     var uptimeSeconds: UInt64 = 0
     var battery: FfiBattery?
     var hardware: FfiHardware?
+    var cpu: FfiCpuSnapshot?
+    /// Timestamp of the last appended CPU sample; the graph interpolates its
+    /// horizontal scroll against this so motion is smooth between 1 Hz samples.
+    var cpuLastSampleDate = Date()
+    private var cpuBuffer = CpuSeriesBuffer(coreCount: 0, capacity: cpuSampleCapacity)
+    /// Per-core CPU load history feeding the two scrolling graphs.
+    var cpuSeries: [[Double]] { cpuBuffer.series }
+    private static let cpuSampleCapacity = 64
 
     /// Bridges the FFI battery record into the FFI-free `SysinfoSupport` input.
     /// Falls back to a wired/no-battery state (POWER → "ON") before the first poll.
@@ -73,6 +82,23 @@ final class ShellState {
         hardware = await Task.detached(priority: .background) {
             client.hardware()
         }.value
+    }
+
+    /// Pulls a fresh CPU snapshot for the cpuinfo panel, appends it to the
+    /// per-core sample buffer, and stamps the sample time. The FFI call (a full
+    /// system refresh) is offloaded off the MainActor; the panel polls 1 Hz.
+    func refreshCpu() async {
+        let client = self.client
+        guard let snapshot = await Task.detached(priority: .background, operation: {
+            client.cpuSnapshot()
+        }).value else { return }
+
+        if cpuBuffer.coreCount != Int(snapshot.cores) {
+            cpuBuffer = CpuSeriesBuffer(coreCount: Int(snapshot.cores), capacity: Self.cpuSampleCapacity)
+        }
+        cpuBuffer.append(loads: snapshot.loads)
+        cpuLastSampleDate = Date()
+        cpu = snapshot
     }
 
     private func terminateIfSmokeWindow() {
