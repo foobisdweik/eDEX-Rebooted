@@ -664,6 +664,22 @@ mod tests {
         let path = edex_core::settings::paths().shortcuts_file;
         let original = fs::read_to_string(&path).expect("shortcuts.json should exist");
 
+        // RAII guard: restores the developer's real shortcuts.json even if an
+        // assertion panics mid-test, preventing permanent file corruption.
+        struct Cleanup {
+            path: String,
+            original: String,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::write(&self.path, &self.original);
+            }
+        }
+        let _guard = Cleanup {
+            path: path.clone(),
+            original: original.clone(),
+        };
+
         // Non-JSON is rejected.
         assert!(core.write_shortcuts_json("{ not json".to_string()).is_err());
         // Non-array JSON is rejected.
@@ -684,9 +700,7 @@ mod tests {
         let reloaded: serde_json::Value =
             serde_json::from_str(&core.load_shortcuts_json().unwrap()).unwrap();
         assert_eq!(reloaded[0]["action"], serde_json::json!("COPY"));
-
-        // Restore the developer's real shortcuts file.
-        fs::write(&path, original).expect("restore original shortcuts.json");
+        // _guard.drop() restores the file here (or on panic).
     }
 
     #[test]

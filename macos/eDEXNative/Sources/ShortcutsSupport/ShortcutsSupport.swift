@@ -59,23 +59,43 @@ public struct KeyCombo: Equatable, Sendable {
     public init?(trigger: String) {
         guard !trigger.isEmpty else { return nil }
         var mods: ShortcutModifiers = []
-        var parts = trigger.split(separator: "+", omittingEmptySubsequences: true).map(String.init)
-        guard !parts.isEmpty else { return nil }
+        let keyToken: String
 
-        // Consume modifier tokens until we hit the key
-        var remaining: [String] = []
-        for part in parts {
-            switch part.lowercased() {
-            case "ctrl", "control": mods.insert(.control)
-            case "shift":           mods.insert(.shift)
-            case "alt", "option":   mods.insert(.option)
-            case "cmd", "command":  mods.insert(.command)
-            default:                remaining.append(part)
+        // Special-case: bare "+" or "<modifiers>++" — the key is the plus character.
+        // A normal split on "+" would drop the empty token and lose the key.
+        if trigger == "+" {
+            keyToken = "+"
+        } else if trigger.hasSuffix("++") {
+            let modsString = String(trigger.dropLast(2))
+            for part in modsString.split(separator: "+", omittingEmptySubsequences: true).map(String.init) {
+                switch part.lowercased() {
+                case "ctrl", "control": mods.insert(.control)
+                case "shift":           mods.insert(.shift)
+                case "alt", "option":   mods.insert(.option)
+                case "cmd", "command":  mods.insert(.command)
+                default: break
+                }
             }
-        }
-        parts = remaining
+            keyToken = "+"
+        } else {
+            // Standard path: split on "+", first N tokens are modifiers, last is the key.
+            var parts = trigger.split(separator: "+", omittingEmptySubsequences: true).map(String.init)
+            guard !parts.isEmpty else { return nil }
 
-        guard let keyToken = parts.last, parts.count == 1 else { return nil }
+            var remaining: [String] = []
+            for part in parts {
+                switch part.lowercased() {
+                case "ctrl", "control": mods.insert(.control)
+                case "shift":           mods.insert(.shift)
+                case "alt", "option":   mods.insert(.option)
+                case "cmd", "command":  mods.insert(.command)
+                default:                remaining.append(part)
+                }
+            }
+            parts = remaining
+            guard let last = parts.last, parts.count == 1 else { return nil }
+            keyToken = last
+        }
 
         // Function keys: F1 … F15
         if keyToken.lowercased().hasPrefix("f"), let n = Int(keyToken.dropFirst()),
@@ -205,11 +225,14 @@ public struct EdexShortcutsDocument: Equatable, Sendable {
               template.enabled
         else { return [] }
 
-        // Replace "X" suffix in the trigger with each digit
-        let baseTrigger = template.trigger  // e.g. "Ctrl+X"
-        let prefix = baseTrigger.dropLast() // "Ctrl+"
+        // Validate that the trigger ends exactly with "+x" or "+X" before expanding.
+        // Without this guard, a misconfigured empty or non-X trigger would expand
+        // to bare digit strings ("1"…"5"), swallowing terminal number keystrokes.
+        let baseTrigger = template.trigger
+        guard baseTrigger.lowercased().hasSuffix("+x") else { return [] }
+        let prefix = baseTrigger.dropLast(2) // drop "+X", e.g. "Ctrl+X" → "Ctrl"
         return (1...5).compactMap { n -> (KeyCombo, Int)? in
-            let expanded = "\(prefix)\(n)"
+            let expanded = "\(prefix)+\(n)"
             guard let combo = KeyCombo(trigger: expanded) else { return nil }
             return (combo, n)
         }

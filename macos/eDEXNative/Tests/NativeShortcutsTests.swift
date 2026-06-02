@@ -53,10 +53,44 @@ final class NativeShortcutsTests: XCTestCase {
         XCTAssertTrue(combo?.modifiers.contains(.option) == true)
     }
 
+    func testParsePlusKey() {
+        // "Ctrl++" means Ctrl and the + character — common for zoom/font-size.
+        let combo = KeyCombo(trigger: "Ctrl++")
+        XCTAssertNotNil(combo)
+        XCTAssertEqual(combo?.modifiers, [.control])
+        XCTAssertEqual(combo?.key, .character("+"))
+    }
+
+    func testParseBareplus() {
+        // Bare "+" with no modifiers is a valid (if unusual) shortcut.
+        let combo = KeyCombo(trigger: "+")
+        XCTAssertNotNil(combo)
+        XCTAssertEqual(combo?.modifiers, [])
+        XCTAssertEqual(combo?.key, .character("+"))
+    }
+
     func testParseInvalidTriggerReturnsNil() {
         XCTAssertNil(KeyCombo(trigger: ""))
         XCTAssertNil(KeyCombo(trigger: "NotAKey"))
         XCTAssertNil(KeyCombo(trigger: "Ctrl+"))
+    }
+
+    func testTabXExpansionRejectsNonXSuffix() {
+        // A TAB_X entry whose trigger doesn't end "+x" or "+X" must not
+        // expand — bare digit combos would swallow terminal number input.
+        let badJSON = """
+        [{"type":"app","trigger":"Ctrl+Tab","action":"TAB_X","enabled":true}]
+        """
+        let doc = try? EdexShortcutsDocument(jsonString: badJSON)
+        XCTAssertEqual(doc?.expandedTabCombos().count, 0)
+    }
+
+    func testTabXExpansionEmptyTriggerRejects() {
+        let badJSON = """
+        [{"type":"app","trigger":"","action":"TAB_X","enabled":true}]
+        """
+        let doc = try? EdexShortcutsDocument(jsonString: badJSON)
+        XCTAssertEqual(doc?.expandedTabCombos().count, 0)
     }
 
     func testKeyComboIsKeyInsensitive() {
