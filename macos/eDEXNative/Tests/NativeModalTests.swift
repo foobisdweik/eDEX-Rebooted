@@ -74,6 +74,18 @@ final class NativeModalTests: XCTestCase {
         XCTAssertFalse(manager.isKeyboardDetached)
     }
 
+    func testFuzzyFinderModalContentIsAvailableForNativeSearch() throws {
+        let request = try EdexModalRequest(
+            type: "custom",
+            title: "Fuzzy cwd file search",
+            message: "",
+            content: .fuzzyFinder
+        )
+
+        XCTAssertEqual(request.content, .fuzzyFinder)
+        XCTAssertTrue(request.detachesKeyboard)
+    }
+
     func testMoveUpdatesOnlyTheRequestedModalOffset() throws {
         let manager = EdexModalManager(idGenerator: EdexModalIdGenerator(seed: 30))
         let first = manager.present(try .init(type: "info", title: "One", message: "First"))

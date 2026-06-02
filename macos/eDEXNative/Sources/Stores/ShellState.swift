@@ -4,6 +4,7 @@ import BootSupport
 import CpuinfoSupport
 import Darwin
 import FilesystemSupport
+import FuzzyFinderSupport
 import Foundation
 import HardwareSupport
 import ModalSupport
@@ -70,6 +71,14 @@ final class ShellState {
     /// Set when the current directory could not be read.
     var fsFailed = false
     @ObservationIgnored private var fsReading = false
+
+    // Phase 7.2 fuzzy finder state.
+    var fuzzyQuery = ""
+    var fuzzyResults: [FilesystemItem] = []
+    var fuzzySelection = 0
+    var fuzzyStatus = ""
+    @ObservationIgnored var pendingTerminalInput: String?
+    @ObservationIgnored private var fuzzyFinderModalID: EdexModalID?
 
     // Phase 7.3 text editor state.
     /// The document open in the editor modal, or nil when closed.
@@ -545,6 +554,91 @@ final class ShellState {
     func toggleFsDotfiles() { fsShowDotfiles.toggle() }
     func toggleFsListView() { fsListView.toggle() }
 
+    // MARK: Fuzzy finder (Phase 7.2)
+
+    private var fuzzySearchItems: [FilesystemItem] {
+        fsShowDotfiles ? fsItems : fsItems.filter { !$0.hidden }
+    }
+
+    func openFuzzyFinder() {
+        if let fuzzyFinderModalID, modalManager.modal(id: fuzzyFinderModalID) != nil {
+            modalManager.focus(fuzzyFinderModalID)
+            return
+        }
+        if let settingsModalID, modalManager.modal(id: settingsModalID) != nil {
+            modalManager.focus(settingsModalID)
+            playAudio(.denied)
+            return
+        }
+        guard !fsIsDiskView else {
+            statusText = "fuzzy search unavailable — open a directory listing first"
+            playAudio(.denied)
+            return
+        }
+
+        fuzzyQuery = ""
+        fuzzyResults = FuzzyMatcher.search(fuzzySearchItems, query: fuzzyQuery)
+        fuzzySelection = 0
+        fuzzyStatus = fuzzyResults.isEmpty ? "No results in current directory." : "Searching \(fsPath)"
+
+        let openedID = presentModal(
+            type: "custom",
+            title: "Fuzzy cwd file search",
+            message: "",
+            content: .fuzzyFinder,
+            detachesKeyboard: true,
+            onClose: { [weak self] closedID in
+                Task { @MainActor in
+                    guard self?.fuzzyFinderModalID == closedID else { return }
+                    self?.fuzzyFinderModalID = nil
+                    self?.fuzzyQuery = ""
+                    self?.fuzzyResults = []
+                    self?.fuzzySelection = 0
+                    self?.fuzzyStatus = ""
+                }
+            }
+        )
+        fuzzyFinderModalID = openedID
+    }
+
+    func setFuzzyQuery(_ value: String) {
+        fuzzyQuery = value
+        fuzzyResults = FuzzyMatcher.search(fuzzySearchItems, query: value)
+        fuzzySelection = 0
+        fuzzyStatus = fuzzyResults.isEmpty ? "No results." : "\(fuzzyResults.count) match\(fuzzyResults.count == 1 ? "" : "es")"
+    }
+
+    func moveFuzzySelection(_ delta: Int) {
+        guard !fuzzyResults.isEmpty else {
+            fuzzySelection = 0
+            return
+        }
+        if delta > 0 {
+            fuzzySelection = FuzzySelection.next(from: fuzzySelection, count: fuzzyResults.count)
+        } else if delta < 0 {
+            fuzzySelection = FuzzySelection.previous(from: fuzzySelection, count: fuzzyResults.count)
+        }
+    }
+
+    func submitFuzzySelection() {
+        guard fuzzyResults.indices.contains(fuzzySelection) else {
+            closeFuzzyFinder()
+            return
+        }
+        let selected = fuzzyResults[fuzzySelection]
+        let quotedPath = FuzzyTerminalInput.quotedPath(selected.path)
+        pendingTerminalInput = quotedPath
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(quotedPath, forType: .string)
+        statusText = "Copied \(quotedPath) — terminal routing lands in Phase 9"
+        closeFuzzyFinder()
+    }
+
+    private func closeFuzzyFinder() {
+        guard let fuzzyFinderModalID, modalManager.modal(id: fuzzyFinderModalID) != nil else { return }
+        closeModal(fuzzyFinderModalID)
+    }
+
     // MARK: Text editor (Phase 7.3)
 
     /// Reads a text file off the MainActor and opens it in the editor modal
@@ -739,8 +833,10 @@ final class ShellState {
             toggleFsListView()
         case .fsDotfiles:
             toggleFsDotfiles()
+        case .fuzzySearch:
+            openFuzzyFinder()
         case .copy, .paste, .nextTab, .previousTab, .tabTemplate,
-             .fuzzySearch, .kbPassmode, .devDebug, .devReload:
+             .kbPassmode, .devDebug, .devReload:
             // These actions are dispatched by this handler but their targets
             // (terminal, keyboard) are built in later phases. Stubs prevent
             // crashes when shortcuts fire before the feature exists.

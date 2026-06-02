@@ -71,6 +71,11 @@ let package = Package(
             path: "Sources/FilesystemSupport"
         ),
         .target(
+            name: "FuzzyFinderSupport",
+            dependencies: ["FilesystemSupport"],
+            path: "Sources/FuzzyFinderSupport"
+        ),
+        .target(
             name: "TextEditorSupport",
             dependencies: ["FilesystemSupport"],
             path: "Sources/TextEditorSupport"
@@ -90,7 +95,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "eDEXNative",
-            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "FuzzyFinderSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
             path: ".",
             exclude: [
                 "README.md",
@@ -101,6 +106,7 @@ let package = Package(
                 "Sources/ClockSupport",
                 "Sources/CpuinfoSupport",
                 "Sources/FilesystemSupport",
+                "Sources/FuzzyFinderSupport",
                 "Sources/HardwareSupport",
                 "Sources/LayoutSupport",
                 "Sources/ModalSupport",
@@ -138,7 +144,7 @@ let package = Package(
         ),
         .testTarget(
             name: "eDEXNativeTests",
-            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "FuzzyFinderSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
             path: "Tests"
         )
     ],
