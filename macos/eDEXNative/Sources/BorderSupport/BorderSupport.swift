@@ -152,20 +152,27 @@ public struct AugmentedBorderGeometry: Equatable, Sendable {
             points.append(AugmentedPoint(x: 0, y: height))
         }
 
+        if style.corners.contains(.topLeft) {
+            points.append(AugmentedPoint(x: 0, y: clip))
+        }
+
         return points
     }
 
     public var tickSegments: [AugmentedSegment] {
-        let tickLength = min(style.tickLength, max(0, size.width / 2))
+        let tickLength = style.tickLength
         guard tickLength > 0 else { return [] }
+
+        let topTickEnd = min(leftTopInset + tickLength, size.width - rightTopInset)
+        let bottomTickStart = max(leftBottomInset, size.width - rightBottomInset - tickLength)
 
         return [
             AugmentedSegment(
                 start: AugmentedPoint(x: leftTopInset, y: 0),
-                end: AugmentedPoint(x: leftTopInset + tickLength, y: 0)
+                end: AugmentedPoint(x: topTickEnd, y: 0)
             ),
             AugmentedSegment(
-                start: AugmentedPoint(x: max(0, size.width - rightBottomInset - tickLength), y: size.height),
+                start: AugmentedPoint(x: bottomTickStart, y: size.height),
                 end: AugmentedPoint(x: size.width - rightBottomInset, y: size.height)
             )
         ]
@@ -173,6 +180,14 @@ public struct AugmentedBorderGeometry: Equatable, Sendable {
 
     private var leftTopInset: Double {
         style.corners.contains(.topLeft) ? effectiveClipLength : 0
+    }
+
+    private var rightTopInset: Double {
+        style.corners.contains(.topRight) ? effectiveClipLength : 0
+    }
+
+    private var leftBottomInset: Double {
+        style.corners.contains(.bottomLeft) ? effectiveClipLength : 0
     }
 
     private var rightBottomInset: Double {

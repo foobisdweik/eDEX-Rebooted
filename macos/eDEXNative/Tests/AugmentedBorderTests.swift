@@ -71,4 +71,40 @@ final class AugmentedBorderTests: XCTestCase {
             ]
         )
     }
+
+    func testTopLeftClippingAndTickMarkConstraints() {
+        let geometry = AugmentedBorderGeometry(
+            size: AugmentedBorderSize(width: 100, height: 80),
+            style: AugmentedBorderStyle(
+                corners: [.topLeft, .topRight, .bottomRight, .bottomLeft],
+                clipLength: 15,
+                borderWidth: 1,
+                borderOpacity: 0.5,
+                tickLength: 90,
+                tickOpacity: 0.5
+            )
+        )
+
+        XCTAssertEqual(
+            geometry.outlinePoints,
+            [
+                AugmentedPoint(x: 15, y: 0),
+                AugmentedPoint(x: 85, y: 0),
+                AugmentedPoint(x: 100, y: 15),
+                AugmentedPoint(x: 100, y: 65),
+                AugmentedPoint(x: 85, y: 80),
+                AugmentedPoint(x: 15, y: 80),
+                AugmentedPoint(x: 0, y: 65),
+                AugmentedPoint(x: 0, y: 15)
+            ]
+        )
+
+        XCTAssertEqual(
+            geometry.tickSegments,
+            [
+                AugmentedSegment(start: AugmentedPoint(x: 15, y: 0), end: AugmentedPoint(x: 85, y: 0)),
+                AugmentedSegment(start: AugmentedPoint(x: 15, y: 80), end: AugmentedPoint(x: 85, y: 80))
+            ]
+        )
+    }
 }
