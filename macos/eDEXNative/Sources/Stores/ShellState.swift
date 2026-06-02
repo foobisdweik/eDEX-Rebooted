@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import Observation
 import SwiftUI
+import ThemeSupport
 
 @Observable
 @MainActor
@@ -46,16 +47,4 @@ struct SettingsSummary: Sendable {
     var theme = "pending"
     var keepGeometry = true
     var byteCount: Int?
-}
-
-struct NativeTheme: Sendable {
-    var accent: Color
-    var background: Color
-    var source: String
-
-    static let fallback = NativeTheme(
-        accent: Color(red: 170.0 / 255.0, green: 207.0 / 255.0, blue: 209.0 / 255.0),
-        background: Color(red: 5.0 / 255.0, green: 8.0 / 255.0, blue: 13.0 / 255.0),
-        source: "fallback tron palette"
-    )
 }
