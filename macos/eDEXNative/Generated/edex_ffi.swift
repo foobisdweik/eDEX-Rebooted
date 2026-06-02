@@ -473,6 +473,62 @@ fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
+    typealias FfiType = Int64
+    typealias SwiftType = Int64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int64, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterBool : FfiConverter {
+    typealias FfiType = Int8
+    typealias SwiftType = Bool
+
+    public static func lift(_ value: Int8) throws -> Bool {
+        return value != 0
+    }
+
+    public static func lower(_ value: Bool) -> Int8 {
+        return value ? 1 : 0
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Bool {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Bool, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -534,6 +590,11 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 public protocol EdexCoreProtocol: AnyObject, Sendable {
     
+    /**
+     * Battery/power state (sysinfo panel POWER cell).
+     */
+    func battery() throws  -> FfiBattery
+    
     func ensureUserdata() throws 
     
     func killPty(id: UInt32) throws 
@@ -553,6 +614,11 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     func spawnPty(opts: FfiPtySpawnOptions, sink: PtyOutputSink) throws  -> UInt32
     
     func sysinfoSnapshotJson() throws  -> String
+    
+    /**
+     * System uptime in seconds (sysinfo panel UPTIME cell).
+     */
+    func uptime()  -> UInt64
     
     func writePty(id: UInt32, data: String) throws 
     
@@ -616,6 +682,17 @@ public convenience init() {
 
     
 
+    
+    /**
+     * Battery/power state (sysinfo panel POWER cell).
+     */
+open func battery()throws  -> FfiBattery  {
+    return try  FfiConverterTypeFfiBattery_lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_battery(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
     
 open func ensureUserdata()throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
     uniffi_edex_ffi_fn_method_edexcore_ensure_userdata(
@@ -703,6 +780,17 @@ open func sysinfoSnapshotJson()throws  -> String  {
 })
 }
     
+    /**
+     * System uptime in seconds (sysinfo panel UPTIME cell).
+     */
+open func uptime() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_edex_ffi_fn_method_edexcore_uptime(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func writePty(id: UInt32, data: String)throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
     uniffi_edex_ffi_fn_method_edexcore_write_pty(
             self.uniffiCloneHandle(),
@@ -758,6 +846,72 @@ public func FfiConverterTypeEdexCore_lower(_ value: EdexCore) -> UInt64 {
 }
 
 
+
+
+/**
+ * The subset of `BatteryInfo` the native sysinfo panel consumes for its POWER
+ * cell (mirrors the JS `window.si.battery()` consumers in sysinfo.class.js).
+ */
+public struct FfiBattery: Equatable, Hashable {
+    public var hasBattery: Bool
+    public var isCharging: Bool
+    public var acConnected: Bool
+    public var percent: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(hasBattery: Bool, isCharging: Bool, acConnected: Bool, percent: Int64) {
+        self.hasBattery = hasBattery
+        self.isCharging = isCharging
+        self.acConnected = acConnected
+        self.percent = percent
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiBattery: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiBattery: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiBattery {
+        return
+            try FfiBattery(
+                hasBattery: FfiConverterBool.read(from: &buf), 
+                isCharging: FfiConverterBool.read(from: &buf), 
+                acConnected: FfiConverterBool.read(from: &buf), 
+                percent: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiBattery, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.hasBattery, into: &buf)
+        FfiConverterBool.write(value.isCharging, into: &buf)
+        FfiConverterBool.write(value.acConnected, into: &buf)
+        FfiConverterInt64.write(value.percent, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBattery_lift(_ buf: RustBuffer) throws -> FfiBattery {
+    return try FfiConverterTypeFfiBattery.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBattery_lower(_ value: FfiBattery) -> RustBuffer {
+    return FfiConverterTypeFfiBattery.lower(value)
+}
 
 
 public struct FfiPaths: Equatable, Hashable {
@@ -1314,6 +1468,9 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_edex_ffi_checksum_method_edexcore_battery() != 14711) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_edex_ffi_checksum_method_edexcore_ensure_userdata() != 25364) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1342,6 +1499,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_sysinfo_snapshot_json() != 11913) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_uptime() != 32407) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_write_pty() != 59852) {

@@ -291,6 +291,11 @@ uint64_t uniffi_edex_ffi_fn_constructor_edexcore_new(RustCallStatus *_Nonnull ou
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_BATTERY
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_BATTERY
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_battery(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_ENSURE_USERDATA
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_ENSURE_USERDATA
 void uniffi_edex_ffi_fn_method_edexcore_ensure_userdata(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -339,6 +344,11 @@ uint32_t uniffi_edex_ffi_fn_method_edexcore_spawn_pty(uint64_t ptr, RustBuffer o
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_SYSINFO_SNAPSHOT_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_SYSINFO_SNAPSHOT_JSON
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_sysinfo_snapshot_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_UPTIME
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_UPTIME
+uint64_t uniffi_edex_ffi_fn_method_edexcore_uptime(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_PTY
@@ -611,6 +621,12 @@ void ffi_edex_ffi_rust_future_free_void(uint64_t handle
 void ffi_edex_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_BATTERY
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_BATTERY
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_battery(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_ENSURE_USERDATA
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_ENSURE_USERDATA
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_ensure_userdata(void
@@ -668,6 +684,12 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_spawn_pty(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_SYSINFO_SNAPSHOT_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_SYSINFO_SNAPSHOT_JSON
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_sysinfo_snapshot_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_UPTIME
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_UPTIME
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_uptime(void
     
 );
 #endif

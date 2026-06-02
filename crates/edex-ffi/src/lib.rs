@@ -59,6 +59,27 @@ impl From<edex_core::settings::Paths> for FfiPaths {
     }
 }
 
+/// The subset of `BatteryInfo` the native sysinfo panel consumes for its POWER
+/// cell (mirrors the JS `window.si.battery()` consumers in sysinfo.class.js).
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiBattery {
+    pub has_battery: bool,
+    pub is_charging: bool,
+    pub ac_connected: bool,
+    pub percent: i64,
+}
+
+impl From<edex_core::sysinfo::BatteryInfo> for FfiBattery {
+    fn from(battery: edex_core::sysinfo::BatteryInfo) -> Self {
+        Self {
+            has_battery: battery.has_battery,
+            is_charging: battery.is_charging,
+            ac_connected: battery.ac_connected,
+            percent: battery.percent,
+        }
+    }
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct FfiPtySpawnOptions {
     pub shell: String,
@@ -149,6 +170,19 @@ impl EdexCore {
         serde_json::to_string(&snapshot).map_err(EdexError::from)
     }
 
+    /// System uptime in seconds (sysinfo panel UPTIME cell).
+    pub fn uptime(&self) -> u64 {
+        self.sysinfo.uptime()
+    }
+
+    /// Battery/power state (sysinfo panel POWER cell).
+    pub fn battery(&self) -> Result<FfiBattery, EdexError> {
+        self.sysinfo
+            .battery()
+            .map(FfiBattery::from)
+            .map_err(EdexError::from)
+    }
+
     pub fn spawn_pty(
         &self,
         opts: FfiPtySpawnOptions,
@@ -208,6 +242,25 @@ mod tests {
         fn on_output(&self, _id: u32, _bytes: Vec<u8>) {}
         fn on_exit(&self, _id: u32, _status: Option<i32>) {}
         fn on_metadata(&self, _id: u32, _cwd: Option<String>, _process: Option<String>) {}
+    }
+
+    #[test]
+    fn ffi_battery_maps_absent_battery_fields() {
+        let battery = FfiBattery::from(edex_core::sysinfo::BatteryInfo::absent());
+        assert!(!battery.has_battery);
+        assert!(!battery.is_charging);
+        // absent() reports AC connected (a desktop is "ON"/wired).
+        assert!(battery.ac_connected);
+        assert_eq!(battery.percent, 0);
+    }
+
+    #[test]
+    fn uptime_returns_nonzero_on_a_running_host() {
+        let core = EdexCore::new();
+        assert!(
+            core.uptime() > 0,
+            "a running host should report positive uptime"
+        );
     }
 
     #[test]
