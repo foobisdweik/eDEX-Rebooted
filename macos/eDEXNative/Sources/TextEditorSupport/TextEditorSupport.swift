@@ -31,8 +31,15 @@ public struct EdexTextDocument: Equatable, Sendable {
 
     /// Editor line count: 0 for an empty buffer, otherwise the number of
     /// newline-separated segments (a trailing newline yields a trailing line).
+    /// Counts newline bytes directly rather than allocating a substring array —
+    /// this runs synchronously per keystroke, so it must not allocate. `\n` is
+    /// ASCII (0x0A) and never appears inside a multibyte UTF-8 scalar, so byte
+    /// counting matches `components(separatedBy: "\n").count`.
     public var lineCount: Int {
-        text.isEmpty ? 0 : text.components(separatedBy: "\n").count
+        guard !text.isEmpty else { return 0 }
+        return text.utf8.reduce(into: 1) { count, byte in
+            if byte == 0x0A { count += 1 }
+        }
     }
 
     /// On-disk size of the current buffer in bytes (UTF-8).

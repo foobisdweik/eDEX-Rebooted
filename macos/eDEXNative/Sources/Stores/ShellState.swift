@@ -551,10 +551,18 @@ final class ShellState {
     /// (which detaches the keyboard). A read failure shows an info modal instead,
     /// mirroring the legacy openFile error path.
     func openTextFile(path: String) {
-        if let textEditorModalID, modalManager.modal(id: textEditorModalID) != nil {
+        // Already editing this exact file: just focus the existing modal.
+        if let textDocument, textDocument.path == path,
+           let textEditorModalID, modalManager.modal(id: textEditorModalID) != nil {
             modalManager.focus(textEditorModalID)
             return
         }
+        // Switching to a different file: close the open editor first (its
+        // onClose guard checks the modal ID, so it won't clobber the new one).
+        if let textEditorModalID, modalManager.modal(id: textEditorModalID) != nil {
+            closeModal(textEditorModalID)
+        }
+        textEditorModalID = nil
 
         let client = self.client
         Task {
