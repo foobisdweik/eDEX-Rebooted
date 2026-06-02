@@ -37,6 +37,16 @@ struct EdexCoreClient {
 
         return BootstrapSnapshot(paths: paths, settings: summary, theme: theme)
     }
+
+    /// System uptime in seconds (sysinfo panel UPTIME cell).
+    func uptimeSeconds() -> UInt64 {
+        core.uptime()
+    }
+
+    /// Battery/power state, or nil if the query fails (sysinfo panel POWER cell).
+    func battery() -> FfiBattery? {
+        try? core.battery()
+    }
 }
 
 private struct SettingsFile: Decodable {

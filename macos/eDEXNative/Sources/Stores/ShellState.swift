@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import Observation
 import SwiftUI
+import SysinfoSupport
 import ThemeSupport
 
 @Observable
@@ -15,6 +16,22 @@ final class ShellState {
     var settingsSummary = SettingsSummary()
     var keepGeometry = true
     var theme = NativeTheme.fallback
+    var uptimeSeconds: UInt64 = 0
+    var battery: FfiBattery?
+
+    /// Bridges the FFI battery record into the FFI-free `SysinfoSupport` input.
+    /// Falls back to a wired/no-battery state (POWER → "ON") before the first poll.
+    var powerState: EdexPowerState {
+        guard let battery else {
+            return EdexPowerState(hasBattery: false, isCharging: false, acConnected: true, percent: 0)
+        }
+        return EdexPowerState(
+            hasBattery: battery.hasBattery,
+            isCharging: battery.isCharging,
+            acConnected: battery.acConnected,
+            percent: Int(battery.percent)
+        )
+    }
 
     func bootstrap() async {
         do {
@@ -31,6 +48,13 @@ final class ShellState {
             print("eDEXNative FFI ERROR \(error.localizedDescription)")
             terminateIfSmokeWindow()
         }
+    }
+
+    /// Pulls uptime + battery from the Rust core for the sysinfo panel. Cheap
+    /// libc/IOKit reads; the panel polls this on a timer (see ContentView).
+    func refreshSysinfo() {
+        uptimeSeconds = client.uptimeSeconds()
+        battery = client.battery()
     }
 
     private func terminateIfSmokeWindow() {
