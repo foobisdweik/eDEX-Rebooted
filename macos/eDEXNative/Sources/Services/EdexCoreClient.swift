@@ -100,6 +100,16 @@ struct EdexCoreClient {
     func listKeyboards() -> [String] {
         core.listKeyboards()
     }
+
+    /// Raw shortcuts.json text (shortcuts load / display modal).
+    func loadShortcutsJson() throws -> String {
+        try core.loadShortcutsJson()
+    }
+
+    /// Persist shortcuts.json. Rejects non-array or malformed JSON before writing.
+    func writeShortcutsJson(_ json: String) throws {
+        try core.writeShortcutsJson(contents: json)
+    }
 }
 
 private struct SettingsFile: Decodable {

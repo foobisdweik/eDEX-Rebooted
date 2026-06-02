@@ -336,6 +336,11 @@ RustBuffer uniffi_edex_ffi_fn_method_edexcore_load_keyboard_json(uint64_t ptr, R
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_load_settings_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LOAD_SHORTCUTS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LOAD_SHORTCUTS_JSON
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_load_shortcuts_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LOAD_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LOAD_THEME_JSON
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_load_theme_json(uint64_t ptr, RustBuffer name, RustCallStatus *_Nonnull out_status
@@ -389,6 +394,11 @@ void uniffi_edex_ffi_fn_method_edexcore_write_pty(uint64_t ptr, uint32_t id, Rus
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_SETTINGS_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_SETTINGS_JSON
 void uniffi_edex_ffi_fn_method_edexcore_write_settings_json(uint64_t ptr, RustBuffer contents, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_SHORTCUTS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_SHORTCUTS_JSON
+void uniffi_edex_ffi_fn_method_edexcore_write_shortcuts_json(uint64_t ptr, RustBuffer contents, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_INIT_CALLBACK_VTABLE_PTYOUTPUTSINK
@@ -710,6 +720,12 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_load_settings_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LOAD_SHORTCUTS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LOAD_SHORTCUTS_JSON
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_load_shortcuts_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LOAD_THEME_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LOAD_THEME_JSON
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_load_theme_json(void
@@ -773,6 +789,12 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_write_pty(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_WRITE_SETTINGS_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_WRITE_SETTINGS_JSON
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_write_settings_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_WRITE_SHORTCUTS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_WRITE_SHORTCUTS_JSON
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_write_shortcuts_json(void
     
 );
 #endif

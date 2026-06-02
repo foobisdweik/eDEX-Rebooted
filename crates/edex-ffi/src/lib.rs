@@ -344,6 +344,26 @@ impl EdexCore {
         list_json_stems(&edex_core::settings::paths().keyboards_dir)
     }
 
+    /// Load shortcuts.json as a raw string (Phase 6.4).
+    pub fn load_shortcuts_json(&self) -> Result<String, EdexError> {
+        let path = edex_core::settings::paths().shortcuts_file;
+        fs::read_to_string(path).map_err(EdexError::from)
+    }
+
+    /// Validate and persist shortcuts.json (Phase 6.4).
+    /// Rejects non-array or malformed JSON before writing.
+    pub fn write_shortcuts_json(&self, contents: String) -> Result<(), EdexError> {
+        let value: serde_json::Value = serde_json::from_str(&contents)?;
+        if !value.is_array() {
+            return Err(EdexError::Core {
+                message: "shortcuts.json must be a JSON array".to_string(),
+            });
+        }
+        let pretty = serde_json::to_string_pretty(&value)?;
+        let path = edex_core::settings::paths().shortcuts_file;
+        fs::write(path, pretty).map_err(EdexError::from)
+    }
+
     pub fn sysinfo_snapshot_json(&self) -> Result<String, EdexError> {
         let snapshot = self.sysinfo.panel_snapshot(true, 5, true)?;
         serde_json::to_string(&snapshot).map_err(EdexError::from)
@@ -634,6 +654,53 @@ mod tests {
             .expect("ensure_userdata should succeed");
         assert!(core.list_themes().contains(&"tron".to_string()));
         assert!(core.list_keyboards().contains(&"en-US".to_string()));
+    }
+
+    #[test]
+    fn write_shortcuts_json_validates_and_round_trips() {
+        let core = EdexCore::new();
+        core.ensure_userdata()
+            .expect("ensure_userdata should succeed");
+        let path = edex_core::settings::paths().shortcuts_file;
+        let original = fs::read_to_string(&path).expect("shortcuts.json should exist");
+
+        // RAII guard: restores the developer's real shortcuts.json even if an
+        // assertion panics mid-test, preventing permanent file corruption.
+        struct Cleanup {
+            path: String,
+            original: String,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::write(&self.path, &self.original);
+            }
+        }
+        let _guard = Cleanup {
+            path: path.clone(),
+            original: original.clone(),
+        };
+
+        // Non-JSON is rejected.
+        assert!(core.write_shortcuts_json("{ not json".to_string()).is_err());
+        // Non-array JSON is rejected.
+        assert!(core
+            .write_shortcuts_json(r#"{"key":"value"}"#.to_string())
+            .is_err());
+        // The file must be unmodified after a rejected write.
+        assert_eq!(
+            fs::read_to_string(&path).expect("shortcuts.json should still exist"),
+            original,
+            "a rejected write must not modify shortcuts.json"
+        );
+
+        // Valid array persists and round-trips.
+        let minimal = r#"[{"type":"app","trigger":"Ctrl+Shift+C","action":"COPY","enabled":true}]"#;
+        core.write_shortcuts_json(minimal.to_string())
+            .expect("valid shortcuts JSON should write");
+        let reloaded: serde_json::Value =
+            serde_json::from_str(&core.load_shortcuts_json().unwrap()).unwrap();
+        assert_eq!(reloaded[0]["action"], serde_json::json!("COPY"));
+        // _guard.drop() restores the file here (or on panic).
     }
 
     #[test]
