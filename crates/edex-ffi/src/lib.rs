@@ -14,7 +14,11 @@ fn list_json_stems(dir: &str) -> Vec<String> {
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {
                 let path = entry.path();
-                if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                let is_json = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("json"));
+                if is_json {
                     path.file_stem()
                         .and_then(|stem| stem.to_str())
                         .map(String::from)
@@ -630,5 +634,21 @@ mod tests {
             .expect("ensure_userdata should succeed");
         assert!(core.list_themes().contains(&"tron".to_string()));
         assert!(core.list_keyboards().contains(&"en-US".to_string()));
+    }
+
+    #[test]
+    fn list_json_stems_is_case_insensitive_and_sorted() {
+        let dir = std::env::temp_dir().join("edex_ffi_list_json_stems_test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("beta.json"), "{}").unwrap();
+        fs::write(dir.join("Alpha.JSON"), "{}").unwrap();
+        fs::write(dir.join("notes.txt"), "x").unwrap();
+
+        let stems = list_json_stems(&dir.to_string_lossy());
+        let _ = fs::remove_dir_all(&dir);
+
+        // .JSON is matched (case-insensitive) and .txt is ignored; output is sorted.
+        assert_eq!(stems, vec!["Alpha".to_string(), "beta".to_string()]);
     }
 }

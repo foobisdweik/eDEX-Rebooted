@@ -146,9 +146,12 @@ public struct EdexSettingsDocument: Equatable, Sendable {
     public init(jsonString: String) throws {
         let data = Data(jsonString.utf8)
         let object = try JSONSerialization.jsonObject(with: data, options: [])
+        // A valid-but-non-object top level (array/scalar) is a structural error,
+        // not an empty document — surface it so callers don't silently overwrite
+        // a malformed settings.json with defaults on the next save.
         guard let dictionary = object as? [String: Any] else {
-            raw = [:]
-            return
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: [], debugDescription: "Top-level settings JSON is not an object."))
         }
         raw = dictionary.mapValues(JSONValue.init(foundation:))
     }
@@ -161,8 +164,10 @@ public struct EdexSettingsDocument: Equatable, Sendable {
     }
 
     public func int(_ key: EdexSettingsKey) -> Int? {
+        // `Double(Int.max)` rounds up to 2^63 (unrepresentable as Int), so the
+        // upper bound must be strict to keep `Int(value)` from trapping.
         guard case let .number(value)? = effective(key), value.isFinite,
-            value >= Double(Int.min), value <= Double(Int.max)
+            value >= Double(Int.min), value < Double(Int.max)
         else { return nil }
         return Int(value)
     }

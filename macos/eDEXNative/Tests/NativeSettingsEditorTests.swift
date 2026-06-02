@@ -9,6 +9,17 @@ final class NativeSettingsEditorTests: XCTestCase {
         XCTAssertEqual(doc.string(.theme), "tron")
     }
 
+    func testInitThrowsWhenTopLevelIsNotObject() {
+        XCTAssertThrowsError(try EdexSettingsDocument(jsonString: "[1,2,3]"))
+        XCTAssertThrowsError(try EdexSettingsDocument(jsonString: "42"))
+    }
+
+    func testIntAccessorRejectsOutOfRangeValueWithoutCrashing() throws {
+        // 2^63 is finite but exceeds Int.max; the cast must not trap.
+        let doc = try EdexSettingsDocument(jsonString: #"{"monitor":9223372036854775808}"#)
+        XCTAssertNil(doc.int(.monitor))
+    }
+
     func testParsesScalarSettings() throws {
         let doc = try EdexSettingsDocument(
             jsonString: #"{"shell":"/bin/zsh","termFontSize":15,"audio":true,"audioVolume":0.8}"#)

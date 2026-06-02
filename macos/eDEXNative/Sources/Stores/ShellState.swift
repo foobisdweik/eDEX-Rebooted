@@ -209,12 +209,22 @@ final class ShellState {
                 )
             }.value
 
-            let document = (try? EdexSettingsDocument(jsonString: json)) ?? EdexSettingsDocument()
+            let document: EdexSettingsDocument
+            let statusLine: String
+            do {
+                document = try EdexSettingsDocument(jsonString: json)
+                statusLine = "Loaded values from settings.json"
+            } catch {
+                // Malformed/non-object settings.json: edit from defaults, but warn
+                // that a save replaces the unreadable file rather than silently doing so.
+                document = EdexSettingsDocument()
+                statusLine = "settings.json could not be parsed; showing defaults. Saving will overwrite it."
+            }
             settingsDocument = document
             settingsBaseline = document
             settingsThemeOptions = themes
             settingsKeyboardOptions = keyboards
-            settingsStatus = "Loaded values from settings.json"
+            settingsStatus = statusLine
 
             let openedID = presentModal(
                 type: "custom",
@@ -298,12 +308,17 @@ final class ShellState {
         guard themeName != settingsSummary.theme else { return }
         let client = self.client
         Task {
-            if let themeJson = try? await Task.detached(priority: .background, operation: {
-                try client.loadThemeJson(themeName)
-            }).value, let newTheme = try? NativeTheme(json: themeJson, name: themeName) {
-                theme = newTheme
+            do {
+                let themeJson = try await Task.detached(priority: .background) {
+                    try client.loadThemeJson(themeName)
+                }.value
+                // Update the label only after the visuals actually change, so the
+                // status ribbon never claims a theme that failed to load.
+                theme = try NativeTheme(json: themeJson, name: themeName)
+                settingsSummary.theme = themeName
+            } catch {
+                settingsStatus = "Saved, but theme '\(themeName)' could not be loaded: \(error.localizedDescription)"
             }
-            settingsSummary.theme = themeName
         }
     }
 
