@@ -48,7 +48,7 @@ public struct EdexRamwatcherFormatter: Sendable {
     /// SWAP progress value 0–100: `round(100 * used / total)`, 0 when no swap.
     public func swapPercent(used: UInt64, total: UInt64) -> Int {
         guard total > 0 else { return 0 }
-        return Int((100.0 * Double(used) / Double(total)).rounded())
+        return Self.safeInt((100.0 * Double(used) / Double(total)).rounded()) ?? 0
     }
 
     /// SWAP caption: `{usedGiB} GiB`.
@@ -58,12 +58,20 @@ public struct EdexRamwatcherFormatter: Sendable {
 
     private func scaledCount(numerator: Double, total: UInt64) -> Int {
         guard total > 0 else { return 0 }
-        return Int((Double(Self.gridCellCount) * numerator / Double(total)).rounded())
+        return Self.safeInt((Double(Self.gridCellCount) * numerator / Double(total)).rounded()) ?? 0
     }
 
     /// Bytes → GiB rounded to one decimal, JS-style (whole numbers drop `.0`).
     private func gibText(_ bytes: UInt64) -> String {
         let gib = (Double(bytes) / Self.bytesPerGiB * 10).rounded() / 10
-        return gib == gib.rounded() ? String(Int(gib)) : String(gib)
+        if let whole = Self.safeInt(gib), Double(whole) == gib { return String(whole) }
+        return String(gib)
+    }
+
+    /// Safe `Double` → `Int`: `nil` if non-finite or outside `Int`'s range, so a
+    /// garbage memory reading can't crash the cast.
+    private static func safeInt(_ value: Double) -> Int? {
+        guard value.isFinite, value >= Double(Int.min), value <= Double(Int.max) else { return nil }
+        return Int(value)
     }
 }

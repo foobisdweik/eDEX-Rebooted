@@ -537,6 +537,8 @@ struct ContentView: View {
         let cols = 40
         let rows = EdexRamwatcherFormatter.gridCellCount / 40 // 11
         return Canvas { ctx, size in
+            guard size.width.isFinite, size.width > 0,
+                  size.height.isFinite, size.height > 0 else { return }
             let ranks = state.ramGridRanks
             guard ranks.count == cols * rows else { return }
             let cellW = size.width / Double(cols)

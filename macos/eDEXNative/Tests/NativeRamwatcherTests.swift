@@ -61,6 +61,16 @@ final class NativeRamwatcherTests: XCTestCase {
         XCTAssertEqual(formatter.swapPercent(used: 0, total: 0), 0)
     }
 
+    func testSwapPercentClampsInconsistentValuesInsteadOfCrashing() {
+        // A garbage reading (used >> total) overflows Int on the cast; guard → 0.
+        XCTAssertEqual(formatter.swapPercent(used: .max, total: 1), 0)
+    }
+
+    func testActiveCountClampsInconsistentValuesInsteadOfCrashing() {
+        // 440 * UInt64.max / 1 exceeds Int.max; guard → 0 rather than crash.
+        XCTAssertEqual(formatter.activeCount(active: .max, total: 1), 0)
+    }
+
     func testSwapTextFormatsGiB() {
         XCTAssertEqual(formatter.swapText(used: 2 * gib), "2 GiB")
     }
