@@ -29,4 +29,21 @@ grep -q "git commit -m" <<<"$pr_output" || fail "pr dry-run does not include com
 grep -q "git push -u origin" <<<"$pr_output" || fail "pr dry-run does not include push"
 grep -q "gh pr create --base post-web-runtime" <<<"$pr_output" || fail "pr dry-run does not create PR against post-web-runtime"
 
+detached_repo="$(mktemp -d)"
+trap 'rm -rf "$detached_repo"' EXIT
+cp "$script" "$detached_repo/native-phase"
+(
+  cd "$detached_repo"
+  git init -q
+  git config user.email "native-phase@example.invalid"
+  git config user.name "native-phase test"
+  touch README.md
+  git add README.md
+  git commit -q -m "init"
+  git switch --detach -q HEAD
+  detached_output="$(./native-phase --dry-run pr "feat(native): dry run" "feat(native): dry run" "Detached dry-run summary")"
+  grep -q "codex/native-dry-run-placeholder" <<<"$detached_output" || fail "pr dry-run does not use placeholder branch on detached HEAD"
+  grep -q "gh pr create --base post-web-runtime" <<<"$detached_output" || fail "pr dry-run detached HEAD does not print PR command"
+)
+
 printf 'native-phase tests passed\n'

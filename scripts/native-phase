@@ -141,9 +141,15 @@ cmd_pr() {
   local branch
   branch="$(git branch --show-current)"
 
-  [[ -n "$branch" ]] || die "not on a branch"
-  [[ "$branch" != "post-web-runtime" ]] || die "refusing to publish from post-web-runtime"
-  [[ "$branch" == codex/native-* ]] || die "expected a codex/native-* phase branch, got $branch"
+  if [[ "$dry_run" == "1" ]]; then
+    if [[ -z "$branch" || "$branch" != codex/native-* ]]; then
+      branch="codex/native-dry-run-placeholder"
+    fi
+  else
+    [[ -n "$branch" ]] || die "not on a branch"
+    [[ "$branch" != "post-web-runtime" ]] || die "refusing to publish from post-web-runtime"
+    [[ "$branch" == codex/native-* ]] || die "expected a codex/native-* phase branch, got $branch"
+  fi
 
   run git add -A -- . ':!memory.md'
   if [[ "$dry_run" == "0" ]] && git diff --cached --quiet; then
