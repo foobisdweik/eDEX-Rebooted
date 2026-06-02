@@ -1359,16 +1359,18 @@ private struct EdexFuzzyFinderView: View {
                 if state.fuzzyResults.isEmpty {
                     noResultsRow
                 } else {
-                    ForEach(Array(state.fuzzyResults.prefix(5).enumerated()), id: \.element.id) { index, item in
-                        Button {
-                            state.fuzzySelection = index
-                        } label: {
-                            resultRow(item, selected: index == state.fuzzySelection)
+                    ForEach(0..<5, id: \.self) { index in
+                        if state.fuzzyResults.indices.contains(index) {
+                            let item = state.fuzzyResults[index]
+                            Button {
+                                state.fuzzySelection = index
+                            } label: {
+                                resultRow(item, selected: index == state.fuzzySelection)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            emptyRow
                         }
-                        .buttonStyle(.plain)
-                    }
-                    ForEach(state.fuzzyResults.count..<5, id: \.self) { _ in
-                        emptyRow
                     }
                 }
             }

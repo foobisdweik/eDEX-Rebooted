@@ -9,7 +9,7 @@ public enum FuzzyMatcher {
         let cappedLimit = max(0, limit)
         guard cappedLimit > 0 else { return [] }
 
-        let matches = items.lazy
+        let matches = items
             .filter { item in
                 item.role != .showDisks && item.role != .goUp
             }
@@ -17,7 +17,6 @@ public enum FuzzyMatcher {
                 guard !normalizedQuery.isEmpty else { return true }
                 return item.name.lowercased().contains(normalizedQuery)
             }
-            .prefix(cappedLimit)
 
         var prefixMatches: [FilesystemItem] = []
         var substringMatches: [FilesystemItem] = []
@@ -28,7 +27,7 @@ public enum FuzzyMatcher {
                 substringMatches.append(item)
             }
         }
-        return prefixMatches + substringMatches
+        return Array((prefixMatches + substringMatches).prefix(cappedLimit))
     }
 }
 
@@ -43,5 +42,12 @@ public enum FuzzySelection {
         guard count > 0 else { return 0 }
         let previous = index - 1
         return previous >= 0 && previous < count ? previous : 0
+    }
+}
+
+public enum FuzzyTerminalInput {
+    public static func quotedPath(_ path: String) -> String {
+        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escapedPath)'"
     }
 }

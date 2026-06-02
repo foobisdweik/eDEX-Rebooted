@@ -626,7 +626,7 @@ final class ShellState {
             return
         }
         let selected = fuzzyResults[fuzzySelection]
-        let quotedPath = "'\(selected.path)'"
+        let quotedPath = FuzzyTerminalInput.quotedPath(selected.path)
         pendingTerminalInput = quotedPath
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(quotedPath, forType: .string)

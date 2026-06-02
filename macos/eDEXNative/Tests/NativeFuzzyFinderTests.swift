@@ -45,6 +45,17 @@ final class NativeFuzzyFinderTests: XCTestCase {
         XCTAssertEqual(results.map(\.name), ["config", "cobalt", "tomlconf"])
     }
 
+    func testPrefixMatchesSortAheadOfMidStringMatchesBeforeLimitIsApplied() {
+        let results = FuzzyMatcher.search([
+            item("tomlconf"),
+            item("anotherconf"),
+            item("config"),
+            item("cobalt")
+        ], query: "co", limit: 2)
+
+        XCTAssertEqual(results.map(\.name), ["config", "cobalt"])
+    }
+
     func testResultCountIsCappedAtLimit() {
         let results = FuzzyMatcher.search([
             item("a1"),
@@ -73,8 +84,20 @@ final class NativeFuzzyFinderTests: XCTestCase {
 
     func testSelectionPreviousWrapsBeforeStartToZero() {
         XCTAssertEqual(FuzzySelection.previous(from: 2, count: 3), 1)
+        // Legacy fuzzyFinder.class.js wraps underflow to 0, not to the last row.
         XCTAssertEqual(FuzzySelection.previous(from: 0, count: 3), 0)
         XCTAssertEqual(FuzzySelection.previous(from: 0, count: 0), 0)
+    }
+
+    func testTerminalInputQuotesPlainPath() {
+        XCTAssertEqual(FuzzyTerminalInput.quotedPath("/Users/me/main.rs"), "'/Users/me/main.rs'")
+    }
+
+    func testTerminalInputEscapesSingleQuotesForPOSIXShell() {
+        XCTAssertEqual(
+            FuzzyTerminalInput.quotedPath("/Users/me/don't_do_this.txt"),
+            "'/Users/me/don'\\''t_do_this.txt'"
+        )
     }
 
     private func item(_ name: String, role: FilesystemRole = .file) -> FilesystemItem {
