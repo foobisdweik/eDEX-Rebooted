@@ -320,11 +320,18 @@ public enum FilesystemListBuilder {
 // MARK: - Disk usage bar
 
 public enum DiskUsageFormatter {
-    /// Picks the mount that best contains `path` — the longest mount string that
-    /// is a prefix of the path (more specific than the legacy last-match-wins).
+    /// Picks the mount that best contains `path` — the longest mount that is a
+    /// true ancestor of the path (more specific than the legacy last-match-wins).
+    /// Matches the exact mount or the mount followed by a separator, so a sibling
+    /// whose name merely extends the mount (e.g. `/Volumes/x` vs a `/Vol` mount)
+    /// is not falsely attributed.
     public static func select(disks: [DiskUsage], forPath path: String) -> DiskUsage? {
         disks
-            .filter { path.hasPrefix($0.mount) }
+            .filter { disk in
+                if path == disk.mount { return true }
+                let prefix = disk.mount.hasSuffix("/") ? disk.mount : disk.mount + "/"
+                return path.hasPrefix(prefix)
+            }
             .max { $0.mount.count < $1.mount.count }
     }
 
@@ -337,6 +344,14 @@ public enum DiskUsageFormatter {
     }
 
     public static func percent(_ disk: DiskUsage) -> Int {
-        Int(disk.usePct.rounded())
+        // Guard the cast: a non-finite or out-of-range usePct (the public
+        // initializer permits one) would otherwise crash `Int(_:)`. The strict
+        // upper bound matters because Double(Int.max) rounds up past Int.max.
+        guard disk.usePct.isFinite,
+              disk.usePct >= Double(Int.min),
+              disk.usePct < Double(Int.max) else {
+            return 0
+        }
+        return Int(disk.usePct.rounded())
     }
 }

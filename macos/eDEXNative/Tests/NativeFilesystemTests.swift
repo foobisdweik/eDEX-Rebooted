@@ -277,4 +277,28 @@ final class NativeFilesystemTests: XCTestCase {
     func testDiskUsagePercent() {
         XCTAssertEqual(DiskUsageFormatter.percent(DiskUsage(mount: "/", usePct: 42.7)), 43)
     }
+
+    func testDiskUsageDoesNotFalsePrefixMatch() {
+        // "/Volumes/x" must NOT be attributed to a "/Vol" mount just because the
+        // string shares a prefix; it should fall back to the root mount.
+        let disks = [
+            DiskUsage(mount: "/", usePct: 10),
+            DiskUsage(mount: "/Vol", usePct: 90)
+        ]
+        let selected = DiskUsageFormatter.select(disks: disks, forPath: "/Volumes/x")
+        XCTAssertEqual(selected?.mount, "/")
+    }
+
+    func testDiskUsageExactMountMatches() {
+        let disks = [DiskUsage(mount: "/Volumes/Data", usePct: 55)]
+        XCTAssertEqual(
+            DiskUsageFormatter.select(disks: disks, forPath: "/Volumes/Data")?.mount,
+            "/Volumes/Data"
+        )
+    }
+
+    func testDiskUsagePercentHandlesNonFinite() {
+        XCTAssertEqual(DiskUsageFormatter.percent(DiskUsage(mount: "/", usePct: .nan)), 0)
+        XCTAssertEqual(DiskUsageFormatter.percent(DiskUsage(mount: "/", usePct: .infinity)), 0)
+    }
 }
