@@ -988,22 +988,25 @@ private struct EdexProcessListTable: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(sortedRows(now: context.date), id: \.pid) { row in
-                            processRow(row, now: context.date)
+            ScrollView(.horizontal) {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    ScrollView(.vertical) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(sortedRows(now: context.date), id: \.pid) { row in
+                                processRow(row, now: context.date)
+                            }
                         }
                     }
+                    .frame(minHeight: 220, maxHeight: 430)
                 }
-                .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 430, alignment: .topLeading)
-                .overlay {
-                    if rows.isEmpty {
-                        Text("NO PROCESS DATA")
-                            .font(.custom(theme.fonts.terminal, size: 12))
-                            .foregroundStyle(theme.terminalForeground.opacity(0.58))
-                    }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .overlay {
+                if rows.isEmpty {
+                    Text("NO PROCESS DATA")
+                        .font(.custom(theme.fonts.terminal, size: 12))
+                        .foregroundStyle(theme.terminalForeground.opacity(0.58))
                 }
             }
             .augmentedSurface(
