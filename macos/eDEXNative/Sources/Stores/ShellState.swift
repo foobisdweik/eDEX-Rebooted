@@ -4,6 +4,7 @@ import CpuinfoSupport
 import Darwin
 import Foundation
 import HardwareSupport
+import ModalSupport
 import Observation
 import RamwatcherSupport
 import SwiftUI
@@ -16,6 +17,7 @@ final class ShellState {
     private let client = EdexCoreClient()
     private let audio = EdexAudioService()
 
+    let modalManager = EdexModalManager()
     var statusText = "booting"
     var paths: FfiPaths?
     var settingsSummary = SettingsSummary()
@@ -66,6 +68,7 @@ final class ShellState {
             terminateIfSmokeWindow()
         } catch {
             statusText = "error — \(error.localizedDescription)"
+            presentModal(type: "error", title: "Native bootstrap failed", message: error.localizedDescription)
             print("eDEXNative FFI ERROR \(error.localizedDescription)")
             terminateIfSmokeWindow()
         }
@@ -123,6 +126,37 @@ final class ShellState {
     @discardableResult
     func playAudio(_ cue: EdexAudioCue) -> Bool {
         audio.play(cue)
+    }
+
+    @discardableResult
+    func presentModal(
+        type: String,
+        title: String?,
+        message: String?,
+        content: EdexModalContent = .message,
+        detachesKeyboard: Bool? = nil,
+        onClose: ((EdexModalID) -> Void)? = nil
+    ) -> EdexModalID? {
+        do {
+            let request = try EdexModalRequest(
+                type: type,
+                title: title,
+                message: message,
+                content: content,
+                detachesKeyboard: detachesKeyboard
+            )
+            playAudio(request.openCue)
+            return modalManager.present(request, onClose: onClose)
+        } catch {
+            statusText = "modal error — \(error.localizedDescription)"
+            return nil
+        }
+    }
+
+    func closeModal(_ id: EdexModalID) {
+        if let cue = modalManager.close(id) {
+            playAudio(cue)
+        }
     }
 
     private func terminateIfSmokeWindow() {
