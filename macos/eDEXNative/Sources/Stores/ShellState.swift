@@ -8,6 +8,7 @@ import ModalSupport
 import Observation
 import RamwatcherSupport
 import SettingsEditorSupport
+import ShortcutsSupport
 import SwiftUI
 import SysinfoSupport
 import ThemeSupport
@@ -43,6 +44,12 @@ final class ShellState {
     var processSort = EdexProcessSort.default
     @ObservationIgnored private var processListModalID: EdexModalID?
     @ObservationIgnored private var processListRefreshTask: Task<Void, Never>?
+
+    // Phase 6.4 shortcuts state.
+    var shortcuts: EdexShortcutsDocument?
+    var shortcutsStatus = ""
+    @ObservationIgnored private var shortcutsModalID: EdexModalID?
+    @ObservationIgnored private var shortcutMonitor: Any?
 
     // Phase 6.3 settings editor state.
     var settingsDocument = EdexSettingsDocument()
@@ -81,6 +88,7 @@ final class ShellState {
             audio.configure(settings: snapshot.settings.audioSettings)
             statusText = "ok — EdexCore.paths(), ensureUserdata(), loadSettingsJson(), loadThemeJson() returned"
             print("eDEXNative FFI OK userData=\(snapshot.paths.userData) settingsBytes=\(snapshot.settings.byteCount ?? 0) theme=\(snapshot.settings.theme) keepGeometry=\(snapshot.settings.keepGeometry)")
+            await loadShortcuts()
             terminateIfSmokeWindow()
         } catch {
             statusText = "error — \(error.localizedDescription)"
@@ -320,6 +328,115 @@ final class ShellState {
                 settingsStatus = "Saved, but theme '\(themeName)' could not be loaded: \(error.localizedDescription)"
             }
         }
+    }
+
+    // MARK: Shortcuts (Phase 6.4)
+
+    /// Loads shortcuts.json from the Rust core and installs the local key-event
+    /// monitor. Called once from bootstrap() after userdata is ready.
+    func loadShortcuts() async {
+        let client = self.client
+        let json = await Task.detached(priority: .background) {
+            try? client.loadShortcutsJson()
+        }.value
+
+        if let json, let doc = try? EdexShortcutsDocument(jsonString: json) {
+            shortcuts = doc
+        } else {
+            shortcuts = nil
+            shortcutsStatus = "shortcuts.json could not be parsed; shortcuts are disabled."
+        }
+        installShortcutMonitor()
+    }
+
+    private func installShortcutMonitor() {
+        guard shortcutMonitor == nil else { return }
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            return MainActor.assumeIsolated { self.handleShortcutKeyEvent(event) }
+        }
+    }
+
+    /// Called by deinit or on explicit teardown. Removes the NSEvent monitor.
+    func removeShortcutMonitor() {
+        if let m = shortcutMonitor { NSEvent.removeMonitor(m) }
+        shortcutMonitor = nil
+    }
+
+    /// Matches a keyDown event against loaded shortcuts. Returns nil to consume
+    /// the event (shortcut fired), or the event itself to pass it through.
+    private func handleShortcutKeyEvent(_ event: NSEvent) -> NSEvent? {
+        guard let doc = shortcuts, let eventCombo = event.keyCombo else { return event }
+
+        // Regular (non-TAB_X) app + shell shortcuts
+        for entry in doc.enabledEntries() {
+            guard entry.action != AppShortcutAction.tabTemplate.rawValue else { continue }
+            guard let combo = entry.combo, combo == eventCombo else { continue }
+            switch entry.type {
+            case .app:
+                if let action = AppShortcutAction(rawValue: entry.action) {
+                    dispatchAppShortcut(action, tabIndex: nil)
+                }
+            case .shell:
+                // Shell shortcuts write a command to the active terminal.
+                // Terminal tab management is Phase 9; these are parsed and
+                // stored now but execution is deferred until the PTY seam exists.
+                break
+            }
+            return nil
+        }
+
+        // TAB_X expansion: Ctrl+1 … Ctrl+5
+        for (combo, tabIndex) in doc.expandedTabCombos() {
+            guard combo == eventCombo else { continue }
+            dispatchAppShortcut(.tabTemplate, tabIndex: tabIndex)
+            return nil
+        }
+
+        return event
+    }
+
+    /// Dispatches a recognised app shortcut action to the appropriate handler.
+    func dispatchAppShortcut(_ action: AppShortcutAction, tabIndex: Int?) {
+        switch action {
+        case .settings:
+            openSettingsModal()
+        case .shortcuts:
+            openShortcutsModal()
+        case .copy, .paste, .nextTab, .previousTab, .tabTemplate,
+             .fuzzySearch, .fsListView, .fsDotfiles, .kbPassmode,
+             .devDebug, .devReload:
+            // These actions are dispatched by this handler but their targets
+            // (terminal, filesystem, keyboard) are built in later phases.
+            // Stubs prevent crashes when shortcuts fire before the feature exists.
+            break
+        }
+    }
+
+    func openShortcutsModal() {
+        if let shortcutsModalID, modalManager.modal(id: shortcutsModalID) != nil {
+            modalManager.focus(shortcutsModalID)
+            return
+        }
+        let openedID = presentModal(
+            type: "custom",
+            title: "Keyboard Shortcuts",
+            message: "",
+            content: .shortcuts,
+            detachesKeyboard: true,
+            onClose: { [weak self] closedID in
+                Task { @MainActor in
+                    guard self?.shortcutsModalID == closedID else { return }
+                    self?.shortcutsModalID = nil
+                }
+            }
+        )
+        shortcutsModalID = openedID
+    }
+
+    func openShortcutsFileExternally() {
+        guard let path = paths?.shortcutsFile else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
     @discardableResult

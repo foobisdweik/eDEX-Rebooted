@@ -6,6 +6,7 @@ import LayoutSupport
 import ModalSupport
 import RamwatcherSupport
 import SettingsEditorSupport
+import ShortcutsSupport
 import SwiftUI
 import SysinfoSupport
 import ThemeSupport
@@ -901,6 +902,8 @@ private struct EdexModalChrome: View {
             )
         case .settingsEditor:
             EdexSettingsForm(state: state, theme: theme)
+        case .shortcuts:
+            EdexShortcutsView(state: state, theme: theme)
         case .textEditor:
             customStatus("TEXT EDITOR", detail: "Ready for Phase 7.3 file editing")
         case .mediaViewer:
@@ -970,6 +973,9 @@ private struct EdexModalChrome: View {
         if modal.content == .settingsEditor {
             return min(max(safeContainerWidth * 0.5, 520), 760)
         }
+        if modal.content == .shortcuts {
+            return min(max(safeContainerWidth * 0.5, 520), 780)
+        }
         return min(max(safeContainerWidth * 0.42, 380), 740)
     }
 
@@ -979,6 +985,9 @@ private struct EdexModalChrome: View {
         }
         if modal.content == .settingsEditor {
             return min(max(safeContainerHeight * 0.6, 420), 640)
+        }
+        if modal.content == .shortcuts {
+            return min(max(safeContainerHeight * 0.55, 380), 600)
         }
         return modal.kind == .custom ? 260 : 150
     }
@@ -1140,6 +1149,147 @@ private struct EdexSettingsForm: View {
             options.insert(current, at: 0)
         }
         return options.isEmpty ? [current] : options
+    }
+}
+
+// MARK: - Shortcuts modal (Phase 6.4)
+
+private struct EdexShortcutsView: View {
+    @Bindable var state: ShellState
+    let theme: NativeTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 16) {
+                    shortcutsSection(
+                        title: "APP SHORTCUTS",
+                        entries: state.shortcuts?.appEntries() ?? []
+                    ) { entry in
+                        appActionLabel(entry.action)
+                    }
+
+                    shortcutsSection(
+                        title: "SHELL SHORTCUTS",
+                        entries: state.shortcuts?.shellEntries() ?? []
+                    ) { entry in
+                        HStack(spacing: 8) {
+                            Text(entry.action)
+                                .font(.custom(theme.fonts.terminal, size: 12))
+                                .foregroundStyle(theme.terminalForeground)
+                            if entry.linebreak {
+                                Text("+ Enter")
+                                    .font(.custom(theme.fonts.terminal, size: 10))
+                                    .foregroundStyle(theme.accent.opacity(0.6))
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+
+            Divider()
+                .background(theme.accent.opacity(0.35))
+
+            HStack(spacing: 12) {
+                if !state.shortcutsStatus.isEmpty {
+                    Text(state.shortcutsStatus)
+                        .font(.custom(theme.fonts.terminal, size: 11))
+                        .foregroundStyle(theme.accent.opacity(0.65))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer()
+                }
+                Button("Open Shortcuts File") {
+                    state.openShortcutsFileExternally()
+                }
+                .font(.custom(theme.fonts.main, size: 12))
+                .foregroundStyle(theme.accent)
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+    }
+
+    @ViewBuilder
+    private func shortcutsSection<Label: View>(
+        title: String,
+        entries: [EdexShortcutEntry],
+        @ViewBuilder label: @escaping (EdexShortcutEntry) -> Label
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.custom(theme.fonts.main, size: 11))
+                .foregroundStyle(theme.accent.opacity(0.78))
+                .padding(.bottom, 2)
+
+            if entries.isEmpty {
+                Text("None")
+                    .font(.custom(theme.fonts.terminal, size: 12))
+                    .foregroundStyle(theme.terminalForeground.opacity(0.5))
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(entries) { entry in
+                        HStack(alignment: .center, spacing: 0) {
+                            Text(entry.enabled ? "ON " : "OFF")
+                                .font(.custom(theme.fonts.terminal, size: 11))
+                                .foregroundStyle(
+                                    entry.enabled
+                                        ? theme.accent.opacity(0.9)
+                                        : theme.terminalForeground.opacity(0.35)
+                                )
+                                .frame(width: 36, alignment: .leading)
+
+                            Text(entry.trigger)
+                                .font(.custom(theme.fonts.terminal, size: 12))
+                                .foregroundStyle(theme.terminalForeground.opacity(0.9))
+                                .frame(width: 200, alignment: .leading)
+
+                            label(entry)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 3)
+                        .padding(.horizontal, 8)
+                        .background(
+                            entry.enabled
+                                ? theme.terminalBackground.opacity(0.18)
+                                : Color.clear
+                        )
+                    }
+                }
+                .padding(4)
+                .augmentedSurface(
+                    style: .panel(vh: 0.5),
+                    fill: theme.terminalBackground.opacity(0.28),
+                    stroke: theme.accent.opacity(0.4)
+                )
+            }
+        }
+    }
+
+    private func appActionLabel(_ rawAction: String) -> some View {
+        let label: String
+        switch rawAction {
+        case "COPY":          label = "Copy selected terminal buffer"
+        case "PASTE":         label = "Paste clipboard to terminal"
+        case "NEXT_TAB":      label = "Next terminal tab →"
+        case "PREVIOUS_TAB":  label = "Previous terminal tab ←"
+        case "TAB_X":         label = "Switch to tab N (1–5)"
+        case "SETTINGS":      label = "Open settings editor"
+        case "SHORTCUTS":     label = "Show this shortcuts list"
+        case "FUZZY_SEARCH":  label = "Fuzzy-search current directory"
+        case "FS_LIST_VIEW":  label = "Toggle list / grid view"
+        case "FS_DOTFILES":   label = "Toggle hidden files"
+        case "KB_PASSMODE":   label = "Keyboard password mode"
+        case "DEV_DEBUG":     label = "Open developer tools"
+        case "DEV_RELOAD":    label = "Reload UI"
+        default:              label = rawAction
+        }
+        return Text(label)
+            .font(.custom(theme.fonts.terminal, size: 12))
+            .foregroundStyle(theme.terminalForeground)
     }
 }
 

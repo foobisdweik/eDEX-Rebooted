@@ -36,6 +36,7 @@ public enum EdexModalContent: Equatable, Sendable {
     case message
     case processList
     case settingsEditor
+    case shortcuts
     case textEditor
     case mediaViewer
     case customPlaceholder

@@ -642,6 +642,11 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     
     func loadSettingsJson() throws  -> String
     
+    /**
+     * Load shortcuts.json as a raw string (Phase 6.4).
+     */
+    func loadShortcutsJson() throws  -> String
+    
     func loadThemeJson(name: String) throws  -> String
     
     /**
@@ -679,6 +684,12 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
      * pretty-printed to match `edex_core::settings::write_settings`.
      */
     func writeSettingsJson(contents: String) throws 
+    
+    /**
+     * Validate and persist shortcuts.json (Phase 6.4).
+     * Rejects non-array or malformed JSON before writing.
+     */
+    func writeShortcutsJson(contents: String) throws 
     
 }
 open class EdexCore: EdexCoreProtocol, @unchecked Sendable {
@@ -831,6 +842,17 @@ open func loadSettingsJson()throws  -> String  {
 })
 }
     
+    /**
+     * Load shortcuts.json as a raw string (Phase 6.4).
+     */
+open func loadShortcutsJson()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_load_shortcuts_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func loadThemeJson(name: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
     uniffi_edex_ffi_fn_method_edexcore_load_theme_json(
@@ -938,6 +960,18 @@ open func writePty(id: UInt32, data: String)throws   {try rustCallWithError(FfiC
      */
 open func writeSettingsJson(contents: String)throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
     uniffi_edex_ffi_fn_method_edexcore_write_settings_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(contents),$0
+    )
+}
+}
+    
+    /**
+     * Validate and persist shortcuts.json (Phase 6.4).
+     * Rejects non-array or malformed JSON before writing.
+     */
+open func writeShortcutsJson(contents: String)throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_write_shortcuts_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(contents),$0
     )
@@ -2229,6 +2263,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_edex_ffi_checksum_method_edexcore_load_settings_json() != 63017) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_edex_ffi_checksum_method_edexcore_load_shortcuts_json() != 48478) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_edex_ffi_checksum_method_edexcore_load_theme_json() != 44188) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2260,6 +2297,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_write_settings_json() != 36241) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_write_shortcuts_json() != 26545) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_constructor_edexcore_new() != 47132) {

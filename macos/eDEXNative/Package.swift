@@ -59,6 +59,10 @@ let package = Package(
             path: "Sources/SettingsEditorSupport"
         ),
         .target(
+            name: "ShortcutsSupport",
+            path: "Sources/ShortcutsSupport"
+        ),
+        .target(
             name: "AudioSupport",
             path: "Sources/AudioSupport"
         ),
@@ -73,7 +77,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "eDEXNative",
-            dependencies: ["AudioSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: ["AudioSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
             path: ".",
             exclude: [
                 "README.md",
@@ -87,6 +91,7 @@ let package = Package(
                 "Sources/ModalSupport",
                 "Sources/RamwatcherSupport",
                 "Sources/SettingsEditorSupport",
+                "Sources/ShortcutsSupport",
                 "Sources/SysinfoSupport",
                 "Sources/ThemeSupport",
                 "Sources/ToplistSupport",
@@ -117,7 +122,7 @@ let package = Package(
         ),
         .testTarget(
             name: "eDEXNativeTests",
-            dependencies: ["AudioSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: ["AudioSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
             path: "Tests"
         )
     ],
