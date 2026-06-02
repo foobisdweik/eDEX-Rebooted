@@ -214,7 +214,9 @@ struct ContentView: View {
     }
 
     private func keyboardKeyCount(for row: Int) -> Int {
-        [13, 13, 12, 11, 6][row]
+        let counts = [13, 13, 12, 11, 6]
+        guard counts.indices.contains(row) else { return 0 }
+        return counts[row]
     }
 
     private func keyboardKeyWidth(row: Int, index: Int, metrics: KeyboardLayoutMetrics) -> Double {
@@ -249,6 +251,7 @@ private struct EdexGridBackground: View {
 
     var body: some View {
         Canvas { context, size in
+            guard step.isFinite, step > 0.5 else { return }
             var path = Path()
             var x = step * 0.9
             while x <= size.width {

@@ -1,8 +1,8 @@
 import Foundation
 
 public struct LayoutSize: Equatable, Sendable {
-    public var width: Double
-    public var height: Double
+    public let width: Double
+    public let height: Double
 
     public init(width: Double, height: Double) {
         self.width = width.isFinite ? max(0, width) : 0
@@ -11,11 +11,11 @@ public struct LayoutSize: Equatable, Sendable {
 }
 
 public struct LayoutRect: Equatable, Sendable {
-    public var x: Double
-    public var y: Double
-    public var width: Double
-    public var height: Double
-    public var isHidden: Bool
+    public let x: Double
+    public let y: Double
+    public let width: Double
+    public let height: Double
+    public let isHidden: Bool
 
     public init(x: Double, y: Double, width: Double, height: Double, isHidden: Bool = false) {
         self.x = x.isFinite ? x : 0
@@ -27,11 +27,11 @@ public struct LayoutRect: Equatable, Sendable {
 }
 
 public struct KeyboardLayoutMetrics: Equatable, Sendable {
-    public var frame: LayoutRect
-    public var rowHeight: Double
-    public var rowGap: Double
-    public var keySide: Double
-    public var spacebarWidth: Double
+    public let frame: LayoutRect
+    public let rowHeight: Double
+    public let rowGap: Double
+    public let keySide: Double
+    public let spacebarWidth: Double
 
     public var x: Double { frame.x }
     public var y: Double { frame.y }
@@ -41,12 +41,12 @@ public struct KeyboardLayoutMetrics: Equatable, Sendable {
 }
 
 public struct EdexLayout: Equatable, Sendable {
-    public var viewport: LayoutSize
-    public var leftColumn: LayoutRect
-    public var mainShell: LayoutRect
-    public var rightColumn: LayoutRect
-    public var filesystem: LayoutRect
-    public var keyboard: KeyboardLayoutMetrics
+    public let viewport: LayoutSize
+    public let leftColumn: LayoutRect
+    public let mainShell: LayoutRect
+    public let rightColumn: LayoutRect
+    public let filesystem: LayoutRect
+    public let keyboard: KeyboardLayoutMetrics
 }
 
 public struct EdexLayoutEngine: Sendable {
