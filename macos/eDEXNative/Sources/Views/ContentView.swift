@@ -3,6 +3,7 @@ import ClockSupport
 import CpuinfoSupport
 import HardwareSupport
 import LayoutSupport
+import ModalSupport
 import RamwatcherSupport
 import SwiftUI
 import SysinfoSupport
@@ -33,6 +34,7 @@ struct ContentView: View {
                 }
                 keyboard(layout.keyboard, vh: layout.vh)
                 statusRibbon(vh: layout.vh)
+                modalLayer(size: proxy.size, vh: layout.vh)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
@@ -193,7 +195,23 @@ struct ContentView: View {
             fill: state.theme.panelBackground.opacity(0.42),
             stroke: state.theme.accent
         )
+        .opacity(state.modalManager.isKeyboardDetached ? 0.18 : 1.0)
         .positioned(in: metrics.frame)
+    }
+
+    private func modalLayer(size: CGSize, vh: Double) -> some View {
+        ForEach(state.modalManager.modals, id: \.id) { modal in
+            EdexModalChrome(
+                modal: modal,
+                theme: state.theme,
+                vh: vh,
+                containerSize: size,
+                onFocus: { state.modalManager.focus(modal.id) },
+                onMove: { dx, dy in state.modalManager.move(modal.id, dx: dx, dy: dy) },
+                onClose: { state.closeModal(modal.id) }
+            )
+            .zIndex(Double(modal.zIndex))
+        }
     }
 
     private func sectionTitle(_ left: String, _ right: String) -> some View {
@@ -708,6 +726,192 @@ private struct EdexGridBackground: View {
 
             context.stroke(path, with: .color(color), lineWidth: lineWidth)
         }
+    }
+}
+
+private struct EdexModalChrome: View {
+    let modal: EdexModalRecord
+    let theme: NativeTheme
+    let vh: Double
+    let containerSize: CGSize
+    let onFocus: () -> Void
+    let onMove: (_ dx: Double, _ dy: Double) -> Void
+    let onClose: () -> Void
+
+    @State private var lastDrag = CGSize.zero
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            bodyContent
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                ForEach(buttonLabels, id: \.self) { label in
+                    Button(label) {
+                        onClose()
+                    }
+                    .buttonStyle(EdexModalButtonStyle(theme: theme, vh: vh))
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: modalWidth, alignment: .topLeading)
+        .frame(minHeight: modalHeight, alignment: .topLeading)
+        .augmentedSurface(
+            style: .modal(vh: vh),
+            fill: modalFill,
+            stroke: theme.accent
+        )
+        .position(
+            x: safeContainerWidth / 2 + CGFloat(modal.offsetX),
+            y: safeContainerHeight / 2 + CGFloat(modal.offsetY)
+        )
+        .shadow(color: theme.accent.opacity(0.24), radius: 16)
+        .onTapGesture(perform: onFocus)
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(modal.title.uppercased())
+                .font(.custom(theme.fonts.main, size: 16))
+                .foregroundStyle(theme.accent)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            Text(kindLabel)
+                .font(.custom(theme.fonts.main, size: 10))
+                .foregroundStyle(theme.accent.opacity(0.62))
+        }
+        .padding(.bottom, 7)
+        .contentShape(Rectangle())
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.accent.opacity(0.32))
+                .frame(height: 1)
+        }
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    onFocus()
+                    let dx = value.translation.width - lastDrag.width
+                    let dy = value.translation.height - lastDrag.height
+                    lastDrag = value.translation
+                    onMove(Double(dx), Double(dy))
+                }
+                .onEnded { _ in
+                    lastDrag = .zero
+                }
+        )
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
+        switch modal.content {
+        case .message:
+            Text(modal.message)
+                .font(.custom(theme.fonts.terminal, size: 13))
+                .foregroundStyle(theme.terminalForeground)
+                .lineLimit(12)
+                .textSelection(.enabled)
+        case .processList:
+            customStatus("PROCESS MODAL", detail: "Ready for Phase 5.6 process rows")
+        case .textEditor:
+            customStatus("TEXT EDITOR", detail: "Ready for Phase 7.3 file editing")
+        case .mediaViewer:
+            customStatus("MEDIA VIEWER", detail: "Ready for Phase 10.1 media content")
+        case .customPlaceholder:
+            customStatus("CUSTOM MODAL", detail: modal.message)
+        }
+    }
+
+    private func customStatus(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.custom(theme.fonts.main, size: 13))
+                .foregroundStyle(theme.accent.opacity(0.78))
+            Text(detail)
+                .font(.custom(theme.fonts.terminal, size: 12))
+                .foregroundStyle(theme.terminalForeground.opacity(0.84))
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+        .augmentedSurface(
+            style: .panel(vh: vh),
+            fill: theme.terminalBackground.opacity(0.72),
+            stroke: theme.accent
+        )
+    }
+
+    private var buttonLabels: [String] {
+        switch modal.kind {
+        case .error:
+            ["PANIC", "RELOAD"]
+        case .warning, .info:
+            ["OK"]
+        case .custom:
+            ["Close"]
+        }
+    }
+
+    private var kindLabel: String {
+        switch modal.kind {
+        case .error:
+            "ERROR"
+        case .warning:
+            "WARNING"
+        case .info:
+            "INFO"
+        case .custom:
+            "CUSTOM"
+        }
+    }
+
+    private var modalFill: Color {
+        switch modal.kind {
+        case .error:
+            theme.panelBackground.opacity(0.94)
+        case .warning:
+            theme.panelBackground.opacity(0.9)
+        case .info, .custom:
+            theme.panelBackground.opacity(0.86)
+        }
+    }
+
+    private var modalWidth: CGFloat {
+        min(max(safeContainerWidth * 0.42, 380), 740)
+    }
+
+    private var modalHeight: CGFloat {
+        modal.kind == .custom ? 260 : 150
+    }
+
+    private var safeContainerWidth: CGFloat {
+        containerSize.width.isFinite && containerSize.width > 0 ? containerSize.width : 960
+    }
+
+    private var safeContainerHeight: CGFloat {
+        containerSize.height.isFinite && containerSize.height > 0 ? containerSize.height : 600
+    }
+}
+
+private struct EdexModalButtonStyle: ButtonStyle {
+    let theme: NativeTheme
+    let vh: Double
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.custom(theme.fonts.main, size: 11))
+            .foregroundStyle(configuration.isPressed ? theme.panelBackground : theme.accent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                AugmentedBorderShape(style: .settingsButton(vh: vh))
+                    .fill(configuration.isPressed ? theme.accent.opacity(0.92) : theme.accent.opacity(0.08))
+            )
+            .overlay(
+                AugmentedBorderShape(style: .settingsButton(vh: vh))
+                    .stroke(theme.accent.opacity(0.74), lineWidth: max(1, CGFloat(0.092 * vh)))
+            )
     }
 }
 
