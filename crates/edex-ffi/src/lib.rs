@@ -80,6 +80,16 @@ impl From<edex_core::sysinfo::BatteryInfo> for FfiBattery {
     }
 }
 
+/// The subset of `SystemInfo` + `ChassisInfo` the native hardware-inspector
+/// panel consumes (mirrors `window.si.system()`/`chassis()` in
+/// hardwareInspector.class.js: manufacturer + model from system, type from chassis).
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiHardware {
+    pub manufacturer: String,
+    pub model: String,
+    pub chassis_type: String,
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct FfiPtySpawnOptions {
     pub shell: String,
@@ -183,6 +193,19 @@ impl EdexCore {
             .map_err(EdexError::from)
     }
 
+    /// Host hardware identity (hardware-inspector panel). Combines the two
+    /// sources the JS panel reads: manufacturer/model from `system()` and the
+    /// chassis type from `chassis()`.
+    pub fn hardware(&self) -> FfiHardware {
+        let system = self.sysinfo.system();
+        let chassis = self.sysinfo.chassis();
+        FfiHardware {
+            manufacturer: system.manufacturer,
+            model: system.model,
+            chassis_type: chassis.chassis_type,
+        }
+    }
+
     pub fn spawn_pty(
         &self,
         opts: FfiPtySpawnOptions,
@@ -252,6 +275,15 @@ mod tests {
         // absent() reports AC connected (a desktop is "ON"/wired).
         assert!(battery.ac_connected);
         assert_eq!(battery.percent, 0);
+    }
+
+    #[test]
+    fn hardware_reports_apple_manufacturer_and_a_chassis_type() {
+        let core = EdexCore::new();
+        let hw = core.hardware();
+        // edex-core hard-codes Apple on the macOS-only target.
+        assert_eq!(hw.manufacturer, "Apple");
+        assert!(!hw.chassis_type.is_empty());
     }
 
     #[test]

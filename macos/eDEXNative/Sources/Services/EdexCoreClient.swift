@@ -47,6 +47,11 @@ struct EdexCoreClient {
     func battery() -> FfiBattery? {
         try? core.battery()
     }
+
+    /// Host hardware identity (hardware-inspector panel).
+    func hardware() -> FfiHardware {
+        core.hardware()
+    }
 }
 
 private struct SettingsFile: Decodable {

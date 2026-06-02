@@ -1,5 +1,6 @@
 import BorderSupport
 import ClockSupport
+import HardwareSupport
 import LayoutSupport
 import SwiftUI
 import SysinfoSupport
@@ -64,6 +65,8 @@ struct ContentView: View {
                     clockPanel(vh: vh)
                 } else if label == "SYSINFO" {
                     sysinfoPanel(vh: vh)
+                } else if label == "HARDWARE" {
+                    hardwarePanel(vh: vh)
                 } else {
                     panelStub(label, vh: vh)
                 }
@@ -324,6 +327,39 @@ struct ContentView: View {
             + Text(value.hours).foregroundColor(state.theme.terminalForeground)
             + Text(":").foregroundColor(state.theme.accent.opacity(0.5))
             + Text(value.minutes).foregroundColor(state.theme.terminalForeground)
+    }
+
+    private func hardwarePanel(vh: Double) -> some View {
+        let info = state.hardware.map {
+            EdexHardwareFormatter().format(
+                manufacturer: $0.manufacturer,
+                model: $0.model,
+                chassisType: $0.chassisType
+            )
+        }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("HARDWARE")
+                .font(.custom(state.theme.fonts.main, size: 12))
+            sysinfoCell(heading: "MANUFACTURER", value: Text(info?.manufacturer ?? "NONE"))
+            sysinfoCell(heading: "MODEL", value: Text(info?.model ?? "NONE"))
+            sysinfoCell(heading: "CHASSIS", value: Text(info?.chassis ?? "NONE"))
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .augmentedSurface(
+            style: .panel(vh: vh),
+            fill: state.theme.terminalBackground.opacity(0.72),
+            stroke: state.theme.accent
+        )
+        .task {
+            // hardwareInspector.class.js re-polls every 20s; the data is static
+            // on this target, but match the cadence.
+            while !Task.isCancelled {
+                await state.refreshHardware()
+                try? await Task.sleep(for: .seconds(20))
+            }
+        }
     }
 
     private func keyStub(width: Double, vh: Double) -> some View {
