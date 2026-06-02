@@ -651,6 +651,12 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     func sysinfoSnapshotJson() throws  -> String
     
     /**
+     * Live TOPLIST payload. The compact panel consumes `top_processes`; the
+     * expanded process modal requests `include_process_list = true` for rows.
+     */
+    func toplistSnapshot(collapseThreadsByName: Bool, includeProcessList: Bool) throws  -> FfiToplistSnapshot
+    
+    /**
      * System uptime in seconds (sysinfo panel UPTIME cell).
      */
     func uptime()  -> UInt64
@@ -848,6 +854,20 @@ open func sysinfoSnapshotJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
     uniffi_edex_ffi_fn_method_edexcore_sysinfo_snapshot_json(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Live TOPLIST payload. The compact panel consumes `top_processes`; the
+     * expanded process modal requests `include_process_list = true` for rows.
+     */
+open func toplistSnapshot(collapseThreadsByName: Bool, includeProcessList: Bool)throws  -> FfiToplistSnapshot  {
+    return try  FfiConverterTypeFfiToplistSnapshot_lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_toplist_snapshot(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(collapseThreadsByName),
+        FfiConverterBool.lower(includeProcessList),$0
     )
 })
 }
@@ -1281,6 +1301,153 @@ public func FfiConverterTypeFfiPaths_lower(_ value: FfiPaths) -> RustBuffer {
 }
 
 
+/**
+ * Full process-list payload for the expanded TOPLIST modal. Counts mirror the
+ * Rust core contract, but the Swift UI currently renders only `list`.
+ */
+public struct FfiProcessList: Equatable, Hashable {
+    public var all: UInt32
+    public var running: UInt32
+    public var blocked: UInt32
+    public var sleeping: UInt32
+    public var list: [FfiProcessRow]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(all: UInt32, running: UInt32, blocked: UInt32, sleeping: UInt32, list: [FfiProcessRow]) {
+        self.all = all
+        self.running = running
+        self.blocked = blocked
+        self.sleeping = sleeping
+        self.list = list
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiProcessList: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProcessList: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProcessList {
+        return
+            try FfiProcessList(
+                all: FfiConverterUInt32.read(from: &buf), 
+                running: FfiConverterUInt32.read(from: &buf), 
+                blocked: FfiConverterUInt32.read(from: &buf), 
+                sleeping: FfiConverterUInt32.read(from: &buf), 
+                list: FfiConverterSequenceTypeFfiProcessRow.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiProcessList, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.all, into: &buf)
+        FfiConverterUInt32.write(value.running, into: &buf)
+        FfiConverterUInt32.write(value.blocked, into: &buf)
+        FfiConverterUInt32.write(value.sleeping, into: &buf)
+        FfiConverterSequenceTypeFfiProcessRow.write(value.list, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProcessList_lift(_ buf: RustBuffer) throws -> FfiProcessList {
+    return try FfiConverterTypeFfiProcessList.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProcessList_lower(_ value: FfiProcessList) -> RustBuffer {
+    return FfiConverterTypeFfiProcessList.lower(value)
+}
+
+
+/**
+ * The expanded process-list row consumed by the native process modal.
+ */
+public struct FfiProcessRow: Equatable, Hashable {
+    public var pid: UInt32
+    public var name: String
+    public var user: String
+    public var cpu: Double
+    public var mem: Double
+    public var state: String
+    public var started: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pid: UInt32, name: String, user: String, cpu: Double, mem: Double, state: String, started: String) {
+        self.pid = pid
+        self.name = name
+        self.user = user
+        self.cpu = cpu
+        self.mem = mem
+        self.state = state
+        self.started = started
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiProcessRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProcessRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProcessRow {
+        return
+            try FfiProcessRow(
+                pid: FfiConverterUInt32.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                user: FfiConverterString.read(from: &buf), 
+                cpu: FfiConverterDouble.read(from: &buf), 
+                mem: FfiConverterDouble.read(from: &buf), 
+                state: FfiConverterString.read(from: &buf), 
+                started: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiProcessRow, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.pid, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.user, into: &buf)
+        FfiConverterDouble.write(value.cpu, into: &buf)
+        FfiConverterDouble.write(value.mem, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterString.write(value.started, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProcessRow_lift(_ buf: RustBuffer) throws -> FfiProcessRow {
+    return try FfiConverterTypeFfiProcessRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProcessRow_lower(_ value: FfiProcessRow) -> RustBuffer {
+    return FfiConverterTypeFfiProcessRow.lower(value)
+}
+
+
 public struct FfiPtyMetadata: Equatable, Hashable {
     public var cwd: String?
     public var process: String?
@@ -1406,6 +1573,129 @@ public func FfiConverterTypeFfiPtySpawnOptions_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeFfiPtySpawnOptions_lower(_ value: FfiPtySpawnOptions) -> RustBuffer {
     return FfiConverterTypeFfiPtySpawnOptions.lower(value)
+}
+
+
+/**
+ * The compact top-process row consumed by the native TOPLIST mini panel.
+ */
+public struct FfiTopProcessRow: Equatable, Hashable {
+    public var pid: UInt32
+    public var name: String
+    public var cpu: Double
+    public var mem: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pid: UInt32, name: String, cpu: Double, mem: Double) {
+        self.pid = pid
+        self.name = name
+        self.cpu = cpu
+        self.mem = mem
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiTopProcessRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiTopProcessRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTopProcessRow {
+        return
+            try FfiTopProcessRow(
+                pid: FfiConverterUInt32.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                cpu: FfiConverterDouble.read(from: &buf), 
+                mem: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTopProcessRow, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.pid, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterDouble.write(value.cpu, into: &buf)
+        FfiConverterDouble.write(value.mem, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTopProcessRow_lift(_ buf: RustBuffer) throws -> FfiTopProcessRow {
+    return try FfiConverterTypeFfiTopProcessRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTopProcessRow_lower(_ value: FfiTopProcessRow) -> RustBuffer {
+    return FfiConverterTypeFfiTopProcessRow.lower(value)
+}
+
+
+/**
+ * Native TOPLIST panel payload: five top rows for the compact panel, plus an
+ * optional full process list when the expanded modal is open.
+ */
+public struct FfiToplistSnapshot: Equatable, Hashable {
+    public var topProcesses: [FfiTopProcessRow]
+    public var processList: FfiProcessList?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(topProcesses: [FfiTopProcessRow], processList: FfiProcessList?) {
+        self.topProcesses = topProcesses
+        self.processList = processList
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiToplistSnapshot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiToplistSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiToplistSnapshot {
+        return
+            try FfiToplistSnapshot(
+                topProcesses: FfiConverterSequenceTypeFfiTopProcessRow.read(from: &buf), 
+                processList: FfiConverterOptionTypeFfiProcessList.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiToplistSnapshot, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeFfiTopProcessRow.write(value.topProcesses, into: &buf)
+        FfiConverterOptionTypeFfiProcessList.write(value.processList, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiToplistSnapshot_lift(_ buf: RustBuffer) throws -> FfiToplistSnapshot {
+    return try FfiConverterTypeFfiToplistSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiToplistSnapshot_lower(_ value: FfiToplistSnapshot) -> RustBuffer {
+    return FfiConverterTypeFfiToplistSnapshot.lower(value)
 }
 
 
@@ -1724,6 +2014,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFfiProcessList: FfiConverterRustBuffer {
+    typealias SwiftType = FfiProcessList?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiProcessList.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiProcessList.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceDouble: FfiConverterRustBuffer {
     typealias SwiftType = [Double]
 
@@ -1766,6 +2080,56 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiProcessRow: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiProcessRow]
+
+    public static func write(_ value: [FfiProcessRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiProcessRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiProcessRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiProcessRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiProcessRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiTopProcessRow: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiTopProcessRow]
+
+    public static func write(_ value: [FfiTopProcessRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiTopProcessRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiTopProcessRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiTopProcessRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiTopProcessRow.read(from: &buf))
         }
         return seq
     }
@@ -1826,6 +2190,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_sysinfo_snapshot_json() != 11913) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_toplist_snapshot() != 32550) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_uptime() != 32407) {

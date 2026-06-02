@@ -24,6 +24,7 @@ struct EdexCoreClient {
             theme: themeName,
             keepGeometry: decodedSettings.keepGeometry ?? true,
             clockHours: decodedSettings.clockHours ?? 24,
+            excludeThreadsFromToplist: decodedSettings.excludeThreadsFromToplist ?? true,
             audioSettings: (try? JSONDecoder().decode(EdexAudioSettings.self, from: settingsData)) ?? EdexAudioSettings(),
             byteCount: settingsData.count
         )
@@ -64,10 +65,20 @@ struct EdexCoreClient {
     func memSnapshot() -> FfiMemSnapshot? {
         try? core.memSnapshot()
     }
+
+    /// TOPLIST panel snapshot. `includeProcessList` is true only while the
+    /// expanded process modal is open; the compact panel needs top rows only.
+    func toplistSnapshot(collapseThreadsByName: Bool, includeProcessList: Bool) -> FfiToplistSnapshot? {
+        try? core.toplistSnapshot(
+            collapseThreadsByName: collapseThreadsByName,
+            includeProcessList: includeProcessList
+        )
+    }
 }
 
 private struct SettingsFile: Decodable {
     var theme: String?
     var keepGeometry: Bool?
     var clockHours: Int?
+    var excludeThreadsFromToplist: Bool?
 }

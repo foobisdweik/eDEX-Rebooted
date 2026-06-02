@@ -131,6 +131,87 @@ impl From<edex_core::sysinfo::MemStats> for FfiMemSnapshot {
     }
 }
 
+/// The compact top-process row consumed by the native TOPLIST mini panel.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiTopProcessRow {
+    pub pid: u32,
+    pub name: String,
+    pub cpu: f64,
+    pub mem: f64,
+}
+
+impl From<edex_core::sysinfo::ProcessTopRow> for FfiTopProcessRow {
+    fn from(row: edex_core::sysinfo::ProcessTopRow) -> Self {
+        Self {
+            pid: row.pid,
+            name: row.name,
+            cpu: row.cpu,
+            mem: row.mem,
+        }
+    }
+}
+
+/// The expanded process-list row consumed by the native process modal.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiProcessRow {
+    pub pid: u32,
+    pub name: String,
+    pub user: String,
+    pub cpu: f64,
+    pub mem: f64,
+    pub state: String,
+    pub started: String,
+}
+
+impl From<edex_core::sysinfo::ProcessRow> for FfiProcessRow {
+    fn from(row: edex_core::sysinfo::ProcessRow) -> Self {
+        Self {
+            pid: row.pid,
+            name: row.name,
+            user: row.user,
+            cpu: row.cpu,
+            mem: row.mem,
+            state: row.state,
+            started: row.started,
+        }
+    }
+}
+
+/// Full process-list payload for the expanded TOPLIST modal. Counts mirror the
+/// Rust core contract, but the Swift UI currently renders only `list`.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiProcessList {
+    pub all: u32,
+    pub running: u32,
+    pub blocked: u32,
+    pub sleeping: u32,
+    pub list: Vec<FfiProcessRow>,
+}
+
+impl From<edex_core::sysinfo::ProcessList> for FfiProcessList {
+    fn from(processes: edex_core::sysinfo::ProcessList) -> Self {
+        Self {
+            all: processes.all as u32,
+            running: processes.running as u32,
+            blocked: processes.blocked as u32,
+            sleeping: processes.sleeping as u32,
+            list: processes
+                .list
+                .into_iter()
+                .map(FfiProcessRow::from)
+                .collect(),
+        }
+    }
+}
+
+/// Native TOPLIST panel payload: five top rows for the compact panel, plus an
+/// optional full process list when the expanded modal is open.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiToplistSnapshot {
+    pub top_processes: Vec<FfiTopProcessRow>,
+    pub process_list: Option<FfiProcessList>,
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct FfiPtySpawnOptions {
     pub shell: String,
@@ -264,6 +345,26 @@ impl EdexCore {
             .map_err(EdexError::from)
     }
 
+    /// Live TOPLIST payload. The compact panel consumes `top_processes`; the
+    /// expanded process modal requests `include_process_list = true` for rows.
+    pub fn toplist_snapshot(
+        &self,
+        collapse_threads_by_name: bool,
+        include_process_list: bool,
+    ) -> Result<FfiToplistSnapshot, EdexError> {
+        let snapshot =
+            self.sysinfo
+                .panel_snapshot(collapse_threads_by_name, 5, include_process_list)?;
+        Ok(FfiToplistSnapshot {
+            top_processes: snapshot
+                .top_processes
+                .into_iter()
+                .map(FfiTopProcessRow::from)
+                .collect(),
+            process_list: snapshot.process_list.map(FfiProcessList::from),
+        })
+    }
+
     /// Host hardware identity (hardware-inspector panel). Combines the two
     /// sources the JS panel reads: manufacturer/model from `system()` and the
     /// chassis type from `chassis()`.
@@ -380,6 +481,39 @@ mod tests {
             "one load sample per logical core"
         );
         assert!(snapshot.loads.iter().all(|&l| (0.0..=100.0).contains(&l)));
+    }
+
+    #[test]
+    fn toplist_snapshot_reports_five_top_processes_without_full_list() {
+        let core = EdexCore::new();
+        let snapshot = core
+            .toplist_snapshot(false, false)
+            .expect("toplist snapshot should succeed");
+        assert!(
+            !snapshot.top_processes.is_empty(),
+            "a running host should report top processes"
+        );
+        assert!(
+            snapshot.top_processes.len() <= 5,
+            "mini panel should request the legacy five-row limit"
+        );
+        assert!(snapshot.process_list.is_none());
+    }
+
+    #[test]
+    fn toplist_snapshot_can_include_full_process_list() {
+        let core = EdexCore::new();
+        let snapshot = core
+            .toplist_snapshot(false, true)
+            .expect("toplist snapshot should succeed");
+        let process_list = snapshot
+            .process_list
+            .expect("expanded process modal should request process rows");
+        assert!(
+            !process_list.list.is_empty(),
+            "a running host should report process rows"
+        );
+        assert_eq!(process_list.all, process_list.list.len() as u32);
     }
 
     #[test]

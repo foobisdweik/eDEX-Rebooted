@@ -10,6 +10,7 @@ import RamwatcherSupport
 import SwiftUI
 import SysinfoSupport
 import ThemeSupport
+import ToplistSupport
 
 @Observable
 @MainActor
@@ -36,6 +37,11 @@ final class ShellState {
     private static let cpuSampleCapacity = 64
 
     var mem: FfiMemSnapshot?
+    var topProcesses = [FfiTopProcessRow]()
+    var processRows = [FfiProcessRow]()
+    var processSort = EdexProcessSort.default
+    @ObservationIgnored private var processListModalID: EdexModalID?
+    @ObservationIgnored private var processListRefreshTask: Task<Void, Never>?
     /// A fixed random permutation of the 440 grid positions → dot ranks, shuffled
     /// once (like the legacy `shuffleArray`) so the active/available regions
     /// scatter across the grid instead of filling left-to-right.
@@ -123,6 +129,58 @@ final class ShellState {
         }.value
     }
 
+    /// Pulls the compact TOPLIST rows. The expanded process rows are only
+    /// requested while the process modal is open because that Rust snapshot is
+    /// the heaviest telemetry poll in this phase.
+    func refreshToplist(includeProcessList: Bool = false) async {
+        let client = self.client
+        let collapseThreadsByName = settingsSummary.excludeThreadsFromToplist
+        guard let snapshot = await Task.detached(priority: .background, operation: {
+            client.toplistSnapshot(
+                collapseThreadsByName: collapseThreadsByName,
+                includeProcessList: includeProcessList
+            )
+        }).value else { return }
+
+        topProcesses = snapshot.topProcesses
+        if includeProcessList {
+            processRows = snapshot.processList?.list ?? []
+        }
+    }
+
+    func openProcessListModal() {
+        if let processListModalID, modalManager.modal(id: processListModalID) != nil {
+            modalManager.focus(processListModalID)
+            return
+        }
+
+        processSort = .default
+        let openedID = presentModal(
+            type: "custom",
+            title: "Active Processes",
+            message: "",
+            content: .processList,
+            onClose: { [weak self] closedID in
+                Task { @MainActor in
+                    guard self?.processListModalID == closedID else { return }
+                    self?.processListModalID = nil
+                    self?.processListRefreshTask?.cancel()
+                    self?.processListRefreshTask = nil
+                }
+            }
+        )
+        processListModalID = openedID
+        guard openedID != nil else { return }
+
+        processListRefreshTask?.cancel()
+        processListRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshToplist(includeProcessList: true)
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
     @discardableResult
     func playAudio(_ cue: EdexAudioCue) -> Bool {
         audio.play(cue)
@@ -173,6 +231,7 @@ struct SettingsSummary: Sendable {
     var theme = "pending"
     var keepGeometry = true
     var clockHours = 24
+    var excludeThreadsFromToplist = true
     var audioSettings = EdexAudioSettings()
     var byteCount: Int?
 }
