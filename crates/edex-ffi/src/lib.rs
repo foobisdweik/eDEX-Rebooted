@@ -6,6 +6,29 @@ use std::sync::Arc;
 
 uniffi::setup_scaffolding!();
 
+/// Sorted `.json` file stems in a directory (theme/keyboard listings). A missing
+/// or unreadable directory yields an empty list rather than an error.
+fn list_json_stems(dir: &str) -> Vec<String> {
+    let mut names: Vec<String> = match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                    path.file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .map(String::from)
+                } else {
+                    None
+                }
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    names.sort();
+    names
+}
+
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum EdexError {
     #[error("{message}")]
@@ -297,6 +320,26 @@ impl EdexCore {
         fs::read_to_string(path).map_err(EdexError::from)
     }
 
+    /// Validate and persist the full settings document (Phase 6.3 editor save).
+    /// Parses to reject malformed JSON before touching the file, then writes it
+    /// pretty-printed to match `edex_core::settings::write_settings`.
+    pub fn write_settings_json(&self, contents: String) -> Result<(), EdexError> {
+        let value: serde_json::Value = serde_json::from_str(&contents)?;
+        let pretty = serde_json::to_string_pretty(&value)?;
+        let path = edex_core::settings::paths().settings_file;
+        fs::write(path, pretty).map_err(EdexError::from)
+    }
+
+    /// Available theme names (settings editor theme picker). Missing dir → empty.
+    pub fn list_themes(&self) -> Vec<String> {
+        list_json_stems(&edex_core::settings::paths().themes_dir)
+    }
+
+    /// Available keyboard layout codes (settings editor keyboard picker).
+    pub fn list_keyboards(&self) -> Vec<String> {
+        list_json_stems(&edex_core::settings::paths().keyboards_dir)
+    }
+
     pub fn sysinfo_snapshot_json(&self) -> Result<String, EdexError> {
         let snapshot = self.sysinfo.panel_snapshot(true, 5, true)?;
         serde_json::to_string(&snapshot).map_err(EdexError::from)
@@ -550,5 +593,42 @@ mod tests {
             Err(EdexError::Core { message })
                 if message == "env_keys and env_values must have the same length"
         ));
+    }
+
+    #[test]
+    fn write_settings_json_validates_and_round_trips() {
+        let core = EdexCore::new();
+        core.ensure_userdata()
+            .expect("ensure_userdata should succeed");
+        let path = edex_core::settings::paths().settings_file;
+        let original = fs::read_to_string(&path).expect("settings.json should exist");
+
+        // Malformed JSON is rejected before the file is touched.
+        assert!(core.write_settings_json("{ not json".to_string()).is_err());
+        assert_eq!(
+            fs::read_to_string(&path).expect("settings.json should still exist"),
+            original,
+            "a rejected write must not modify settings.json"
+        );
+
+        // Valid JSON persists and round-trips, including editor-unknown keys.
+        core.write_settings_json(r#"{"theme":"tron","customExtra":42}"#.to_string())
+            .expect("valid settings JSON should write");
+        let reloaded: serde_json::Value =
+            serde_json::from_str(&core.load_settings_json().unwrap()).unwrap();
+        assert_eq!(reloaded["theme"], serde_json::json!("tron"));
+        assert_eq!(reloaded["customExtra"], serde_json::json!(42));
+
+        // Restore the developer's real settings file.
+        fs::write(&path, original).expect("restore original settings.json");
+    }
+
+    #[test]
+    fn list_themes_and_keyboards_include_builtins() {
+        let core = EdexCore::new();
+        core.ensure_userdata()
+            .expect("ensure_userdata should succeed");
+        assert!(core.list_themes().contains(&"tron".to_string()));
+        assert!(core.list_keyboards().contains(&"en-US".to_string()));
     }
 }

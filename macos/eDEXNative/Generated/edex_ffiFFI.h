@@ -316,6 +316,16 @@ RustBuffer uniffi_edex_ffi_fn_method_edexcore_hardware(uint64_t ptr, RustCallSta
 void uniffi_edex_ffi_fn_method_edexcore_kill_pty(uint64_t ptr, uint32_t id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LIST_KEYBOARDS
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LIST_KEYBOARDS
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_list_keyboards(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LIST_THEMES
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LIST_THEMES
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_list_themes(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LOAD_KEYBOARD_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_LOAD_KEYBOARD_JSON
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_load_keyboard_json(uint64_t ptr, RustBuffer name, RustCallStatus *_Nonnull out_status
@@ -374,6 +384,11 @@ uint64_t uniffi_edex_ffi_fn_method_edexcore_uptime(uint64_t ptr, RustCallStatus 
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_PTY
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_PTY
 void uniffi_edex_ffi_fn_method_edexcore_write_pty(uint64_t ptr, uint32_t id, RustBuffer data, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_SETTINGS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_WRITE_SETTINGS_JSON
+void uniffi_edex_ffi_fn_method_edexcore_write_settings_json(uint64_t ptr, RustBuffer contents, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_INIT_CALLBACK_VTABLE_PTYOUTPUTSINK
@@ -671,6 +686,18 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_kill_pty(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LIST_KEYBOARDS
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LIST_KEYBOARDS
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_list_keyboards(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LIST_THEMES
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LIST_THEMES
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_list_themes(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LOAD_KEYBOARD_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_LOAD_KEYBOARD_JSON
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_load_keyboard_json(void
@@ -740,6 +767,12 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_uptime(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_WRITE_PTY
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_WRITE_PTY
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_write_pty(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_WRITE_SETTINGS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_WRITE_SETTINGS_JSON
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_write_settings_json(void
     
 );
 #endif

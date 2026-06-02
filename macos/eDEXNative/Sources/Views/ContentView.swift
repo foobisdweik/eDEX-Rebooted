@@ -5,6 +5,7 @@ import HardwareSupport
 import LayoutSupport
 import ModalSupport
 import RamwatcherSupport
+import SettingsEditorSupport
 import SwiftUI
 import SysinfoSupport
 import ThemeSupport
@@ -206,6 +207,7 @@ struct ContentView: View {
     private func modalLayer(size: CGSize, vh: Double) -> some View {
         ForEach(state.modalManager.modals, id: \.id) { modal in
             EdexModalChrome(
+                state: state,
                 modal: modal,
                 theme: state.theme,
                 vh: vh,
@@ -676,7 +678,7 @@ struct ContentView: View {
 
     private func statusRibbon(vh: Double) -> some View {
         return HStack(spacing: 14) {
-            Text("eDEX NATIVE")
+            Text("⚙ eDEX NATIVE")
                 .font(.custom(state.theme.fonts.main, size: 13))
             Text(state.settingsSummary.theme)
                 .font(.custom(state.theme.fonts.terminal, size: 11))
@@ -692,6 +694,9 @@ struct ContentView: View {
             fill: state.theme.panelBackground.opacity(0.78),
             stroke: state.theme.accent
         )
+        .contentShape(Rectangle())
+        .onTapGesture { state.openSettingsModal() }
+        .help("Open settings")
         .position(x: 132, y: 23)
     }
 
@@ -798,6 +803,7 @@ private struct EdexGridBackground: View {
 }
 
 private struct EdexModalChrome: View {
+    @Bindable var state: ShellState
     let modal: EdexModalRecord
     let theme: NativeTheme
     let vh: Double
@@ -893,6 +899,8 @@ private struct EdexModalChrome: View {
                 theme: theme,
                 onSort: onProcessSort
             )
+        case .settingsEditor:
+            EdexSettingsForm(state: state, theme: theme)
         case .textEditor:
             customStatus("TEXT EDITOR", detail: "Ready for Phase 7.3 file editing")
         case .mediaViewer:
@@ -959,12 +967,18 @@ private struct EdexModalChrome: View {
         if modal.content == .processList {
             return min(max(safeContainerWidth * 0.72, 680), 980)
         }
+        if modal.content == .settingsEditor {
+            return min(max(safeContainerWidth * 0.5, 520), 760)
+        }
         return min(max(safeContainerWidth * 0.42, 380), 740)
     }
 
     private var modalHeight: CGFloat {
         if modal.content == .processList {
             return min(max(safeContainerHeight * 0.55, 360), 620)
+        }
+        if modal.content == .settingsEditor {
+            return min(max(safeContainerHeight * 0.6, 420), 640)
         }
         return modal.kind == .custom ? 260 : 150
     }
@@ -975,6 +989,157 @@ private struct EdexModalChrome: View {
 
     private var safeContainerHeight: CGFloat {
         containerSize.height.isFinite && containerSize.height > 0 ? containerSize.height : 600
+    }
+}
+
+private struct EdexSettingsForm: View {
+    @Bindable var state: ShellState
+    let theme: NativeTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(EdexSettingsField.all) { field in
+                        row(field)
+                    }
+                }
+                .padding(.trailing, 6)
+            }
+            .frame(maxHeight: 360)
+
+            Text(state.settingsStatus)
+                .font(.custom(theme.fonts.terminal, size: 11))
+                .foregroundStyle(theme.accent.opacity(0.82))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                actionButton("Open in External Editor") { state.openSettingsFileExternally() }
+                actionButton("Save to Disk") { state.saveSettings() }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .augmentedSurface(
+            style: .panel(vh: 8),
+            fill: theme.terminalBackground.opacity(0.7),
+            stroke: theme.accent
+        )
+    }
+
+    private func row(_ field: EdexSettingsField) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(field.label)
+                    .font(.custom(theme.fonts.main, size: 11))
+                    .foregroundStyle(theme.accent)
+                Text(field.help)
+                    .font(.custom(theme.fonts.terminal, size: 9))
+                    .foregroundStyle(theme.terminalForeground.opacity(0.6))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            control(field)
+                .frame(width: 200, alignment: .trailing)
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func control(_ field: EdexSettingsField) -> some View {
+        switch field.control {
+        case .text:
+            TextField("", text: stringBinding(field.key))
+                .textFieldStyle(.roundedBorder)
+                .font(.custom(theme.fonts.terminal, size: 11))
+        case .integer:
+            TextField("", value: intBinding(field.key), format: .number)
+                .textFieldStyle(.roundedBorder)
+                .font(.custom(theme.fonts.terminal, size: 11))
+        case .decimal:
+            TextField("", value: doubleBinding(field.key), format: .number)
+                .textFieldStyle(.roundedBorder)
+                .font(.custom(theme.fonts.terminal, size: 11))
+        case .toggle:
+            Toggle("", isOn: boolBinding(field.key))
+                .labelsHidden()
+        case let .choice(fixed):
+            Picker("", selection: choiceBinding(field.key)) {
+                ForEach(options(for: field.key, fixed: fixed), id: \.self) { option in
+                    Text(option).tag(option)
+                }
+            }
+            .labelsHidden()
+            .font(.custom(theme.fonts.terminal, size: 11))
+        }
+    }
+
+    private func actionButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.custom(theme.fonts.main, size: 11))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .foregroundStyle(theme.accent)
+                .background(theme.accent.opacity(0.18))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Bindings
+
+    private func stringBinding(_ key: EdexSettingsKey) -> Binding<String> {
+        Binding(get: { state.settingsString(key) }, set: { state.setSettingsString($0, for: key) })
+    }
+
+    private func intBinding(_ key: EdexSettingsKey) -> Binding<Int> {
+        Binding(get: { state.settingsInt(key) }, set: { state.setSettingsInt($0, for: key) })
+    }
+
+    private func doubleBinding(_ key: EdexSettingsKey) -> Binding<Double> {
+        Binding(get: { state.settingsDouble(key) }, set: { state.setSettingsDouble($0, for: key) })
+    }
+
+    private func boolBinding(_ key: EdexSettingsKey) -> Binding<Bool> {
+        Binding(get: { state.settingsBool(key) }, set: { state.setSettingsBool($0, for: key) })
+    }
+
+    /// Choice pickers are string-tagged. `clockHours` is int-backed, so it is
+    /// bridged through its string representation.
+    private func choiceBinding(_ key: EdexSettingsKey) -> Binding<String> {
+        Binding(
+            get: {
+                key == .clockHours ? String(state.settingsInt(key)) : state.settingsString(key)
+            },
+            set: { newValue in
+                if key == .clockHours {
+                    state.setSettingsInt(Int(newValue) ?? 24, for: key)
+                } else {
+                    state.setSettingsString(newValue, for: key)
+                }
+            }
+        )
+    }
+
+    /// Ensures the current value is always a selectable option so the Picker has
+    /// a valid tag even before the FFI listings load (or for custom themes).
+    private func options(for key: EdexSettingsKey, fixed: [String]) -> [String] {
+        let dynamic: [String]
+        switch key {
+        case .theme: dynamic = state.settingsThemeOptions
+        case .keyboard: dynamic = state.settingsKeyboardOptions
+        default: return fixed
+        }
+        let current = state.settingsString(key)
+        var options = dynamic
+        if !current.isEmpty, !options.contains(current) {
+            options.insert(current, at: 0)
+        }
+        return options.isEmpty ? [current] : options
     }
 }
 

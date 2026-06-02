@@ -74,6 +74,32 @@ struct EdexCoreClient {
             includeProcessList: includeProcessList
         )
     }
+
+    /// Raw settings.json text (settings editor load).
+    func loadSettingsJson() throws -> String {
+        try core.loadSettingsJson()
+    }
+
+    /// Persist the full settings document (settings editor save). Throws on
+    /// malformed JSON or a failed write.
+    func writeSettings(_ json: String) throws {
+        try core.writeSettingsJson(contents: json)
+    }
+
+    /// Raw theme JSON by name (settings editor live theme re-apply).
+    func loadThemeJson(_ name: String) throws -> String {
+        try core.loadThemeJson(name: name)
+    }
+
+    /// Available theme names (settings editor theme picker).
+    func listThemes() -> [String] {
+        core.listThemes()
+    }
+
+    /// Available keyboard layout codes (settings editor keyboard picker).
+    func listKeyboards() -> [String] {
+        core.listKeyboards()
+    }
 }
 
 private struct SettingsFile: Decodable {

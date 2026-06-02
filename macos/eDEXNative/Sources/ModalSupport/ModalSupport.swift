@@ -35,6 +35,7 @@ public enum EdexModalError: Error, Equatable, Sendable {
 public enum EdexModalContent: Equatable, Sendable {
     case message
     case processList
+    case settingsEditor
     case textEditor
     case mediaViewer
     case customPlaceholder
