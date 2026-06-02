@@ -7,6 +7,7 @@ import HardwareSupport
 import ModalSupport
 import Observation
 import RamwatcherSupport
+import SettingsEditorSupport
 import SwiftUI
 import SysinfoSupport
 import ThemeSupport
@@ -42,6 +43,15 @@ final class ShellState {
     var processSort = EdexProcessSort.default
     @ObservationIgnored private var processListModalID: EdexModalID?
     @ObservationIgnored private var processListRefreshTask: Task<Void, Never>?
+
+    // Phase 6.3 settings editor state.
+    var settingsDocument = EdexSettingsDocument()
+    var settingsThemeOptions = [String]()
+    var settingsKeyboardOptions = [String]()
+    var settingsStatus = ""
+    /// The document as last loaded/saved; restart-required diffing is against this.
+    @ObservationIgnored private var settingsBaseline = EdexSettingsDocument()
+    @ObservationIgnored private var settingsModalID: EdexModalID?
     /// A fixed random permutation of the 440 grid positions → dot ranks, shuffled
     /// once (like the legacy `shuffleArray`) so the active/available regions
     /// scatter across the grid instead of filling left-to-right.
@@ -177,6 +187,137 @@ final class ShellState {
             while !Task.isCancelled {
                 await self?.refreshToplist(includeProcessList: true)
                 try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
+    // MARK: Settings editor (Phase 6.3)
+
+    func openSettingsModal() {
+        if let settingsModalID, modalManager.modal(id: settingsModalID) != nil {
+            modalManager.focus(settingsModalID)
+            return
+        }
+
+        let client = self.client
+        Task {
+            let (json, themes, keyboards) = await Task.detached(priority: .background) {
+                (
+                    (try? client.loadSettingsJson()) ?? "{}",
+                    client.listThemes(),
+                    client.listKeyboards()
+                )
+            }.value
+
+            let document: EdexSettingsDocument
+            let statusLine: String
+            do {
+                document = try EdexSettingsDocument(jsonString: json)
+                statusLine = "Loaded values from settings.json"
+            } catch {
+                // Malformed/non-object settings.json: edit from defaults, but warn
+                // that a save replaces the unreadable file rather than silently doing so.
+                document = EdexSettingsDocument()
+                statusLine = "settings.json could not be parsed; showing defaults. Saving will overwrite it."
+            }
+            settingsDocument = document
+            settingsBaseline = document
+            settingsThemeOptions = themes
+            settingsKeyboardOptions = keyboards
+            settingsStatus = statusLine
+
+            let openedID = presentModal(
+                type: "custom",
+                title: "Settings",
+                message: "",
+                content: .settingsEditor,
+                detachesKeyboard: true,
+                onClose: { [weak self] closedID in
+                    Task { @MainActor in
+                        guard self?.settingsModalID == closedID else { return }
+                        self?.settingsModalID = nil
+                    }
+                }
+            )
+            settingsModalID = openedID
+        }
+    }
+
+    func saveSettings() {
+        let document = settingsDocument
+        let client = self.client
+        Task {
+            let result: Result<Void, Error> = await Task.detached(priority: .background) {
+                do {
+                    try client.writeSettings(try document.jsonString())
+                    return .success(())
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            switch result {
+            case .success:
+                let changed = EdexSettingsDocument.restartRequiredKeys(from: settingsBaseline, to: document)
+                settingsBaseline = document
+                applyLiveSettings(document)
+                playAudio(.granted)
+                settingsStatus = changed.isEmpty
+                    ? "Saved to settings.json."
+                    : "Saved. Restart required for: \(changed.joined(separator: ", "))."
+            case let .failure(error):
+                playAudio(.denied)
+                settingsStatus = "Save failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func openSettingsFileExternally() {
+        guard let path = paths?.settingsFile else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    // Typed bindings for the settings form (mutating the stored value type
+    // republishes via Observation, so SwiftUI controls stay in sync).
+    func settingsString(_ key: EdexSettingsKey) -> String { settingsDocument.string(key) ?? "" }
+    func settingsInt(_ key: EdexSettingsKey) -> Int { settingsDocument.int(key) ?? 0 }
+    func settingsBool(_ key: EdexSettingsKey) -> Bool { settingsDocument.bool(key) ?? false }
+    func settingsDouble(_ key: EdexSettingsKey) -> Double { settingsDocument.double(key) ?? 0 }
+    func setSettingsString(_ value: String, for key: EdexSettingsKey) { settingsDocument.setString(value, for: key) }
+    func setSettingsInt(_ value: Int, for key: EdexSettingsKey) { settingsDocument.setInt(value, for: key) }
+    func setSettingsBool(_ value: Bool, for key: EdexSettingsKey) { settingsDocument.setBool(value, for: key) }
+    func setSettingsDouble(_ value: Double, for key: EdexSettingsKey) { settingsDocument.setDouble(value, for: key) }
+
+    /// Re-applies the settings that can take effect without a restart (theme,
+    /// clock format, audio, toplist thread collapsing, windowed geometry).
+    private func applyLiveSettings(_ document: EdexSettingsDocument) {
+        settingsSummary.clockHours = document.int(.clockHours) ?? 24
+        settingsSummary.keepGeometry = document.bool(.keepGeometry) ?? true
+        settingsSummary.excludeThreadsFromToplist = document.bool(.excludeThreadsFromToplist) ?? true
+        keepGeometry = settingsSummary.keepGeometry
+
+        let audioSettings = EdexAudioSettings(
+            audio: document.bool(.audio) ?? true,
+            audioVolume: document.double(.audioVolume) ?? 1.0,
+            disableFeedbackAudio: document.bool(.disableFeedbackAudio) ?? false
+        )
+        settingsSummary.audioSettings = audioSettings
+        audio.configure(settings: audioSettings)
+
+        let themeName = document.string(.theme) ?? "tron"
+        guard themeName != settingsSummary.theme else { return }
+        let client = self.client
+        Task {
+            do {
+                let themeJson = try await Task.detached(priority: .background) {
+                    try client.loadThemeJson(themeName)
+                }.value
+                // Update the label only after the visuals actually change, so the
+                // status ribbon never claims a theme that failed to load.
+                theme = try NativeTheme(json: themeJson, name: themeName)
+                settingsSummary.theme = themeName
+            } catch {
+                settingsStatus = "Saved, but theme '\(themeName)' could not be loaded: \(error.localizedDescription)"
             }
         }
     }

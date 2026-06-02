@@ -628,6 +628,16 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     
     func killPty(id: UInt32) throws 
     
+    /**
+     * Available keyboard layout codes (settings editor keyboard picker).
+     */
+    func listKeyboards()  -> [String]
+    
+    /**
+     * Available theme names (settings editor theme picker). Missing dir → empty.
+     */
+    func listThemes()  -> [String]
+    
     func loadKeyboardJson(name: String) throws  -> String
     
     func loadSettingsJson() throws  -> String
@@ -662,6 +672,13 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     func uptime()  -> UInt64
     
     func writePty(id: UInt32, data: String) throws 
+    
+    /**
+     * Validate and persist the full settings document (Phase 6.3 editor save).
+     * Parses to reject malformed JSON before touching the file, then writes it
+     * pretty-printed to match `edex_core::settings::write_settings`.
+     */
+    func writeSettingsJson(contents: String) throws 
     
 }
 open class EdexCore: EdexCoreProtocol, @unchecked Sendable {
@@ -773,6 +790,28 @@ open func killPty(id: UInt32)throws   {try rustCallWithError(FfiConverterTypeEde
         FfiConverterUInt32.lower(id),$0
     )
 }
+}
+    
+    /**
+     * Available keyboard layout codes (settings editor keyboard picker).
+     */
+open func listKeyboards() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_edex_ffi_fn_method_edexcore_list_keyboards(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Available theme names (settings editor theme picker). Missing dir → empty.
+     */
+open func listThemes() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_edex_ffi_fn_method_edexcore_list_themes(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
 open func loadKeyboardJson(name: String)throws  -> String  {
@@ -888,6 +927,19 @@ open func writePty(id: UInt32, data: String)throws   {try rustCallWithError(FfiC
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(id),
         FfiConverterString.lower(data),$0
+    )
+}
+}
+    
+    /**
+     * Validate and persist the full settings document (Phase 6.3 editor save).
+     * Parses to reject malformed JSON before touching the file, then writes it
+     * pretty-printed to match `edex_core::settings::write_settings`.
+     */
+open func writeSettingsJson(contents: String)throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_write_settings_json(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(contents),$0
     )
 }
 }
@@ -2165,6 +2217,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_edex_ffi_checksum_method_edexcore_kill_pty() != 56903) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_edex_ffi_checksum_method_edexcore_list_keyboards() != 12895) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_list_themes() != 28765) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_edex_ffi_checksum_method_edexcore_load_keyboard_json() != 53125) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2199,6 +2257,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_write_pty() != 59852) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_write_settings_json() != 36241) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_constructor_edexcore_new() != 47132) {
