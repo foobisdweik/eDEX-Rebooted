@@ -140,7 +140,8 @@ public struct NativeKeyboardKey: Equatable, Sendable {
 
     private static func expandControlSequences(_ value: String) -> String {
         var expanded = value
-        for index in 1..<controlSequences.count {
+        for index in (1..<controlSequences.count).reversed() {
+            guard controlSequences.indices.contains(index) else { continue }
             expanded = expanded.replacingOccurrences(
                 of: "~~~CTRLSEQ\(index)~~~",
                 with: controlSequences[index]
