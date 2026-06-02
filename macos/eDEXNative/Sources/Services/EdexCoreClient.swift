@@ -1,5 +1,6 @@
 import Foundation
 import AudioSupport
+import KeyboardSupport
 import ThemeSupport
 
 struct BootstrapSnapshot: Sendable {
@@ -19,9 +20,11 @@ struct EdexCoreClient {
         let settingsData = Data(settingsJson.utf8)
         let decodedSettings = try JSONDecoder().decode(SettingsFile.self, from: settingsData)
         let themeName = decodedSettings.theme ?? "tron"
+        let keyboardName = decodedSettings.keyboard ?? "en-US"
 
         var summary = SettingsSummary(
             theme: themeName,
+            keyboard: keyboardName,
             keepGeometry: decodedSettings.keepGeometry ?? true,
             clockHours: decodedSettings.clockHours ?? 24,
             excludeThreadsFromToplist: decodedSettings.excludeThreadsFromToplist ?? true,
@@ -104,6 +107,13 @@ struct EdexCoreClient {
         core.listKeyboards()
     }
 
+    /// Typed keyboard layout by name (Phase 8.1 native keyboard data loader).
+    func loadKeyboardLayout(_ name: String) throws -> NativeKeyboardLayout {
+        let available = core.listKeyboards()
+        let selected = available.contains(name) ? name : "en-US"
+        return try NativeKeyboardLayout(json: core.loadKeyboardJson(name: selected), name: selected)
+    }
+
     /// Raw shortcuts.json text (shortcuts load / display modal).
     func loadShortcutsJson() throws -> String {
         try core.loadShortcutsJson()
@@ -156,6 +166,7 @@ struct EdexCoreClient {
 
 private struct SettingsFile: Decodable {
     var theme: String?
+    var keyboard: String?
     var keepGeometry: Bool?
     var clockHours: Int?
     var excludeThreadsFromToplist: Bool?

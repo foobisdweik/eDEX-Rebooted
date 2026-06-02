@@ -7,6 +7,7 @@ import FilesystemSupport
 import FuzzyFinderSupport
 import Foundation
 import HardwareSupport
+import KeyboardSupport
 import ModalSupport
 import Observation
 import RamwatcherSupport
@@ -87,6 +88,10 @@ final class ShellState {
     var textEditorStatus = ""
     @ObservationIgnored private var textEditorModalID: EdexModalID?
 
+    // Phase 8.1 keyboard layout state.
+    var keyboardLayout: NativeKeyboardLayout?
+    var keyboardStatus = "keyboard layout not loaded"
+
     // Phase 6.4 shortcuts state.
     var shortcuts: EdexShortcutsDocument?
     var shortcutsStatus = ""
@@ -129,6 +134,7 @@ final class ShellState {
             fsShowDotfiles = !snapshot.settings.hideDotfiles
             fsListView = snapshot.settings.fsListView
             theme = snapshot.theme
+            await loadKeyboardLayout(named: snapshot.settings.keyboard)
             audio.configure(settings: snapshot.settings.audioSettings)
             statusText = "ok — EdexCore.paths(), ensureUserdata(), loadSettingsJson(), loadThemeJson() returned"
             print("eDEXNative FFI OK userData=\(snapshot.paths.userData) settingsBytes=\(snapshot.settings.byteCount ?? 0) theme=\(snapshot.settings.theme) keepGeometry=\(snapshot.settings.keepGeometry)")
@@ -419,6 +425,28 @@ final class ShellState {
             } catch {
                 settingsStatus = "Saved, but theme '\(themeName)' could not be loaded: \(error.localizedDescription)"
             }
+        }
+    }
+
+    // MARK: Keyboard layout (Phase 8.1)
+
+    func loadKeyboardLayout(named name: String) async {
+        let client = self.client
+        let result: Result<NativeKeyboardLayout, Error> = await Task.detached(priority: .background) {
+            do {
+                return .success(try client.loadKeyboardLayout(name))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        switch result {
+        case let .success(layout):
+            keyboardLayout = layout
+            keyboardStatus = "Loaded \(layout.name) keyboard layout (\(layout.keyCount) keys)"
+        case let .failure(error):
+            keyboardLayout = nil
+            keyboardStatus = "Keyboard layout \(name) failed: \(error.localizedDescription)"
         }
     }
 
@@ -918,6 +946,7 @@ final class ShellState {
 
 struct SettingsSummary: Sendable {
     var theme = "pending"
+    var keyboard = "en-US"
     var keepGeometry = true
     var clockHours = 24
     var excludeThreadsFromToplist = true
