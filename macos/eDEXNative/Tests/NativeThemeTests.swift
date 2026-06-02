@@ -2,6 +2,26 @@ import XCTest
 @testable import ThemeSupport
 
 final class NativeThemeTests: XCTestCase {
+    func testThemeRejectsNonDictionaryJsonRoot() throws {
+        XCTAssertThrowsError(try NativeTheme(json: "[]", name: "array-root")) { error in
+            guard case DecodingError.dataCorrupted(let context) = error else {
+                XCTFail("Expected DecodingError.dataCorrupted, got \(error)")
+                return
+            }
+            XCTAssertEqual(context.debugDescription, "Theme JSON root is not a dictionary")
+        }
+    }
+
+    func testNativeColorClampsComponents() {
+        let color = NativeColor(red: -0.5, green: 1.5, blue: 0.25, alpha: 2)
+
+        XCTAssertEqual(color.red, 0)
+        XCTAssertEqual(color.green, 1)
+        XCTAssertEqual(color.blue, 0.25)
+        XCTAssertEqual(color.alpha, 1)
+        XCTAssertEqual(color.hexRGB, "#00FF40")
+    }
+
     func testBundledThemesDecodeIntoNativeThemeModel() throws {
         let packageDirectory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -80,10 +80,10 @@ public struct NativeColor: Equatable, Sendable {
     public var alpha: Double = 1
 
     public init(red: Double, green: Double, blue: Double, alpha: Double = 1) {
-        self.red = red
-        self.green = green
-        self.blue = blue
-        self.alpha = alpha
+        self.red = red.clamped01
+        self.green = green.clamped01
+        self.blue = blue.clamped01
+        self.alpha = alpha.clamped01
     }
 
     public var color: Color {
@@ -100,10 +100,12 @@ public struct NativeColor: Equatable, Sendable {
 
 extension NativeTheme {
     public init(json: String, name: String) throws {
-        let root = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
-        let colors = root?["colors"] as? [String: Any] ?? [:]
-        let cssvars = root?["cssvars"] as? [String: Any] ?? [:]
-        let terminal = root?["terminal"] as? [String: Any] ?? [:]
+        guard let root = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "Theme JSON root is not a dictionary"))
+        }
+        let colors = root["colors"] as? [String: Any] ?? [:]
+        let cssvars = root["cssvars"] as? [String: Any] ?? [:]
+        let terminal = root["terminal"] as? [String: Any] ?? [:]
         let fallback = NativeTheme.fallback
 
         let swatches = NativeTheme.decodeSwatches(colors)
@@ -237,5 +239,11 @@ extension NativeColor {
 private extension Int {
     var clampedByte: Int {
         Swift.min(255, Swift.max(0, self))
+    }
+}
+
+private extension Double {
+    var clamped01: Double {
+        Swift.min(1.0, Swift.max(0.0, self))
     }
 }
