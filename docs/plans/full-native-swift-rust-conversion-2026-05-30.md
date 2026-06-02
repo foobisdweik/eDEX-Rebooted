@@ -223,6 +223,12 @@ These are the genuinely-unresolved decisions (order-changing ones have been fold
 5. Wire: thin accessor in `EdexCoreClient`, observable state + an **offloaded** `refresh…()` in `ShellState`, and the panel view in `ContentView` (add a branch in `column(...)`'s placeholder switch).
 6. Update plan-doc status + `memory.md` resume notes + tick the progress tally; commit; push; open PR with `--base post-web-runtime`.
 
+**Native phase workflow helper (added 2026-06-02):**
+- Use `scripts/native-phase start <phase> <slug>` to fetch/prune, fast-forward local `post-web-runtime`, create `codex/native-<slug>`, and print phase-specific first-read files. Example for the next subphase: `scripts/native-phase start 6.2 modal-manager`.
+- Use `scripts/native-phase verify` for the standard final gate: SwiftPM tests, native smoke-window run, and `crates/edex-ffi` cargo test/fmt/clippy.
+- Use `scripts/native-phase pr "<commit message>" "<PR title>" "<summary>"` to stage all repo changes except untracked/local `memory.md`, commit, push, and open a PR against `post-web-runtime`.
+- Use `--dry-run` on any helper command before executing when branch state is uncertain. The helper is validated by `bash scripts/test-native-phase.sh`.
+
 **Conventions / gotchas already learned (don't relearn the hard way):**
 - **Offload FFI off the MainActor.** `ShellState` is `@MainActor @Observable`; every `refresh…()` does `await Task.detached(priority: .background){ client.… }.value` then assigns. (PR #17 review made us do this; do it from the start.)
 - **Guard every `Double → Int` cast** against non-finite/out-of-range — the reviewer (and reality) crash on it. `RamwatcherSupport.safeInt` and `CpuinfoSupport` show the pattern. Write a crash-safety test (it will abort the suite on the unfixed path = your RED).

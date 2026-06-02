@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+dry_run=0
+if [[ "${1:-}" == "--dry-run" ]]; then
+  dry_run=1
+  shift
+fi
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/native-phase [--dry-run] start <phase> <slug>
+  scripts/native-phase [--dry-run] verify
+  scripts/native-phase [--dry-run] pr <commit-message> <pr-title> <summary>
+
+Examples:
+  scripts/native-phase start 6.2 modal-manager
+  scripts/native-phase verify
+  scripts/native-phase pr "feat(native): add native modal manager" "feat(native): add native modal manager" "Adds the Phase 6.2 native modal manager."
+
+Notes:
+  - Branches are created as codex/native-<slug> from latest origin/post-web-runtime.
+  - The PR command stages all repo changes except memory.md, commits, pushes, and opens a PR against post-web-runtime.
+  - Use --dry-run to inspect commands before executing.
+EOF
+}
+
+die() {
+  printf 'native-phase: %s\n' "$1" >&2
+  exit 1
+}
+
+repo_root() {
+  git rev-parse --show-toplevel
+}
+
+print_cmd() {
+  printf '+'
+  for arg in "$@"; do
+    printf ' %s' "$arg"
+  done
+  printf '\n'
+}
+
+run() {
+  print_cmd "$@"
+  if [[ "$dry_run" == "0" ]]; then
+    "$@"
+  fi
+}
+
+run_in() {
+  local dir="$1"
+  shift
+  printf '+ cd %s &&' "$dir"
+  for arg in "$@"; do
+    printf ' %s' "$arg"
+  done
+  printf '\n'
+  if [[ "$dry_run" == "0" ]]; then
+    (cd "$dir" && "$@")
+  fi
+}
+
+phase_files() {
+  local phase="$1"
+  case "$phase" in
+    6.2)
+      cat <<'EOF'
+Phase 6.2 first-read files:
+  src/classes/modal.class.js
+  src-tauri/src/native_modal.rs
+  macos/eDEXNative/Sources/Views/ContentView.swift
+  macos/eDEXNative/Sources/Stores/ShellState.swift
+  docs/plans/full-native-swift-rust-conversion-2026-05-30.md
+EOF
+      ;;
+    5.6)
+      cat <<'EOF'
+Phase 5.6 first-read files:
+  src/classes/toplist.class.js
+  docs/native-migration/toplist.spec.md
+  macos/eDEXNative/Sources/Views/ContentView.swift
+  macos/eDEXNative/Sources/Stores/ShellState.swift
+  docs/plans/full-native-swift-rust-conversion-2026-05-30.md
+EOF
+      ;;
+    *)
+      cat <<'EOF'
+Generic native phase first-read files:
+  docs/plans/full-native-swift-rust-conversion-2026-05-30.md
+  macos/eDEXNative/Package.swift
+  macos/eDEXNative/Sources/Views/ContentView.swift
+  macos/eDEXNative/Sources/Stores/ShellState.swift
+  macos/eDEXNative/Sources/Services/EdexCoreClient.swift
+EOF
+      ;;
+  esac
+}
+
+cmd_start() {
+  [[ $# -eq 2 ]] || die "start requires <phase> <slug>"
+  local phase="$1"
+  local slug="$2"
+  local branch="codex/native-${slug}"
+
+  run git fetch --prune
+  run git switch post-web-runtime
+  run git merge --ff-only origin/post-web-runtime
+  run git switch -c "$branch"
+  printf '\n'
+  phase_files "$phase"
+  printf '\nNext:\n  scripts/native-phase verify\n  scripts/native-phase pr \"feat(native): ...\" \"feat(native): ...\" \"<summary>\"\n'
+}
+
+cmd_verify() {
+  local root
+  root="$(repo_root)"
+  local swift_bin="${SWIFT_BIN:-$HOME/.swiftly/bin/swift}"
+  local swift_display="${SWIFT_DISPLAY:-~/.swiftly/bin/swift}"
+
+  if [[ "$dry_run" == "1" ]]; then
+    run_in "$root/macos/eDEXNative" "$swift_display" test
+    run_in "$root/macos/eDEXNative" "$swift_display" run eDEXNative --smoke-window
+  else
+    run_in "$root/macos/eDEXNative" "$swift_bin" test
+    run_in "$root/macos/eDEXNative" "$swift_bin" run eDEXNative --smoke-window
+  fi
+
+  run_in "$root/crates/edex-ffi" cargo test
+  run_in "$root/crates/edex-ffi" cargo fmt --check
+  run_in "$root/crates/edex-ffi" cargo clippy --release -- -D warnings
+}
+
+cmd_pr() {
+  [[ $# -eq 3 ]] || die "pr requires <commit-message> <pr-title> <summary>"
+  local commit_message="$1"
+  local pr_title="$2"
+  local summary="$3"
+  local branch
+  branch="$(git branch --show-current)"
+
+  if [[ "$dry_run" == "1" ]]; then
+    if [[ -z "$branch" || "$branch" != codex/native-* ]]; then
+      branch="codex/native-dry-run-placeholder"
+    fi
+  else
+    [[ -n "$branch" ]] || die "not on a branch"
+    [[ "$branch" != "post-web-runtime" ]] || die "refusing to publish from post-web-runtime"
+    [[ "$branch" == codex/native-* ]] || die "expected a codex/native-* phase branch, got $branch"
+  fi
+
+  run git add -A -- . ':!memory.md'
+  if [[ "$dry_run" == "0" ]] && git diff --cached --quiet; then
+    die "no staged changes after excluding memory.md"
+  fi
+
+  run git status -sb
+  run git commit -m "$commit_message"
+  run git push -u origin "$branch"
+
+  local body
+  body="$(cat <<EOF
+## Summary
+- ${summary}
+
+## Verification
+- scripts/native-phase verify
+EOF
+)"
+  run gh pr create --base post-web-runtime --head "$branch" --title "$pr_title" --body "$body"
+}
+
+main() {
+  local command="${1:-}"
+  if [[ -z "$command" || "$command" == "-h" || "$command" == "--help" ]]; then
+    usage
+    exit 0
+  fi
+  shift
+
+  case "$command" in
+    start) cmd_start "$@" ;;
+    verify) cmd_verify "$@" ;;
+    pr) cmd_pr "$@" ;;
+    *) usage >&2; exit 1 ;;
+  esac
+}
+
+main "$@"
