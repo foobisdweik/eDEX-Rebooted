@@ -125,27 +125,31 @@ final class ShellState {
         bootStage = .logScroll
         bootDisplayLines = []
 
-        for (index, line) in lines.enumerated() {
-            guard !Task.isCancelled else { return }
-            bootDisplayLines.append(line)
-            if line == "Boot Complete" {
-                playAudio(.granted)
-            } else {
-                playAudio(.stdout)
+        do {
+            for (index, line) in lines.enumerated() {
+                bootDisplayLines.append(line)
+                if line == "Boot Complete" {
+                    playAudio(.granted)
+                } else {
+                    playAudio(.stdout)
+                }
+                // Inject synthetic kernel-version line after line index 1 (mirrors JS i===2).
+                if index == 1 {
+                    bootDisplayLines.append(synthetic)
+                }
+                let delay = BootTiming.delay(forLine: index)
+                try await Task.sleep(for: .seconds(delay))
             }
-            // Inject synthetic kernel-version line after line index 1 (mirrors JS i===2).
-            if index == 1 {
-                bootDisplayLines.append(synthetic)
-            }
-            let delay = BootTiming.delay(forLine: index)
-            try? await Task.sleep(for: .seconds(delay))
-        }
 
-        // 300ms gap before the title flash (mirrors the displayTitleScreen call site).
-        try? await Task.sleep(for: .milliseconds(300))
-        playAudio(.theme)
-        bootStage = .titleFlash
-        // TitleFlashView drives its own animation and sets bootStage = .complete when done.
+            // 300ms gap before the title flash (mirrors the displayTitleScreen call site).
+            try await Task.sleep(for: .milliseconds(300))
+            playAudio(.theme)
+            bootStage = .titleFlash
+            // TitleFlashView drives its own animation and sets bootStage = .complete when done.
+        } catch {
+            // Task was cancelled (e.g. app quit or view dismissed) — exit without
+            // completing the sequence or playing further audio.
+        }
     }
 
     /// Pulls uptime + battery from the Rust core for the sysinfo panel. The

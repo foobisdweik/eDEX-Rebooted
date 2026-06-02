@@ -44,7 +44,6 @@ struct BootView: View {
                             .font(.custom("SF Mono", size: 11).monospaced())
                             .foregroundStyle(.white.opacity(0.82))
                             .textSelection(.disabled)
-                            .id("line_\(state.bootDisplayLines.count)")
                     }
                     // Anchor scroll target at the bottom.
                     Color.clear.frame(height: 1).id("boot_bottom")
@@ -135,24 +134,27 @@ private struct TitleFlashView: View {
 
     // Timeline mirroring displayTitleScreen()'s await chain.
     private func runSequence() async {
-        guard !Task.isCancelled else { return }
-        stage = .blank
+        do {
+            stage = .blank
 
-        try? await Task.sleep(for: .milliseconds(400))
-        stage = .centeredTitle
-        try? await Task.sleep(for: .milliseconds(200))
-        stage = .solidFill
-        try? await Task.sleep(for: .milliseconds(100))
-        // solidFill stage (theme-color background + bottom border)
-        try? await Task.sleep(for: .milliseconds(300))
-        stage = .outline
-        try? await Task.sleep(for: .milliseconds(100))
-        stage = .glitch
-        try? await Task.sleep(for: .milliseconds(500))
-        stage = .finalOutline
-        try? await Task.sleep(for: .milliseconds(1000))
-        // Signal ShellState that the boot sequence is fully done.
-        state.bootStage = .complete
+            try await Task.sleep(for: .milliseconds(400))
+            stage = .centeredTitle
+            try await Task.sleep(for: .milliseconds(200))
+            stage = .solidFill
+            try await Task.sleep(for: .milliseconds(100))
+            // solidFill stage (theme-color background + bottom border)
+            try await Task.sleep(for: .milliseconds(300))
+            stage = .outline
+            try await Task.sleep(for: .milliseconds(100))
+            stage = .glitch
+            try await Task.sleep(for: .milliseconds(500))
+            stage = .finalOutline
+            try await Task.sleep(for: .milliseconds(1000))
+            // Signal ShellState that the boot sequence is fully done.
+            state.bootStage = .complete
+        } catch {
+            // Task was cancelled — exit without completing the sequence.
+        }
     }
 }
 
