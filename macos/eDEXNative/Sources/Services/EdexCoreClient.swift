@@ -141,6 +141,17 @@ struct EdexCoreClient {
     func blockDevices() -> [FfiBlockDevice]? {
         try? core.blockDevices()
     }
+
+    /// Read a text file for the editor modal (Phase 7.3). Throws on a missing
+    /// file, permission error, or non-UTF-8 content.
+    func fsReadTextFile(_ path: String) throws -> String {
+        try core.fsReadTextFile(path: path)
+    }
+
+    /// Write the editor buffer back to disk (Phase 7.3). Throws on a failed write.
+    func fsWriteTextFile(_ path: String, contents: String) throws {
+        try core.fsWriteTextFile(path: path, contents: contents)
+    }
 }
 
 private struct SettingsFile: Decodable {

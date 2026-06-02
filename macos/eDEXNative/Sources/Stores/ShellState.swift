@@ -13,6 +13,7 @@ import SettingsEditorSupport
 import ShortcutsSupport
 import SwiftUI
 import SysinfoSupport
+import TextEditorSupport
 import ThemeSupport
 import ToplistSupport
 
@@ -69,6 +70,13 @@ final class ShellState {
     /// Set when the current directory could not be read.
     var fsFailed = false
     @ObservationIgnored private var fsReading = false
+
+    // Phase 7.3 text editor state.
+    /// The document open in the editor modal, or nil when closed.
+    var textDocument: EdexTextDocument?
+    /// Status line under the editor (metrics, save success/failure).
+    var textEditorStatus = ""
+    @ObservationIgnored private var textEditorModalID: EdexModalID?
 
     // Phase 6.4 shortcuts state.
     var shortcuts: EdexShortcutsDocument?
@@ -502,8 +510,24 @@ final class ShellState {
             openShortcutsModal()
         case .themeFile:
             applyThemeFile(item.name)
-        case .keyboardFile, .file:
+        case .keyboardFile:
+            // Keyboard layout swapping is Phase 8; open in the host app for now.
             openFsExternal(item.path)
+        case .file:
+            if FileTypeDetector.isText(name: item.name) {
+                openTextFile(path: item.path)
+            } else if FileTypeDetector.isPdf(name: item.name) {
+                // DocReader/pdfjs is deferred to v0.2, mirroring the legacy panel.
+                presentModal(
+                    type: "info",
+                    title: item.name,
+                    message: "PDF preview is deferred to v0.2 of the native port."
+                )
+            } else {
+                // Media (image/audio/video) gets its viewer in Phase 10.1; until
+                // then, non-text files open in the host's default application.
+                openFsExternal(item.path)
+            }
         }
     }
 
@@ -520,6 +544,104 @@ final class ShellState {
 
     func toggleFsDotfiles() { fsShowDotfiles.toggle() }
     func toggleFsListView() { fsListView.toggle() }
+
+    // MARK: Text editor (Phase 7.3)
+
+    /// Reads a text file off the MainActor and opens it in the editor modal
+    /// (which detaches the keyboard). A read failure shows an info modal instead,
+    /// mirroring the legacy openFile error path.
+    func openTextFile(path: String) {
+        // Already editing this exact file: just focus the existing modal.
+        if let textDocument, textDocument.path == path,
+           let textEditorModalID, modalManager.modal(id: textEditorModalID) != nil {
+            modalManager.focus(textEditorModalID)
+            return
+        }
+        // Switching to a different file: close the open editor first (its
+        // onClose guard checks the modal ID, so it won't clobber the new one).
+        if let textEditorModalID, modalManager.modal(id: textEditorModalID) != nil {
+            closeModal(textEditorModalID)
+        }
+        textEditorModalID = nil
+
+        let client = self.client
+        Task {
+            let (text, errorMessage) = await Task.detached(priority: .userInitiated) { () -> (String?, String?) in
+                do { return (try client.fsReadTextFile(path), nil) }
+                catch { return (nil, error.localizedDescription) }
+            }.value
+
+            guard let text else {
+                presentModal(type: "info", title: "Failed to load file", message: errorMessage ?? "Unknown error")
+                return
+            }
+
+            let document = EdexTextDocument(path: path, text: text)
+            textDocument = document
+            textEditorStatus = document.statusLine
+            let openedID = presentModal(
+                type: "custom",
+                title: document.fileName,
+                message: "",
+                content: .textEditor,
+                detachesKeyboard: true,
+                onClose: { [weak self] closedID in
+                    Task { @MainActor in
+                        guard self?.textEditorModalID == closedID else { return }
+                        self?.textEditorModalID = nil
+                        self?.textDocument = nil
+                        self?.textEditorStatus = ""
+                    }
+                }
+            )
+            textEditorModalID = openedID
+        }
+    }
+
+    /// The editor buffer, bridged to the SwiftUI TextEditor.
+    var textEditorText: String { textDocument?.text ?? "" }
+
+    /// Updates the buffer as the user types and refreshes the metrics status line.
+    func setTextEditorText(_ value: String) {
+        guard textDocument != nil else { return }
+        textDocument?.text = value
+        if let document = textDocument {
+            textEditorStatus = document.statusLine
+        }
+    }
+
+    /// Writes the buffer to disk off the MainActor, rebaselines the dirty state,
+    /// and reports success/failure in the status line.
+    func saveTextFile() {
+        guard let document = textDocument else { return }
+        let client = self.client
+        let path = document.path
+        let contents = document.text
+        Task {
+            let failure = await Task.detached(priority: .background) { () -> String? in
+                do { try client.fsWriteTextFile(path, contents: contents); return nil }
+                catch { return error.localizedDescription }
+            }.value
+
+            // The buffer may have changed while the write was in flight; only
+            // rebaseline if this is still the same open document.
+            guard textDocument?.path == path else { return }
+            if let failure {
+                playAudio(.denied)
+                textEditorStatus = EdexTextEditorStatus.failed(failure)
+            } else {
+                playAudio(.granted)
+                // Only rebaseline if the buffer hasn't changed since the write;
+                // if the user kept typing mid-write, it stays dirty.
+                if textDocument?.text == contents {
+                    textDocument?.markSaved()
+                }
+                if let saved = textDocument {
+                    textEditorStatus = EdexTextEditorStatus.saved(saved)
+                }
+            }
+        }
+    }
 
     /// Applies a theme JSON file live (preview), mirroring the legacy
     /// `themeChanger`. Does not persist to settings.json.
