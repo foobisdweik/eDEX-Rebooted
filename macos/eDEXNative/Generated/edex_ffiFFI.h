@@ -296,6 +296,11 @@ uint64_t uniffi_edex_ffi_fn_constructor_edexcore_new(RustCallStatus *_Nonnull ou
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_battery(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_BLOCK_DEVICES
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_BLOCK_DEVICES
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_block_devices(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_CPU_SNAPSHOT
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_CPU_SNAPSHOT
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_cpu_snapshot(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -304,6 +309,36 @@ RustBuffer uniffi_edex_ffi_fn_method_edexcore_cpu_snapshot(uint64_t ptr, RustCal
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_ENSURE_USERDATA
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_ENSURE_USERDATA
 void uniffi_edex_ffi_fn_method_edexcore_ensure_userdata(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_EXISTS
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_EXISTS
+int8_t uniffi_edex_ffi_fn_method_edexcore_fs_exists(uint64_t ptr, RustBuffer path, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_OPEN_EXTERNAL
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_OPEN_EXTERNAL
+void uniffi_edex_ffi_fn_method_edexcore_fs_open_external(uint64_t ptr, RustBuffer path, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_READ_TEXT_FILE
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_READ_TEXT_FILE
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_fs_read_text_file(uint64_t ptr, RustBuffer path, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_READDIR
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_READDIR
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_fs_readdir(uint64_t ptr, RustBuffer path, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_SIZE
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_fs_size(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_WRITE_TEXT_FILE
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_FS_WRITE_TEXT_FILE
+void uniffi_edex_ffi_fn_method_edexcore_fs_write_text_file(uint64_t ptr, RustBuffer path, RustBuffer contents, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_HARDWARE
@@ -672,6 +707,12 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_battery(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_BLOCK_DEVICES
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_BLOCK_DEVICES
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_block_devices(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_CPU_SNAPSHOT
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_CPU_SNAPSHOT
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_cpu_snapshot(void
@@ -681,6 +722,42 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_cpu_snapshot(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_ENSURE_USERDATA
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_ENSURE_USERDATA
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_ensure_userdata(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_EXISTS
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_EXISTS
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_fs_exists(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_OPEN_EXTERNAL
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_OPEN_EXTERNAL
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_fs_open_external(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_READ_TEXT_FILE
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_READ_TEXT_FILE
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_fs_read_text_file(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_READDIR
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_READDIR
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_fs_readdir(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_SIZE
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_fs_size(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_WRITE_TEXT_FILE
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_FS_WRITE_TEXT_FILE
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_fs_write_text_file(void
     
 );
 #endif

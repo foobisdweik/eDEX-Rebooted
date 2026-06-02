@@ -2,6 +2,7 @@ import BootSupport
 import BorderSupport
 import ClockSupport
 import CpuinfoSupport
+import FilesystemSupport
 import HardwareSupport
 import LayoutSupport
 import ModalSupport
@@ -152,43 +153,8 @@ struct ContentView: View {
     }
 
     private func filesystem(_ frame: LayoutRect, vh: Double) -> some View {
-        let panelStyle = AugmentedBorderStyle.panel(vh: vh)
-        return VStack(alignment: .leading, spacing: 10) {
-            sectionTitle("FILESYSTEM", "TRACKING ACTIVE")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
-                ForEach(["..", "src", "crates", "macos", "docs", "themes"], id: \.self) { item in
-                    VStack(spacing: 4) {
-                        AugmentedBorderShape(style: .settingsButton(vh: vh))
-                            .stroke(state.theme.accent.opacity(0.45), lineWidth: 1)
-                            .background(
-                                AugmentedBorderShape(style: .settingsButton(vh: vh))
-                                    .fill(state.theme.accent.opacity(0.04))
-                            )
-                            .frame(width: 34, height: 28)
-                        Text(item)
-                            .font(.custom(state.theme.fonts.terminal, size: 10))
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                }
-            }
-            Spacer(minLength: 0)
-            Rectangle()
-                .fill(state.theme.accent.opacity(0.45))
-                .frame(height: 7)
-                .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(state.theme.accent)
-                        .frame(width: max(24, CGFloat(frame.width) * 0.32), height: 7)
-                }
-        }
-        .padding(10)
-        .augmentedSurface(
-            style: panelStyle,
-            fill: state.theme.panelBackground.opacity(0.72),
-            stroke: state.theme.accent
-        )
-        .positioned(in: frame)
+        EdexFilesystemPanel(state: state, vh: vh)
+            .positioned(in: frame)
     }
 
     private func keyboard(_ metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
@@ -1436,6 +1402,246 @@ private struct EdexModalButtonStyle: ButtonStyle {
                 AugmentedBorderShape(style: .settingsButton(vh: vh))
                     .stroke(theme.accent.opacity(0.74), lineWidth: max(1, CGFloat(0.092 * vh)))
             )
+    }
+}
+
+// MARK: - Filesystem panel (Phase 7.1)
+
+private struct EdexFilesystemPanel: View {
+    @Bindable var state: ShellState
+    let vh: Double
+
+    private var theme: NativeTheme { state.theme }
+
+    /// Rows after the dotfile filter (special rows are never hidden).
+    private var visibleItems: [FilesystemItem] {
+        state.fsShowDotfiles ? state.fsItems : state.fsItems.filter { !$0.hidden }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            content
+            Spacer(minLength: 0)
+            diskBar
+        }
+        .padding(10)
+        .augmentedSurface(
+            style: .panel(vh: vh),
+            fill: theme.panelBackground.opacity(0.72),
+            stroke: theme.accent
+        )
+        .task { await state.loadInitialFilesystemIfNeeded() }
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("FILESYSTEM")
+                .font(.custom(theme.fonts.main, size: 11))
+            HStack(spacing: 6) {
+                toggleButton(symbol: "eye", active: state.fsShowDotfiles) { state.toggleFsDotfiles() }
+                toggleButton(symbol: "list.bullet", active: state.fsListView) { state.toggleFsListView() }
+            }
+            Spacer(minLength: 8)
+            Text(headerPath)
+                .font(.custom(theme.fonts.terminal, size: 10))
+                .foregroundStyle(theme.accent.opacity(0.7))
+                .lineLimit(1)
+                .truncationMode(.head)
+        }
+        .foregroundStyle(theme.accent.opacity(0.76))
+        .padding(.horizontal, 5)
+        .padding(.bottom, 3)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(theme.accent.opacity(0.28)).frame(height: 1)
+        }
+    }
+
+    private var headerPath: String {
+        if state.fsFailed { return "CANNOT ACCESS DIRECTORY" }
+        if state.fsIsDiskView { return "Showing available block devices" }
+        return state.fsPath
+    }
+
+    private func toggleButton(symbol: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10))
+                .foregroundStyle(active ? theme.accent : theme.accent.opacity(0.35))
+                .frame(width: 20, height: 16)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Content
+
+    @ViewBuilder
+    private var content: some View {
+        if state.fsFailed {
+            Text("EXECUTION FAILED")
+                .font(.custom(theme.fonts.main, size: 13))
+                .foregroundStyle(theme.accent.opacity(0.8))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if state.fsListView {
+            listView
+        } else {
+            gridView
+        }
+    }
+
+    private var gridView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6),
+                spacing: 8
+            ) {
+                ForEach(visibleItems) { item in
+                    Button { state.activateFsItem(item) } label: { gridCell(item) }
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func gridCell(_ item: FilesystemItem) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: symbol(item.role))
+                .font(.system(size: 18))
+                .foregroundStyle(theme.accent)
+                .frame(height: 22)
+            Text(item.name)
+                .font(.custom(theme.fonts.terminal, size: 9))
+                .foregroundStyle(theme.terminalForeground)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, minHeight: 52, alignment: .top)
+        .opacity(item.hidden ? 0.55 : 1.0)
+    }
+
+    private var listView: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 0) {
+                ForEach(visibleItems) { item in
+                    Button { state.activateFsItem(item) } label: { listRow(item) }
+                        .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func listRow(_ item: FilesystemItem) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol(item.role))
+                .font(.system(size: 12))
+                .foregroundStyle(theme.accent)
+                .frame(width: 18)
+            Text(item.name)
+                .foregroundStyle(theme.terminalForeground)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(typeLabel(item))
+                .foregroundStyle(theme.accent.opacity(0.62))
+                .lineLimit(1)
+                .frame(width: 96, alignment: .leading)
+            Text(item.sizeText)
+                .foregroundStyle(theme.accent.opacity(0.8))
+                .lineLimit(1)
+                .frame(width: 70, alignment: .trailing)
+        }
+        .font(.custom(theme.fonts.terminal, size: 10))
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .opacity(item.hidden ? 0.55 : 1.0)
+    }
+
+    // MARK: Disk-usage bar
+
+    @ViewBuilder
+    private var diskBar: some View {
+        if state.fsIsDiskView {
+            Button {
+                Task { await state.navigateFS(to: state.fsPath) }
+            } label: {
+                barLabel(text: "EXIT DISPLAY", fill: 1.0)
+            }
+            .buttonStyle(.plain)
+        } else if let usage = state.fsDiskUsage {
+            let pct = DiskUsageFormatter.percent(usage)
+            barLabel(
+                text: "Mount \(DiskUsageFormatter.displayMount(usage.mount)) used \(pct)%",
+                fill: Double(min(max(pct, 0), 100)) / 100.0
+            )
+        } else {
+            barLabel(text: "Could not calculate mountpoint usage.", fill: 1.0)
+        }
+    }
+
+    private func barLabel(text: String, fill: Double) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(text)
+                .font(.custom(theme.fonts.terminal, size: 9))
+                .foregroundStyle(theme.accent.opacity(0.78))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(theme.accent.opacity(0.22))
+                    Rectangle()
+                        .fill(theme.accent)
+                        .frame(width: geo.size.width * fill)
+                }
+            }
+            .frame(height: 7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Role → presentation
+
+    private func symbol(_ role: FilesystemRole) -> String {
+        switch role {
+        case .goUp: return "arrow.up.left"
+        case .showDisks: return "externaldrive.connected.to.line.below"
+        case .directory: return "folder"
+        case .symlink: return "arrowshape.turn.up.right"
+        case .file: return "doc"
+        case .themesDir: return "paintpalette"
+        case .keyboardsDir: return "keyboard"
+        case .themeFile: return "paintpalette.fill"
+        case .keyboardFile: return "keyboard.fill"
+        case .settingsFile: return "gearshape"
+        case .shortcutsFile: return "command"
+        case .disk: return "internaldrive"
+        case .rom: return "opticaldiscdrive"
+        case .usb: return "externaldrive"
+        }
+    }
+
+    private func typeLabel(_ item: FilesystemItem) -> String {
+        switch item.role {
+        case .goUp, .showDisks: return "--"
+        case .directory: return "folder"
+        case .symlink: return "symlink"
+        case .themesDir: return "themes folder"
+        case .keyboardsDir: return "keyboards folder"
+        case .themeFile: return "eDEX-UI theme"
+        case .keyboardFile: return "eDEX-UI keyboard"
+        case .settingsFile, .shortcutsFile: return "eDEX-UI config"
+        case .disk: return "disk"
+        case .rom: return "rom"
+        case .usb: return "usb"
+        case .file:
+            if let dot = item.name.lastIndex(of: "."), dot != item.name.startIndex {
+                return String(item.name[item.name.index(after: dot)...]).lowercased()
+            }
+            return "file"
+        }
     }
 }
 
