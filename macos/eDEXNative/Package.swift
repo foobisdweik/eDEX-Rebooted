@@ -67,6 +67,10 @@ let package = Package(
             path: "Sources/BootSupport"
         ),
         .target(
+            name: "FilesystemSupport",
+            path: "Sources/FilesystemSupport"
+        ),
+        .target(
             name: "AudioSupport",
             path: "Sources/AudioSupport"
         ),
@@ -81,7 +85,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "eDEXNative",
-            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
             path: ".",
             exclude: [
                 "README.md",
@@ -91,6 +95,7 @@ let package = Package(
                 "Sources/BorderSupport",
                 "Sources/ClockSupport",
                 "Sources/CpuinfoSupport",
+                "Sources/FilesystemSupport",
                 "Sources/HardwareSupport",
                 "Sources/LayoutSupport",
                 "Sources/ModalSupport",
@@ -127,7 +132,7 @@ let package = Package(
         ),
         .testTarget(
             name: "eDEXNativeTests",
-            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
             path: "Tests"
         )
     ],

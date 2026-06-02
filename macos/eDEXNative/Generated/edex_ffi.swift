@@ -612,12 +612,50 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     func battery() throws  -> FfiBattery
     
     /**
+     * Block devices for the filesystem "Show disks" view.
+     */
+    func blockDevices() throws  -> [FfiBlockDevice]
+    
+    /**
      * Live CPU snapshot for the cpuinfo panel: identity, clock, temperature,
      * task count, and per-core load. Always a fresh refresh (panel polls 1 Hz).
      */
     func cpuSnapshot() throws  -> FfiCpuSnapshot
     
     func ensureUserdata() throws 
+    
+    /**
+     * Whether a path exists (filesystem "Show disks" view filters mounts that
+     * are not actually mounted, mirroring the legacy `fs_exists` check).
+     */
+    func fsExists(path: String)  -> Bool
+    
+    /**
+     * Open a path in the host's default application (Ctrl-click / non-text file).
+     */
+    func fsOpenExternal(path: String) throws 
+    
+    /**
+     * Read a text file for the editor modal (Phase 7.3 consumer).
+     */
+    func fsReadTextFile(path: String) throws  -> String
+    
+    /**
+     * List a directory for the filesystem panel. Returns entries with the
+     * category/size/type the JS panel consumed; errors (missing dir,
+     * permission denied) propagate so the panel can show its failed state.
+     */
+    func fsReaddir(path: String) throws  -> [FfiDirEntry]
+    
+    /**
+     * Mounted-filesystem space accounting for the disk-usage bar.
+     */
+    func fsSize() throws  -> [FfiDiskUsage]
+    
+    /**
+     * Write a text file back to disk (Phase 7.3 editor save).
+     */
+    func fsWriteTextFile(path: String, contents: String) throws 
     
     /**
      * Host hardware identity (hardware-inspector panel). Combines the two
@@ -764,6 +802,17 @@ open func battery()throws  -> FfiBattery  {
 }
     
     /**
+     * Block devices for the filesystem "Show disks" view.
+     */
+open func blockDevices()throws  -> [FfiBlockDevice]  {
+    return try  FfiConverterSequenceTypeFfiBlockDevice.lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_block_devices(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Live CPU snapshot for the cpuinfo panel: identity, clock, temperature,
      * task count, and per-core load. Always a fresh refresh (panel polls 1 Hz).
      */
@@ -778,6 +827,79 @@ open func cpuSnapshot()throws  -> FfiCpuSnapshot  {
 open func ensureUserdata()throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
     uniffi_edex_ffi_fn_method_edexcore_ensure_userdata(
             self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Whether a path exists (filesystem "Show disks" view filters mounts that
+     * are not actually mounted, mirroring the legacy `fs_exists` check).
+     */
+open func fsExists(path: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_edex_ffi_fn_method_edexcore_fs_exists(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * Open a path in the host's default application (Ctrl-click / non-text file).
+     */
+open func fsOpenExternal(path: String)throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_fs_open_external(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+}
+}
+    
+    /**
+     * Read a text file for the editor modal (Phase 7.3 consumer).
+     */
+open func fsReadTextFile(path: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_fs_read_text_file(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * List a directory for the filesystem panel. Returns entries with the
+     * category/size/type the JS panel consumed; errors (missing dir,
+     * permission denied) propagate so the panel can show its failed state.
+     */
+open func fsReaddir(path: String)throws  -> [FfiDirEntry]  {
+    return try  FfiConverterSequenceTypeFfiDirEntry.lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_fs_readdir(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+    
+    /**
+     * Mounted-filesystem space accounting for the disk-usage bar.
+     */
+open func fsSize()throws  -> [FfiDiskUsage]  {
+    return try  FfiConverterSequenceTypeFfiDiskUsage.lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_fs_size(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Write a text file back to disk (Phase 7.3 editor save).
+     */
+open func fsWriteTextFile(path: String, contents: String)throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_fs_write_text_file(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(path),
+        FfiConverterString.lower(contents),$0
     )
 }
 }
@@ -1093,6 +1215,85 @@ public func FfiConverterTypeFfiBattery_lower(_ value: FfiBattery) -> RustBuffer 
 
 
 /**
+ * A block device for the filesystem "Show disks" view. The native panel reads
+ * the same subset the JS `readDevices()` did: name/label/mount classify the
+ * row, `removable` + `device_type` pick the disk/usb/rom icon.
+ */
+public struct FfiBlockDevice: Equatable, Hashable {
+    public var name: String
+    public var deviceType: String
+    public var fsType: String
+    public var mount: String
+    public var size: UInt64
+    public var removable: Bool
+    public var label: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, deviceType: String, fsType: String, mount: String, size: UInt64, removable: Bool, label: String) {
+        self.name = name
+        self.deviceType = deviceType
+        self.fsType = fsType
+        self.mount = mount
+        self.size = size
+        self.removable = removable
+        self.label = label
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiBlockDevice: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiBlockDevice: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiBlockDevice {
+        return
+            try FfiBlockDevice(
+                name: FfiConverterString.read(from: &buf), 
+                deviceType: FfiConverterString.read(from: &buf), 
+                fsType: FfiConverterString.read(from: &buf), 
+                mount: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                removable: FfiConverterBool.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiBlockDevice, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.deviceType, into: &buf)
+        FfiConverterString.write(value.fsType, into: &buf)
+        FfiConverterString.write(value.mount, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterBool.write(value.removable, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBlockDevice_lift(_ buf: RustBuffer) throws -> FfiBlockDevice {
+    return try FfiConverterTypeFfiBlockDevice.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiBlockDevice_lower(_ value: FfiBlockDevice) -> RustBuffer {
+    return FfiConverterTypeFfiBlockDevice.lower(value)
+}
+
+
+/**
  * The fields of `PanelSnapshot` the native cpuinfo panel consumes (mirrors the
  * `window.si.panelSnapshot(...)` reads in cpuinfo.class.js). `loads` is the
  * per-logical-core current load 0–100, one entry per core.
@@ -1172,6 +1373,157 @@ public func FfiConverterTypeFfiCpuSnapshot_lift(_ buf: RustBuffer) throws -> Ffi
 #endif
 public func FfiConverterTypeFfiCpuSnapshot_lower(_ value: FfiCpuSnapshot) -> RustBuffer {
     return FfiConverterTypeFfiCpuSnapshot.lower(value)
+}
+
+
+/**
+ * One directory entry for the native filesystem panel (mirrors the Rust
+ * `fs::DirEntry`, which is what `fs_readdir` returned to the JS panel).
+ * `entry_type` carries the legacy `type` field (renamed because `type` is a
+ * reserved word in Swift).
+ */
+public struct FfiDirEntry: Equatable, Hashable {
+    public var name: String
+    public var category: String
+    public var hidden: Bool
+    public var size: UInt64
+    public var entryType: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, category: String, hidden: Bool, size: UInt64, entryType: String) {
+        self.name = name
+        self.category = category
+        self.hidden = hidden
+        self.size = size
+        self.entryType = entryType
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiDirEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDirEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDirEntry {
+        return
+            try FfiDirEntry(
+                name: FfiConverterString.read(from: &buf), 
+                category: FfiConverterString.read(from: &buf), 
+                hidden: FfiConverterBool.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                entryType: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDirEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.category, into: &buf)
+        FfiConverterBool.write(value.hidden, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterString.write(value.entryType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDirEntry_lift(_ buf: RustBuffer) throws -> FfiDirEntry {
+    return try FfiConverterTypeFfiDirEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDirEntry_lower(_ value: FfiDirEntry) -> RustBuffer {
+    return FfiConverterTypeFfiDirEntry.lower(value)
+}
+
+
+/**
+ * A mounted filesystem's space accounting (filesystem panel disk-usage bar).
+ * Mirrors `window.si.fsSize()` rows: `use_pct` is the 0–100 percentage the
+ * legacy code read as `fsBlock.use`.
+ */
+public struct FfiDiskUsage: Equatable, Hashable {
+    public var fs: String
+    public var diskType: String
+    public var size: UInt64
+    public var used: UInt64
+    public var available: UInt64
+    public var usePct: Double
+    public var mount: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(fs: String, diskType: String, size: UInt64, used: UInt64, available: UInt64, usePct: Double, mount: String) {
+        self.fs = fs
+        self.diskType = diskType
+        self.size = size
+        self.used = used
+        self.available = available
+        self.usePct = usePct
+        self.mount = mount
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiDiskUsage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDiskUsage: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDiskUsage {
+        return
+            try FfiDiskUsage(
+                fs: FfiConverterString.read(from: &buf), 
+                diskType: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                used: FfiConverterUInt64.read(from: &buf), 
+                available: FfiConverterUInt64.read(from: &buf), 
+                usePct: FfiConverterDouble.read(from: &buf), 
+                mount: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDiskUsage, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.fs, into: &buf)
+        FfiConverterString.write(value.diskType, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterUInt64.write(value.used, into: &buf)
+        FfiConverterUInt64.write(value.available, into: &buf)
+        FfiConverterDouble.write(value.usePct, into: &buf)
+        FfiConverterString.write(value.mount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDiskUsage_lift(_ buf: RustBuffer) throws -> FfiDiskUsage {
+    return try FfiConverterTypeFfiDiskUsage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDiskUsage_lower(_ value: FfiDiskUsage) -> RustBuffer {
+    return FfiConverterTypeFfiDiskUsage.lower(value)
 }
 
 
@@ -2174,6 +2526,81 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiBlockDevice: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiBlockDevice]
+
+    public static func write(_ value: [FfiBlockDevice], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiBlockDevice.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiBlockDevice] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiBlockDevice]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiBlockDevice.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiDirEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiDirEntry]
+
+    public static func write(_ value: [FfiDirEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiDirEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiDirEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiDirEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiDirEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiDiskUsage: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiDiskUsage]
+
+    public static func write(_ value: [FfiDiskUsage], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiDiskUsage.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiDiskUsage] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiDiskUsage]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiDiskUsage.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiProcessRow: FfiConverterRustBuffer {
     typealias SwiftType = [FfiProcessRow]
 
@@ -2239,10 +2666,31 @@ private let initializationResult: InitializationResult = {
     if (uniffi_edex_ffi_checksum_method_edexcore_battery() != 14711) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_edex_ffi_checksum_method_edexcore_block_devices() != 44727) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_edex_ffi_checksum_method_edexcore_cpu_snapshot() != 19571) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_ensure_userdata() != 25364) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_fs_exists() != 61813) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_fs_open_external() != 34629) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_fs_read_text_file() != 51777) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_fs_readdir() != 48483) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_fs_size() != 39125) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_fs_write_text_file() != 45999) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_hardware() != 10614) {

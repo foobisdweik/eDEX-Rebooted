@@ -26,6 +26,8 @@ struct EdexCoreClient {
             clockHours: decodedSettings.clockHours ?? 24,
             excludeThreadsFromToplist: decodedSettings.excludeThreadsFromToplist ?? true,
             nointro: decodedSettings.nointro ?? false,
+            hideDotfiles: decodedSettings.hideDotfiles ?? false,
+            fsListView: decodedSettings.fsListView ?? false,
             audioSettings: (try? JSONDecoder().decode(EdexAudioSettings.self, from: settingsData)) ?? EdexAudioSettings(),
             byteCount: settingsData.count
         )
@@ -111,6 +113,34 @@ struct EdexCoreClient {
     func writeShortcutsJson(_ json: String) throws {
         try core.writeShortcutsJson(contents: json)
     }
+
+    // MARK: - Filesystem panel (Phase 7.1)
+
+    /// Directory listing for the filesystem panel. Throws on missing dir /
+    /// permission errors so the panel can show its failed state.
+    func fsReaddir(_ path: String) throws -> [FfiDirEntry] {
+        try core.fsReaddir(path: path)
+    }
+
+    /// Whether a path exists (filters unmounted "Show disks" rows).
+    func fsExists(_ path: String) -> Bool {
+        core.fsExists(path: path)
+    }
+
+    /// Open a path in the host's default application.
+    func fsOpenExternal(_ path: String) throws {
+        try core.fsOpenExternal(path: path)
+    }
+
+    /// Mounted-filesystem space accounting (disk-usage bar). nil if the query fails.
+    func fsSize() -> [FfiDiskUsage]? {
+        try? core.fsSize()
+    }
+
+    /// Block devices for the "Show disks" view. nil if the query fails.
+    func blockDevices() -> [FfiBlockDevice]? {
+        try? core.blockDevices()
+    }
 }
 
 private struct SettingsFile: Decodable {
@@ -119,4 +149,6 @@ private struct SettingsFile: Decodable {
     var clockHours: Int?
     var excludeThreadsFromToplist: Bool?
     var nointro: Bool?
+    var hideDotfiles: Bool?
+    var fsListView: Bool?
 }

@@ -239,6 +239,87 @@ pub struct FfiToplistSnapshot {
     pub process_list: Option<FfiProcessList>,
 }
 
+/// One directory entry for the native filesystem panel (mirrors the Rust
+/// `fs::DirEntry`, which is what `fs_readdir` returned to the JS panel).
+/// `entry_type` carries the legacy `type` field (renamed because `type` is a
+/// reserved word in Swift).
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiDirEntry {
+    pub name: String,
+    pub category: String,
+    pub hidden: bool,
+    pub size: u64,
+    pub entry_type: String,
+}
+
+impl From<edex_core::fs::DirEntry> for FfiDirEntry {
+    fn from(entry: edex_core::fs::DirEntry) -> Self {
+        Self {
+            name: entry.name,
+            category: entry.category,
+            hidden: entry.hidden,
+            size: entry.size,
+            entry_type: entry.r#type,
+        }
+    }
+}
+
+/// A mounted filesystem's space accounting (filesystem panel disk-usage bar).
+/// Mirrors `window.si.fsSize()` rows: `use_pct` is the 0–100 percentage the
+/// legacy code read as `fsBlock.use`.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiDiskUsage {
+    pub fs: String,
+    pub disk_type: String,
+    pub size: u64,
+    pub used: u64,
+    pub available: u64,
+    pub use_pct: f64,
+    pub mount: String,
+}
+
+impl From<edex_core::sysinfo::DiskInfo> for FfiDiskUsage {
+    fn from(disk: edex_core::sysinfo::DiskInfo) -> Self {
+        Self {
+            fs: disk.fs,
+            disk_type: disk.disk_type,
+            size: disk.size,
+            used: disk.used,
+            available: disk.available,
+            use_pct: disk.use_pct,
+            mount: disk.mount,
+        }
+    }
+}
+
+/// A block device for the filesystem "Show disks" view. The native panel reads
+/// the same subset the JS `readDevices()` did: name/label/mount classify the
+/// row, `removable` + `device_type` pick the disk/usb/rom icon.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiBlockDevice {
+    pub name: String,
+    pub device_type: String,
+    pub fs_type: String,
+    pub mount: String,
+    pub size: u64,
+    pub removable: bool,
+    pub label: String,
+}
+
+impl From<edex_core::sysinfo::BlockDevice> for FfiBlockDevice {
+    fn from(device: edex_core::sysinfo::BlockDevice) -> Self {
+        Self {
+            name: device.name,
+            device_type: device.device_type,
+            fs_type: device.fs_type,
+            mount: device.mount,
+            size: device.size,
+            removable: device.removable,
+            label: device.label,
+        }
+    }
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct FfiPtySpawnOptions {
     pub shell: String,
@@ -492,6 +573,54 @@ impl EdexCore {
             process: metadata.process,
         })
     }
+
+    // MARK: - Filesystem panel (Phase 7.1)
+
+    /// List a directory for the filesystem panel. Returns entries with the
+    /// category/size/type the JS panel consumed; errors (missing dir,
+    /// permission denied) propagate so the panel can show its failed state.
+    pub fn fs_readdir(&self, path: String) -> Result<Vec<FfiDirEntry>, EdexError> {
+        edex_core::fs::readdir(&path)
+            .map(|entries| entries.into_iter().map(FfiDirEntry::from).collect())
+            .map_err(EdexError::from)
+    }
+
+    /// Whether a path exists (filesystem "Show disks" view filters mounts that
+    /// are not actually mounted, mirroring the legacy `fs_exists` check).
+    pub fn fs_exists(&self, path: String) -> bool {
+        edex_core::fs::exists(&path)
+    }
+
+    /// Open a path in the host's default application (Ctrl-click / non-text file).
+    pub fn fs_open_external(&self, path: String) -> Result<(), EdexError> {
+        edex_core::fs::open_external(&path).map_err(EdexError::from)
+    }
+
+    /// Read a text file for the editor modal (Phase 7.3 consumer).
+    pub fn fs_read_text_file(&self, path: String) -> Result<String, EdexError> {
+        edex_core::fs::readfile(&path).map_err(EdexError::from)
+    }
+
+    /// Write a text file back to disk (Phase 7.3 editor save).
+    pub fn fs_write_text_file(&self, path: String, contents: String) -> Result<(), EdexError> {
+        edex_core::fs::writefile(&path, &contents).map_err(EdexError::from)
+    }
+
+    /// Mounted-filesystem space accounting for the disk-usage bar.
+    pub fn fs_size(&self) -> Result<Vec<FfiDiskUsage>, EdexError> {
+        self.sysinfo
+            .fs_size()
+            .map(|disks| disks.into_iter().map(FfiDiskUsage::from).collect())
+            .map_err(EdexError::from)
+    }
+
+    /// Block devices for the filesystem "Show disks" view.
+    pub fn block_devices(&self) -> Result<Vec<FfiBlockDevice>, EdexError> {
+        self.sysinfo
+            .block_devices()
+            .map(|devices| devices.into_iter().map(FfiBlockDevice::from).collect())
+            .map_err(EdexError::from)
+    }
 }
 
 #[cfg(test)]
@@ -701,6 +830,68 @@ mod tests {
             serde_json::from_str(&core.load_shortcuts_json().unwrap()).unwrap();
         assert_eq!(reloaded[0]["action"], serde_json::json!("COPY"));
         // _guard.drop() restores the file here (or on panic).
+    }
+
+    #[test]
+    fn fs_readdir_lists_entries_and_flags_dotfiles() {
+        let core = EdexCore::new();
+        let dir = std::env::temp_dir().join(format!("edex_ffi_readdir_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("visible.txt"), "hi").unwrap();
+        fs::write(dir.join(".hidden"), "x").unwrap();
+        fs::create_dir(dir.join("subdir")).unwrap();
+
+        let entries = core.fs_readdir(dir.to_string_lossy().to_string()).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+
+        let visible = entries.iter().find(|e| e.name == "visible.txt").unwrap();
+        assert_eq!(visible.category, "file");
+        assert_eq!(visible.entry_type, "file");
+        assert!(!visible.hidden);
+        assert_eq!(visible.size, 2);
+
+        let hidden = entries.iter().find(|e| e.name == ".hidden").unwrap();
+        assert!(hidden.hidden);
+
+        let subdir = entries.iter().find(|e| e.name == "subdir").unwrap();
+        assert_eq!(subdir.category, "dir");
+    }
+
+    #[test]
+    fn fs_exists_reports_presence() {
+        let core = EdexCore::new();
+        assert!(core.fs_exists("/".to_string()));
+        assert!(!core.fs_exists("/nonexistent-edex-path-xyz".to_string()));
+    }
+
+    #[test]
+    fn fs_read_and_write_text_file_round_trip() {
+        let core = EdexCore::new();
+        let path = std::env::temp_dir()
+            .join(format!("edex_ffi_textfile_{}.txt", std::process::id()))
+            .to_string_lossy()
+            .to_string();
+        core.fs_write_text_file(path.clone(), "hello edex".to_string())
+            .unwrap();
+        assert_eq!(core.fs_read_text_file(path.clone()).unwrap(), "hello edex");
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fs_size_reports_a_root_mount() {
+        let core = EdexCore::new();
+        let disks = core.fs_size().expect("fs_size should succeed");
+        assert!(!disks.is_empty(), "a running host should report a mount");
+        assert!(disks.iter().all(|d| (0.0..=100.0).contains(&d.use_pct)));
+    }
+
+    #[test]
+    fn block_devices_reports_devices_with_mount_points() {
+        let core = EdexCore::new();
+        let devices = core.block_devices().expect("block_devices should succeed");
+        assert!(!devices.is_empty(), "a running host should report a device");
+        assert!(devices.iter().any(|d| !d.mount.is_empty()));
     }
 
     #[test]

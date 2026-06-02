@@ -3,6 +3,7 @@ import AudioSupport
 import BootSupport
 import CpuinfoSupport
 import Darwin
+import FilesystemSupport
 import Foundation
 import HardwareSupport
 import ModalSupport
@@ -52,6 +53,23 @@ final class ShellState {
     /// Lines accumulated so far during the log-scroll stage.
     var bootDisplayLines: [String] = []
 
+    // Phase 7.1 filesystem panel state.
+    /// Current directory being displayed. Starts at the user's home; tab-CWD
+    /// tracking is deferred to Phase 9 (PTY seam).
+    var fsPath: String = NSHomeDirectory()
+    /// The displayed rows (directory listing or "Show disks" view).
+    var fsItems: [FilesystemItem] = []
+    /// Disk-usage bar selection for the current directory's mount.
+    var fsDiskUsage: DiskUsage?
+    /// View toggles (initialized from settings in bootstrap).
+    var fsShowDotfiles = true
+    var fsListView = false
+    /// Whether the panel is showing the block-device list rather than a directory.
+    var fsIsDiskView = false
+    /// Set when the current directory could not be read.
+    var fsFailed = false
+    @ObservationIgnored private var fsReading = false
+
     // Phase 6.4 shortcuts state.
     var shortcuts: EdexShortcutsDocument?
     var shortcutsStatus = ""
@@ -91,6 +109,8 @@ final class ShellState {
             paths = snapshot.paths
             settingsSummary = snapshot.settings
             keepGeometry = snapshot.settings.keepGeometry
+            fsShowDotfiles = !snapshot.settings.hideDotfiles
+            fsListView = snapshot.settings.fsListView
             theme = snapshot.theme
             audio.configure(settings: snapshot.settings.audioSettings)
             statusText = "ok — EdexCore.paths(), ensureUserdata(), loadSettingsJson(), loadThemeJson() returned"
@@ -385,6 +405,141 @@ final class ShellState {
         }
     }
 
+    // MARK: Filesystem panel (Phase 7.1)
+
+    /// eDEX userdata paths that drive the special theme/keyboard/settings tagging.
+    private var fsContext: FilesystemContext {
+        FilesystemContext(
+            userDataDir: paths?.userData,
+            themesDir: paths?.themesDir,
+            keyboardsDir: paths?.keyboardsDir
+        )
+    }
+
+    /// First load when the panel appears. Re-entrant-safe; no-op once populated.
+    func loadInitialFilesystemIfNeeded() async {
+        guard fsItems.isEmpty, !fsFailed, !fsReading else { return }
+        await navigateFS(to: fsPath)
+    }
+
+    /// Reads a directory and rebuilds the displayed rows. The FFI listing runs
+    /// off the MainActor; results land back here. A read failure sets the failed
+    /// state and plays the denied cue (mirrors the legacy setFailedState path).
+    func navigateFS(to path: String) async {
+        guard !fsReading else { return }
+        fsReading = true
+        defer { fsReading = false }
+
+        let client = self.client
+        let entries = await Task.detached(priority: .userInitiated) {
+            try? client.fsReaddir(path)
+        }.value
+
+        guard let entries else {
+            fsFailed = true
+            fsItems = []
+            playAudio(.denied)
+            return
+        }
+
+        fsFailed = false
+        fsIsDiskView = false
+        fsPath = path
+        let mapped = entries.map {
+            FilesystemEntry(name: $0.name, category: $0.category, hidden: $0.hidden, size: $0.size)
+        }
+        fsItems = FilesystemListBuilder.items(entries: mapped, path: path, context: fsContext)
+        await refreshFsDiskUsage(forPath: path)
+    }
+
+    /// Recomputes the disk-usage bar for the current directory's mount.
+    func refreshFsDiskUsage(forPath path: String) async {
+        let client = self.client
+        let disks = await Task.detached(priority: .background) {
+            client.fsSize()
+        }.value
+        guard let disks else { fsDiskUsage = nil; return }
+        let usages = disks.map { DiskUsage(mount: $0.mount, usePct: $0.usePct) }
+        fsDiskUsage = DiskUsageFormatter.select(disks: usages, forPath: path)
+    }
+
+    /// Switches the panel to the block-device "Show disks" view, filtering to
+    /// devices whose mount point actually exists (legacy fs_exists gate).
+    func showFsDisks() async {
+        let client = self.client
+        let devices = await Task.detached(priority: .background) { () -> [DiskDevice] in
+            guard let blocks = client.blockDevices() else { return [] }
+            return blocks.compactMap { block in
+                guard client.fsExists(block.mount) else { return nil }
+                return DiskDevice(
+                    name: block.name,
+                    deviceType: block.deviceType,
+                    mount: block.mount,
+                    removable: block.removable,
+                    label: block.label
+                )
+            }
+        }.value
+
+        fsFailed = false
+        fsIsDiskView = true
+        fsDiskUsage = nil
+        fsItems = FilesystemListBuilder.diskItems(devices: devices)
+    }
+
+    /// Routes a row tap to the right action: navigate, show disks, open special
+    /// config items, or hand the file to the host's default app. The in-app text
+    /// editor (7.3) and media viewer (10.1) supersede external-open later.
+    func activateFsItem(_ item: FilesystemItem) {
+        switch item.role {
+        case .showDisks:
+            Task { await showFsDisks() }
+        case .goUp, .directory, .symlink, .themesDir, .keyboardsDir, .disk, .rom, .usb:
+            Task { await navigateFS(to: item.path) }
+        case .settingsFile:
+            openSettingsModal()
+        case .shortcutsFile:
+            openShortcutsModal()
+        case .themeFile:
+            applyThemeFile(item.name)
+        case .keyboardFile, .file:
+            openFsExternal(item.path)
+        }
+    }
+
+    /// Opens a path in the host's default application.
+    func openFsExternal(_ path: String) {
+        let client = self.client
+        Task {
+            let ok = await Task.detached(priority: .background) {
+                (try? client.fsOpenExternal(path)) != nil
+            }.value
+            if !ok { playAudio(.denied) }
+        }
+    }
+
+    func toggleFsDotfiles() { fsShowDotfiles.toggle() }
+    func toggleFsListView() { fsListView.toggle() }
+
+    /// Applies a theme JSON file live (preview), mirroring the legacy
+    /// `themeChanger`. Does not persist to settings.json.
+    private func applyThemeFile(_ fileName: String) {
+        let themeName = fileName.hasSuffix(".json") ? String(fileName.dropLast(5)) : fileName
+        let client = self.client
+        Task {
+            do {
+                let json = try await Task.detached(priority: .background) {
+                    try client.loadThemeJson(themeName)
+                }.value
+                theme = try NativeTheme(json: json, name: themeName)
+                settingsSummary.theme = themeName
+                playAudio(.granted)
+            } catch {
+                playAudio(.denied)
+            }
+        }
+    }
+
     // MARK: Shortcuts (Phase 6.4)
 
     /// Loads shortcuts.json from the Rust core and installs the local key-event
@@ -458,12 +613,15 @@ final class ShellState {
             openSettingsModal()
         case .shortcuts:
             openShortcutsModal()
+        case .fsListView:
+            toggleFsListView()
+        case .fsDotfiles:
+            toggleFsDotfiles()
         case .copy, .paste, .nextTab, .previousTab, .tabTemplate,
-             .fuzzySearch, .fsListView, .fsDotfiles, .kbPassmode,
-             .devDebug, .devReload:
+             .fuzzySearch, .kbPassmode, .devDebug, .devReload:
             // These actions are dispatched by this handler but their targets
-            // (terminal, filesystem, keyboard) are built in later phases.
-            // Stubs prevent crashes when shortcuts fire before the feature exists.
+            // (terminal, keyboard) are built in later phases. Stubs prevent
+            // crashes when shortcuts fire before the feature exists.
             break
         }
     }
@@ -546,6 +704,8 @@ struct SettingsSummary: Sendable {
     var clockHours = 24
     var excludeThreadsFromToplist = true
     var nointro = false
+    var hideDotfiles = false
+    var fsListView = false
     var audioSettings = EdexAudioSettings()
     var byteCount: Int?
 }
