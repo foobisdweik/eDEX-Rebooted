@@ -44,14 +44,17 @@ final class NativeToplistTests: XCTestCase {
         XCTAssertEqual(formatter.sorted(rows, sort: .field(.cpu, ascending: true)).map(\.pid), [10, 20])
     }
 
-    func testStringSortMatchesLegacyDirection() {
+    func testStringSortDirectionIsConsistentWithNumericColumns() {
+        // Descending (first click / ▼) puts higher values first; for strings that is Z→A.
+        // Ascending (second click / ▲) is A→Z. This matches the numeric columns and the
+        // header arrow, fixing the inverted string direction in the legacy toplist.class.js.
         let rows = [
             EdexProcessRow(pid: 1, name: "zsh", user: "you", cpu: 0, mem: 0, state: "Sleep", started: "2026-06-02T10:00:00Z"),
             EdexProcessRow(pid: 2, name: "Finder", user: "you", cpu: 0, mem: 0, state: "Run", started: "2026-06-02T10:00:00Z")
         ]
 
-        XCTAssertEqual(formatter.sorted(rows, sort: .field(.name, ascending: false)).map(\.pid), [2, 1])
-        XCTAssertEqual(formatter.sorted(rows, sort: .field(.name, ascending: true)).map(\.pid), [1, 2])
+        XCTAssertEqual(formatter.sorted(rows, sort: .field(.name, ascending: false)).map(\.pid), [1, 2])
+        XCTAssertEqual(formatter.sorted(rows, sort: .field(.name, ascending: true)).map(\.pid), [2, 1])
     }
 
     func testRuntimeTextFormatsDaysHoursMinutesSeconds() {

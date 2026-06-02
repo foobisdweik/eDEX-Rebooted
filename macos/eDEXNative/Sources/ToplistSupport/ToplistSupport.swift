@@ -149,7 +149,7 @@ public struct EdexToplistFormatter: Sendable {
 
     private func ordered(_ lhs: String, _ rhs: String, ascending: Bool) -> Bool {
         let comparison = lhs.localizedCaseInsensitiveCompare(rhs)
-        return ascending ? comparison == .orderedDescending : comparison == .orderedAscending
+        return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
     }
 
     private func dateSeconds(_ value: String) -> Double {
