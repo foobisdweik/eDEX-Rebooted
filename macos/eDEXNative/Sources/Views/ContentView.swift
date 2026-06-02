@@ -11,6 +11,7 @@ import SettingsEditorSupport
 import ShortcutsSupport
 import SwiftUI
 import SysinfoSupport
+import TextEditorSupport
 import ThemeSupport
 import ToplistSupport
 
@@ -878,7 +879,7 @@ private struct EdexModalChrome: View {
         case .shortcuts:
             EdexShortcutsView(state: state, theme: theme)
         case .textEditor:
-            customStatus("TEXT EDITOR", detail: "Ready for Phase 7.3 file editing")
+            EdexTextEditorView(state: state, theme: theme)
         case .mediaViewer:
             customStatus("MEDIA VIEWER", detail: "Ready for Phase 10.1 media content")
         case .customPlaceholder:
@@ -949,6 +950,9 @@ private struct EdexModalChrome: View {
         if modal.content == .shortcuts {
             return min(max(safeContainerWidth * 0.5, 520), 780)
         }
+        if modal.content == .textEditor {
+            return min(max(safeContainerWidth * 0.6, 560), 900)
+        }
         return min(max(safeContainerWidth * 0.42, 380), 740)
     }
 
@@ -961,6 +965,9 @@ private struct EdexModalChrome: View {
         }
         if modal.content == .shortcuts {
             return min(max(safeContainerHeight * 0.55, 380), 600)
+        }
+        if modal.content == .textEditor {
+            return min(max(safeContainerHeight * 0.6, 420), 680)
         }
         return modal.kind == .custom ? 260 : 150
     }
@@ -1263,6 +1270,56 @@ private struct EdexShortcutsView: View {
         return Text(label)
             .font(.custom(theme.fonts.terminal, size: 12))
             .foregroundStyle(theme.terminalForeground)
+    }
+}
+
+// MARK: - Text editor modal (Phase 7.3)
+
+private struct EdexTextEditorView: View {
+    @Bindable var state: ShellState
+    let theme: NativeTheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextEditor(text: Binding(
+                get: { state.textEditorText },
+                set: { state.setTextEditorText($0) }
+            ))
+            .font(.custom(theme.fonts.terminal, size: 12))
+            .foregroundStyle(theme.terminalForeground)
+            .scrollContentBackground(.hidden)
+            .background(theme.terminalBackground.opacity(0.72))
+            .frame(minHeight: 280, maxHeight: .infinity)
+            .overlay(
+                Rectangle().strokeBorder(theme.accent.opacity(0.4), lineWidth: 1)
+            )
+
+            HStack(spacing: 12) {
+                Text(state.textEditorStatus)
+                    .font(.custom(theme.fonts.terminal, size: 11))
+                    .foregroundStyle(theme.accent.opacity(0.82))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button { state.saveTextFile() } label: {
+                    Text("Save to Disk")
+                        .font(.custom(theme.fonts.main, size: 11))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .foregroundStyle(theme.accent)
+                        .background(theme.accent.opacity(0.18))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .augmentedSurface(
+            style: .panel(vh: 8),
+            fill: theme.terminalBackground.opacity(0.7),
+            stroke: theme.accent
+        )
     }
 }
 
