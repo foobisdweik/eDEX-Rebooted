@@ -296,6 +296,11 @@ uint64_t uniffi_edex_ffi_fn_constructor_edexcore_new(RustCallStatus *_Nonnull ou
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_battery(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_CPU_SNAPSHOT
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_CPU_SNAPSHOT
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_cpu_snapshot(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_ENSURE_USERDATA
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_ENSURE_USERDATA
 void uniffi_edex_ffi_fn_method_edexcore_ensure_userdata(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -629,6 +634,12 @@ void ffi_edex_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_No
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_BATTERY
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_BATTERY
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_battery(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_CPU_SNAPSHOT
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_CPU_SNAPSHOT
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_cpu_snapshot(void
     
 );
 #endif

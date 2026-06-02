@@ -52,6 +52,11 @@ struct EdexCoreClient {
     func hardware() -> FfiHardware {
         core.hardware()
     }
+
+    /// Live CPU snapshot, or nil if the query fails (cpuinfo panel).
+    func cpuSnapshot() -> FfiCpuSnapshot? {
+        try? core.cpuSnapshot()
+    }
 }
 
 private struct SettingsFile: Decodable {

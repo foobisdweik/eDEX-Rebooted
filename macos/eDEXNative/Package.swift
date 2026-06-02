@@ -43,18 +43,23 @@ let package = Package(
             path: "Sources/HardwareSupport"
         ),
         .target(
+            name: "CpuinfoSupport",
+            path: "Sources/CpuinfoSupport"
+        ),
+        .target(
             name: "ThemeSupport",
             path: "Sources/ThemeSupport"
         ),
         .executableTarget(
             name: "eDEXNative",
-            dependencies: ["BorderSupport", "ClockSupport", "HardwareSupport", "LayoutSupport", "SysinfoSupport", "ThemeSupport"],
+            dependencies: ["BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "SysinfoSupport", "ThemeSupport"],
             path: ".",
             exclude: [
                 "README.md",
                 "Scripts",
                 "Sources/BorderSupport",
                 "Sources/ClockSupport",
+                "Sources/CpuinfoSupport",
                 "Sources/HardwareSupport",
                 "Sources/LayoutSupport",
                 "Sources/SysinfoSupport",
@@ -86,7 +91,7 @@ let package = Package(
         ),
         .testTarget(
             name: "eDEXNativeTests",
-            dependencies: ["BorderSupport", "ClockSupport", "HardwareSupport", "LayoutSupport", "SysinfoSupport", "ThemeSupport"],
+            dependencies: ["BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "SysinfoSupport", "ThemeSupport"],
             path: "Tests"
         )
     ],
