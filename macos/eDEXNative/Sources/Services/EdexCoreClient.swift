@@ -22,6 +22,7 @@ struct EdexCoreClient {
         var summary = SettingsSummary(
             theme: themeName,
             keepGeometry: decodedSettings.keepGeometry ?? true,
+            clockHours: decodedSettings.clockHours ?? 24,
             byteCount: settingsData.count
         )
 
@@ -41,4 +42,5 @@ struct EdexCoreClient {
 private struct SettingsFile: Decodable {
     var theme: String?
     var keepGeometry: Bool?
+    var clockHours: Int?
 }

@@ -46,5 +46,6 @@ final class ShellState {
 struct SettingsSummary: Sendable {
     var theme = "pending"
     var keepGeometry = true
+    var clockHours = 24
     var byteCount: Int?
 }
