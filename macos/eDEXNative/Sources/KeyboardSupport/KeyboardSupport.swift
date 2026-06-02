@@ -9,8 +9,8 @@ public enum NativeKeyboardRowID: String, CaseIterable, Sendable {
 }
 
 public struct NativeKeyboardLayout: Equatable, Sendable {
-    public var name: String
-    public var rows: [NativeKeyboardRow]
+    public let name: String
+    public let rows: [NativeKeyboardRow]
 
     public var keyCount: Int {
         rows.reduce(0) { $0 + $1.keys.count }
@@ -24,19 +24,25 @@ public struct NativeKeyboardLayout: Equatable, Sendable {
     public init(json: String, name: String) throws {
         let data = Data(json.utf8)
         let raw = try JSONDecoder().decode(RawKeyboardLayout.self, from: data)
-        let orderedRows = NativeKeyboardRowID.allCases.compactMap { id -> NativeKeyboardRow? in
+        var missingRows = [String]()
+        var orderedRows = [NativeKeyboardRow]()
+        for id in NativeKeyboardRowID.allCases {
             guard let rawKeys = raw.rows[id], !rawKeys.isEmpty else {
-                return nil
+                missingRows.append(id.rawValue)
+                continue
             }
-            return NativeKeyboardRow(
+            orderedRows.append(NativeKeyboardRow(
                 id: id,
                 keys: rawKeys.map(NativeKeyboardKey.init(raw:))
-            )
+            ))
         }
 
-        guard !orderedRows.isEmpty else {
+        guard missingRows.isEmpty else {
             throw DecodingError.dataCorrupted(
-                .init(codingPath: [], debugDescription: "Keyboard layout has no usable key rows")
+                .init(
+                    codingPath: [],
+                    debugDescription: "Keyboard layout missing required rows: \(missingRows.joined(separator: ", "))"
+                )
             )
         }
 
@@ -53,8 +59,8 @@ public struct NativeKeyboardLayout: Equatable, Sendable {
 }
 
 public struct NativeKeyboardRow: Equatable, Sendable {
-    public var id: NativeKeyboardRowID
-    public var keys: [NativeKeyboardKey]
+    public let id: NativeKeyboardRowID
+    public let keys: [NativeKeyboardKey]
 
     public init(id: NativeKeyboardRowID, keys: [NativeKeyboardKey]) {
         self.id = id
@@ -63,19 +69,19 @@ public struct NativeKeyboardRow: Equatable, Sendable {
 }
 
 public struct NativeKeyboardKey: Equatable, Sendable {
-    public var name: String
-    public var command: String
-    public var shiftName: String?
-    public var shiftCommand: String?
-    public var controlCommand: String?
-    public var alternateName: String?
-    public var alternateCommand: String?
-    public var alternateShiftName: String?
-    public var alternateShiftCommand: String?
-    public var functionName: String?
-    public var functionCommand: String?
-    public var capsLockCommand: String?
-    public var iconName: String?
+    public let name: String
+    public let command: String
+    public let shiftName: String?
+    public let shiftCommand: String?
+    public let controlCommand: String?
+    public let alternateName: String?
+    public let alternateCommand: String?
+    public let alternateShiftName: String?
+    public let alternateShiftCommand: String?
+    public let functionName: String?
+    public let functionCommand: String?
+    public let capsLockCommand: String?
+    public let iconName: String?
 
     public init(
         name: String,
@@ -108,8 +114,9 @@ public struct NativeKeyboardKey: Equatable, Sendable {
     }
 
     fileprivate init(raw: RawKeyboardKey) {
+        let iconName = NativeKeyboardKey.iconName(from: raw.name)
         self.init(
-            name: raw.name,
+            name: iconName ?? raw.name,
             command: NativeKeyboardKey.expandControlSequences(raw.command),
             shiftName: raw.shiftName,
             shiftCommand: NativeKeyboardKey.expandControlSequences(raw.shiftCommand),
@@ -121,7 +128,7 @@ public struct NativeKeyboardKey: Equatable, Sendable {
             functionName: raw.functionName,
             functionCommand: NativeKeyboardKey.expandControlSequences(raw.functionCommand),
             capsLockCommand: NativeKeyboardKey.expandControlSequences(raw.capsLockCommand),
-            iconName: NativeKeyboardKey.iconName(from: raw.name)
+            iconName: iconName
         )
     }
 

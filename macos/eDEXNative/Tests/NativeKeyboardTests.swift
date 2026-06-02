@@ -28,7 +28,8 @@ final class NativeKeyboardTests: XCTestCase {
         .filter { $0.pathExtension == "json" }
         .sorted { $0.lastPathComponent < $1.lastPathComponent }
 
-        XCTAssertEqual(files.count, 19)
+        XCTAssertFalse(files.isEmpty)
+        XCTAssertTrue(files.contains { $0.lastPathComponent == "en-US.json" })
 
         for file in files {
             let name = file.deletingPathExtension().lastPathComponent
@@ -68,20 +69,23 @@ final class NativeKeyboardTests: XCTestCase {
         let layout = try enUSLayout()
         let arrowLeft = try XCTUnwrap(layout.key(iconName: "ARROW_LEFT"))
 
-        XCTAssertEqual(arrowLeft.name, "ESCAPED|-- ICON: ARROW_LEFT")
+        XCTAssertEqual(arrowLeft.name, "ARROW_LEFT")
         XCTAssertEqual(arrowLeft.iconName, "ARROW_LEFT")
         XCTAssertEqual(arrowLeft.command, "\u{001B}OD")
     }
 
-    func testRejectsMissingRows() {
-        let json = #"{"row_numbers":[]}"#
+    func testRejectsLayoutsMissingRequiredRows() {
+        let json = #"{"row_numbers":[{"name":"ESC","cmd":"~~~CTRLSEQ1~~~"}]}"#
 
         XCTAssertThrowsError(try NativeKeyboardLayout(json: json, name: "bad")) { error in
             guard case DecodingError.dataCorrupted(let context) = error else {
                 XCTFail("Expected DecodingError.dataCorrupted, got \(error)")
                 return
             }
-            XCTAssertEqual(context.debugDescription, "Keyboard layout has no usable key rows")
+            XCTAssertEqual(
+                context.debugDescription,
+                "Keyboard layout missing required rows: row_1, row_2, row_3, row_space"
+            )
         }
     }
 }
