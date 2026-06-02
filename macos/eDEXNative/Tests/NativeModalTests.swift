@@ -2,6 +2,7 @@ import XCTest
 @testable import ModalSupport
 import AudioSupport
 
+@MainActor
 final class NativeModalTests: XCTestCase {
     func testPlainTextNormalizationMatchesLegacyNativeModalSanitizer() {
         XCTAssertEqual(
@@ -43,8 +44,8 @@ final class NativeModalTests: XCTestCase {
         let manager = EdexModalManager(idGenerator: EdexModalIdGenerator(seed: 10))
         var closed = [EdexModalID]()
 
-        let first = try manager.present(.init(type: "info", title: "One", message: "First")) { closed.append($0) }
-        let second = try manager.present(.init(type: "warning", title: "Two", message: "Second")) { closed.append($0) }
+        let first = manager.present(try .init(type: "info", title: "One", message: "First")) { closed.append($0) }
+        let second = manager.present(try .init(type: "warning", title: "Two", message: "Second")) { closed.append($0) }
 
         XCTAssertEqual(manager.modals.map(\.id), [first, second])
         XCTAssertEqual(manager.focusedID, second)
@@ -63,8 +64,8 @@ final class NativeModalTests: XCTestCase {
 
     func testKeyboardDetachesOnlyWhileKeyboardOwningModalsAreOpen() throws {
         let manager = EdexModalManager(idGenerator: EdexModalIdGenerator(seed: 20))
-        let custom = try manager.present(.init(type: "custom", title: "Processes", message: "", content: .processList))
-        let info = try manager.present(.init(type: "info", title: "PDF", message: "Deferred"))
+        let custom = manager.present(try .init(type: "custom", title: "Processes", message: "", content: .processList))
+        let info = manager.present(try .init(type: "info", title: "PDF", message: "Deferred"))
 
         XCTAssertTrue(manager.isKeyboardDetached)
         XCTAssertEqual(manager.close(info), .denied)
@@ -75,8 +76,8 @@ final class NativeModalTests: XCTestCase {
 
     func testMoveUpdatesOnlyTheRequestedModalOffset() throws {
         let manager = EdexModalManager(idGenerator: EdexModalIdGenerator(seed: 30))
-        let first = try manager.present(.init(type: "info", title: "One", message: "First"))
-        let second = try manager.present(.init(type: "info", title: "Two", message: "Second"))
+        let first = manager.present(try .init(type: "info", title: "One", message: "First"))
+        let second = manager.present(try .init(type: "info", title: "Two", message: "Second"))
 
         manager.move(first, dx: 14, dy: -6)
         manager.move(EdexModalID("missing"), dx: 99, dy: 99)

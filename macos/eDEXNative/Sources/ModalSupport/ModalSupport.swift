@@ -145,6 +145,7 @@ public struct EdexModalRecord: Equatable, Sendable {
 }
 
 @Observable
+@MainActor
 public final class EdexModalManager {
     public private(set) var modals = [EdexModalRecord]()
     public private(set) var focusedID: EdexModalID?
@@ -162,7 +163,7 @@ public final class EdexModalManager {
     }
 
     @discardableResult
-    public func present(_ request: EdexModalRequest, onClose: ((EdexModalID) -> Void)? = nil) throws -> EdexModalID {
+    public func present(_ request: EdexModalRequest, onClose: ((EdexModalID) -> Void)? = nil) -> EdexModalID {
         let id = idGenerator.next()
         focusCounter += 1
         let record = EdexModalRecord(

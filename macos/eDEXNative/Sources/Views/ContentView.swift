@@ -767,7 +767,9 @@ private struct EdexModalChrome: View {
             y: safeContainerHeight / 2 + CGFloat(modal.offsetY)
         )
         .shadow(color: theme.accent.opacity(0.24), radius: 16)
-        .onTapGesture(perform: onFocus)
+        .simultaneousGesture(TapGesture().onEnded {
+            onFocus()
+        })
     }
 
     private var header: some View {

@@ -146,7 +146,7 @@ final class ShellState {
                 detachesKeyboard: detachesKeyboard
             )
             playAudio(request.openCue)
-            return try modalManager.present(request, onClose: onClose)
+            return modalManager.present(request, onClose: onClose)
         } catch {
             statusText = "modal error — \(error.localizedDescription)"
             return nil
