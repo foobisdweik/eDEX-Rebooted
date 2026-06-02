@@ -1,4 +1,5 @@
 import AppKit
+import AudioSupport
 import CpuinfoSupport
 import Darwin
 import Foundation
@@ -13,6 +14,7 @@ import ThemeSupport
 @MainActor
 final class ShellState {
     private let client = EdexCoreClient()
+    private let audio = EdexAudioService()
 
     var statusText = "booting"
     var paths: FfiPaths?
@@ -58,6 +60,7 @@ final class ShellState {
             settingsSummary = snapshot.settings
             keepGeometry = snapshot.settings.keepGeometry
             theme = snapshot.theme
+            audio.configure(settings: snapshot.settings.audioSettings)
             statusText = "ok — EdexCore.paths(), ensureUserdata(), loadSettingsJson(), loadThemeJson() returned"
             print("eDEXNative FFI OK userData=\(snapshot.paths.userData) settingsBytes=\(snapshot.settings.byteCount ?? 0) theme=\(snapshot.settings.theme) keepGeometry=\(snapshot.settings.keepGeometry)")
             terminateIfSmokeWindow()
@@ -117,6 +120,11 @@ final class ShellState {
         }.value
     }
 
+    @discardableResult
+    func playAudio(_ cue: EdexAudioCue) -> Bool {
+        audio.play(cue)
+    }
+
     private func terminateIfSmokeWindow() {
         guard CommandLine.arguments.contains("--smoke-window") else { return }
         DispatchQueue.main.async {
@@ -131,5 +139,6 @@ struct SettingsSummary: Sendable {
     var theme = "pending"
     var keepGeometry = true
     var clockHours = 24
+    var audioSettings = EdexAudioSettings()
     var byteCount: Int?
 }

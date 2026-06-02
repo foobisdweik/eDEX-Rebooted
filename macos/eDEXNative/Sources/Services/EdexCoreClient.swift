@@ -1,4 +1,5 @@
 import Foundation
+import AudioSupport
 import ThemeSupport
 
 struct BootstrapSnapshot: Sendable {
@@ -23,6 +24,7 @@ struct EdexCoreClient {
             theme: themeName,
             keepGeometry: decodedSettings.keepGeometry ?? true,
             clockHours: decodedSettings.clockHours ?? 24,
+            audioSettings: (try? JSONDecoder().decode(EdexAudioSettings.self, from: settingsData)) ?? EdexAudioSettings(),
             byteCount: settingsData.count
         )
 
