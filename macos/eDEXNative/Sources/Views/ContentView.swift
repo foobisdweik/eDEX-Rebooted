@@ -880,6 +880,8 @@ private struct EdexModalChrome: View {
             EdexShortcutsView(state: state, theme: theme)
         case .textEditor:
             EdexTextEditorView(state: state, theme: theme)
+        case .fuzzyFinder:
+            EdexFuzzyFinderView(state: state, theme: theme)
         case .mediaViewer:
             customStatus("MEDIA VIEWER", detail: "Ready for Phase 10.1 media content")
         case .customPlaceholder:
@@ -953,6 +955,9 @@ private struct EdexModalChrome: View {
         if modal.content == .textEditor {
             return min(max(safeContainerWidth * 0.6, 560), 900)
         }
+        if modal.content == .fuzzyFinder {
+            return min(max(safeContainerWidth * 0.42, 480), 640)
+        }
         return min(max(safeContainerWidth * 0.42, 380), 740)
     }
 
@@ -968,6 +973,9 @@ private struct EdexModalChrome: View {
         }
         if modal.content == .textEditor {
             return min(max(safeContainerHeight * 0.6, 420), 680)
+        }
+        if modal.content == .fuzzyFinder {
+            return min(max(safeContainerHeight * 0.34, 300), 380)
         }
         return modal.kind == .custom ? 260 : 150
     }
@@ -1320,6 +1328,179 @@ private struct EdexTextEditorView: View {
             fill: theme.terminalBackground.opacity(0.7),
             stroke: theme.accent
         )
+    }
+}
+
+// MARK: - Fuzzy finder modal (Phase 7.2)
+
+private struct EdexFuzzyFinderView: View {
+    @Bindable var state: ShellState
+    let theme: NativeTheme
+
+    @FocusState private var searchFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Search file in cwd...", text: Binding(
+                get: { state.fuzzyQuery },
+                set: { state.setFuzzyQuery($0) }
+            ))
+            .textFieldStyle(.plain)
+            .font(.custom(theme.fonts.terminal, size: 13))
+            .foregroundStyle(theme.terminalForeground)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(theme.terminalBackground.opacity(0.72))
+            .overlay(Rectangle().strokeBorder(theme.accent.opacity(0.44), lineWidth: 1))
+            .focused($searchFocused)
+            .onSubmit { state.submitFuzzySelection() }
+
+            VStack(spacing: 0) {
+                if state.fuzzyResults.isEmpty {
+                    noResultsRow
+                } else {
+                    ForEach(Array(state.fuzzyResults.prefix(5).enumerated()), id: \.element.id) { index, item in
+                        Button {
+                            state.fuzzySelection = index
+                        } label: {
+                            resultRow(item, selected: index == state.fuzzySelection)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ForEach(state.fuzzyResults.count..<5, id: \.self) { _ in
+                        emptyRow
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 138, alignment: .topLeading)
+            .background(theme.terminalBackground.opacity(0.46))
+            .overlay(Rectangle().strokeBorder(theme.accent.opacity(0.32), lineWidth: 1))
+
+            HStack(spacing: 12) {
+                Text(state.fuzzyStatus)
+                    .font(.custom(theme.fonts.terminal, size: 11))
+                    .foregroundStyle(theme.accent.opacity(0.72))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button {
+                    state.submitFuzzySelection()
+                } label: {
+                    Text("Select")
+                        .font(.custom(theme.fonts.main, size: 11))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .foregroundStyle(theme.accent)
+                        .background(theme.accent.opacity(0.18))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .augmentedSurface(
+            style: .panel(vh: 8),
+            fill: theme.terminalBackground.opacity(0.7),
+            stroke: theme.accent
+        )
+        .task {
+            searchFocused = true
+        }
+        .onKeyPress(.upArrow) {
+            state.moveFuzzySelection(-1)
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            state.moveFuzzySelection(1)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            state.submitFuzzySelection()
+            return .handled
+        }
+    }
+
+    private var noResultsRow: some View {
+        HStack(spacing: 8) {
+            Text("No results")
+                .foregroundStyle(theme.terminalForeground.opacity(0.64))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.custom(theme.fonts.terminal, size: 12))
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(theme.accent.opacity(0.16))
+    }
+
+    private var emptyRow: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(height: 27)
+    }
+
+    private func resultRow(_ item: FilesystemItem, selected: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol(item.role))
+                .font(.system(size: 12))
+                .foregroundStyle(theme.accent)
+                .frame(width: 18)
+            Text(item.name)
+                .foregroundStyle(theme.terminalForeground)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(typeLabel(item))
+                .foregroundStyle(theme.accent.opacity(0.62))
+                .lineLimit(1)
+                .frame(width: 86, alignment: .leading)
+            Text(item.sizeText)
+                .foregroundStyle(theme.accent.opacity(0.8))
+                .lineLimit(1)
+                .frame(width: 64, alignment: .trailing)
+        }
+        .font(.custom(theme.fonts.terminal, size: 11))
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(selected ? theme.accent.opacity(0.18) : Color.clear)
+        .opacity(item.hidden ? 0.55 : 1.0)
+    }
+
+    private func symbol(_ role: FilesystemRole) -> String {
+        switch role {
+        case .goUp: return "arrow.up.left"
+        case .showDisks: return "externaldrive.connected.to.line.below"
+        case .directory: return "folder"
+        case .symlink: return "arrowshape.turn.up.right"
+        case .file: return "doc"
+        case .themesDir: return "paintpalette"
+        case .keyboardsDir: return "keyboard"
+        case .themeFile: return "paintpalette.fill"
+        case .keyboardFile: return "keyboard.fill"
+        case .settingsFile: return "gearshape"
+        case .shortcutsFile: return "command"
+        case .disk: return "internaldrive"
+        case .rom: return "opticaldiscdrive"
+        case .usb: return "externaldrive"
+        }
+    }
+
+    private func typeLabel(_ item: FilesystemItem) -> String {
+        switch item.role {
+        case .goUp, .showDisks: return "--"
+        case .directory: return "folder"
+        case .symlink: return "symlink"
+        case .file: return "file"
+        case .themesDir: return "themes"
+        case .keyboardsDir: return "keyboards"
+        case .themeFile: return "theme"
+        case .keyboardFile: return "keyboard"
+        case .settingsFile: return "settings"
+        case .shortcutsFile: return "shortcuts"
+        case .disk: return "disk"
+        case .rom: return "rom"
+        case .usb: return "usb"
+        }
     }
 }
 
