@@ -1,5 +1,6 @@
 import AppKit
 import AudioSupport
+import BootSupport
 import CpuinfoSupport
 import Darwin
 import Foundation
@@ -44,6 +45,12 @@ final class ShellState {
     var processSort = EdexProcessSort.default
     @ObservationIgnored private var processListModalID: EdexModalID?
     @ObservationIgnored private var processListRefreshTask: Task<Void, Never>?
+
+    // Phase 6.5 boot screen state.
+    /// Which stage of the boot sequence is active.
+    var bootStage: EdexBootStage = .logScroll
+    /// Lines accumulated so far during the log-scroll stage.
+    var bootDisplayLines: [String] = []
 
     // Phase 6.4 shortcuts state.
     var shortcuts: EdexShortcutsDocument?
@@ -95,6 +102,53 @@ final class ShellState {
             presentModal(type: "error", title: "Native bootstrap failed", message: error.localizedDescription)
             print("eDEXNative FFI ERROR \(error.localizedDescription)")
             terminateIfSmokeWindow()
+        }
+    }
+
+    // MARK: - Boot sequence (Phase 6.5)
+
+    /// Drives the boot screen overlay. Called from BootView's task{} once after
+    /// the view appears. Matches the legacy renderer.js displayLine() timing.
+    ///
+    /// nointro skips straight to complete (BootView removes itself immediately).
+    func runBootSequence() async {
+        guard !BootSequenceConfig.shouldSkipLog(nointro: settingsSummary.nointro) else {
+            bootStage = .complete
+            return
+        }
+
+        let lines = BootLines.rawLines
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.0.0"
+        let dateString = DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium)
+        let synthetic = BootLines.syntheticKernelLine(appVersion: appVersion, date: dateString)
+
+        bootStage = .logScroll
+        bootDisplayLines = []
+
+        do {
+            for (index, line) in lines.enumerated() {
+                bootDisplayLines.append(line)
+                if line == "Boot Complete" {
+                    playAudio(.granted)
+                } else {
+                    playAudio(.stdout)
+                }
+                // Inject synthetic kernel-version line after line index 1 (mirrors JS i===2).
+                if index == 1 {
+                    bootDisplayLines.append(synthetic)
+                }
+                let delay = BootTiming.delay(forLine: index)
+                try await Task.sleep(for: .seconds(delay))
+            }
+
+            // 300ms gap before the title flash (mirrors the displayTitleScreen call site).
+            try await Task.sleep(for: .milliseconds(300))
+            playAudio(.theme)
+            bootStage = .titleFlash
+            // TitleFlashView drives its own animation and sets bootStage = .complete when done.
+        } catch {
+            // Task was cancelled (e.g. app quit or view dismissed) — exit without
+            // completing the sequence or playing further audio.
         }
     }
 
@@ -302,6 +356,7 @@ final class ShellState {
         settingsSummary.clockHours = document.int(.clockHours) ?? 24
         settingsSummary.keepGeometry = document.bool(.keepGeometry) ?? true
         settingsSummary.excludeThreadsFromToplist = document.bool(.excludeThreadsFromToplist) ?? true
+        settingsSummary.nointro = document.bool(.nointro) ?? false
         keepGeometry = settingsSummary.keepGeometry
 
         let audioSettings = EdexAudioSettings(
@@ -490,6 +545,7 @@ struct SettingsSummary: Sendable {
     var keepGeometry = true
     var clockHours = 24
     var excludeThreadsFromToplist = true
+    var nointro = false
     var audioSettings = EdexAudioSettings()
     var byteCount: Int?
 }

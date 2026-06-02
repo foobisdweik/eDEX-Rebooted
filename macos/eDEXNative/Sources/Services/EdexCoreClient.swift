@@ -25,6 +25,7 @@ struct EdexCoreClient {
             keepGeometry: decodedSettings.keepGeometry ?? true,
             clockHours: decodedSettings.clockHours ?? 24,
             excludeThreadsFromToplist: decodedSettings.excludeThreadsFromToplist ?? true,
+            nointro: decodedSettings.nointro ?? false,
             audioSettings: (try? JSONDecoder().decode(EdexAudioSettings.self, from: settingsData)) ?? EdexAudioSettings(),
             byteCount: settingsData.count
         )
@@ -117,4 +118,5 @@ private struct SettingsFile: Decodable {
     var keepGeometry: Bool?
     var clockHours: Int?
     var excludeThreadsFromToplist: Bool?
+    var nointro: Bool?
 }

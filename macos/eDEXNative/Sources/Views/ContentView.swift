@@ -1,3 +1,4 @@
+import BootSupport
 import BorderSupport
 import ClockSupport
 import CpuinfoSupport
@@ -39,6 +40,12 @@ struct ContentView: View {
                 keyboard(layout.keyboard, vh: layout.vh)
                 statusRibbon(vh: layout.vh)
                 modalLayer(size: proxy.size, vh: layout.vh)
+                if state.bootStage != .complete {
+                    BootView(state: state)
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .transition(.opacity)
+                        .animation(.easeOut(duration: 0.4), value: state.bootStage)
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
