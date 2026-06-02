@@ -634,6 +634,12 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     
     func loadThemeJson(name: String) throws  -> String
     
+    /**
+     * Memory snapshot for the ramwatcher panel. Uses the lighter cached
+     * `mem()` accessor (not the full panel snapshot the JS over-fetched).
+     */
+    func memSnapshot() throws  -> FfiMemSnapshot
+    
     func paths()  -> FfiPaths
     
     func ptyMetadata(id: UInt32) throws  -> FfiPtyMetadata
@@ -785,6 +791,18 @@ open func loadThemeJson(name: String)throws  -> String  {
     uniffi_edex_ffi_fn_method_edexcore_load_theme_json(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(name),$0
+    )
+})
+}
+    
+    /**
+     * Memory snapshot for the ramwatcher panel. Uses the lighter cached
+     * `mem()` accessor (not the full panel snapshot the JS over-fetched).
+     */
+open func memSnapshot()throws  -> FfiMemSnapshot  {
+    return try  FfiConverterTypeFfiMemSnapshot_lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
+    uniffi_edex_ffi_fn_method_edexcore_mem_snapshot(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1111,6 +1129,81 @@ public func FfiConverterTypeFfiHardware_lift(_ buf: RustBuffer) throws -> FfiHar
 #endif
 public func FfiConverterTypeFfiHardware_lower(_ value: FfiHardware) -> RustBuffer {
     return FfiConverterTypeFfiHardware.lower(value)
+}
+
+
+/**
+ * The `MemStats` fields the native ramwatcher panel consumes (mirrors the
+ * `snapshot.mem` reads in ramwatcher.class.js): the active/available/free
+ * breakdown for the 440-dot grid plus swap totals.
+ */
+public struct FfiMemSnapshot: Equatable, Hashable {
+    public var total: UInt64
+    public var free: UInt64
+    public var active: UInt64
+    public var available: UInt64
+    public var swapTotal: UInt64
+    public var swapUsed: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(total: UInt64, free: UInt64, active: UInt64, available: UInt64, swapTotal: UInt64, swapUsed: UInt64) {
+        self.total = total
+        self.free = free
+        self.active = active
+        self.available = available
+        self.swapTotal = swapTotal
+        self.swapUsed = swapUsed
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiMemSnapshot: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMemSnapshot: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMemSnapshot {
+        return
+            try FfiMemSnapshot(
+                total: FfiConverterUInt64.read(from: &buf), 
+                free: FfiConverterUInt64.read(from: &buf), 
+                active: FfiConverterUInt64.read(from: &buf), 
+                available: FfiConverterUInt64.read(from: &buf), 
+                swapTotal: FfiConverterUInt64.read(from: &buf), 
+                swapUsed: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMemSnapshot, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.total, into: &buf)
+        FfiConverterUInt64.write(value.free, into: &buf)
+        FfiConverterUInt64.write(value.active, into: &buf)
+        FfiConverterUInt64.write(value.available, into: &buf)
+        FfiConverterUInt64.write(value.swapTotal, into: &buf)
+        FfiConverterUInt64.write(value.swapUsed, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMemSnapshot_lift(_ buf: RustBuffer) throws -> FfiMemSnapshot {
+    return try FfiConverterTypeFfiMemSnapshot.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMemSnapshot_lower(_ value: FfiMemSnapshot) -> RustBuffer {
+    return FfiConverterTypeFfiMemSnapshot.lower(value)
 }
 
 
@@ -1715,6 +1808,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_load_theme_json() != 44188) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_mem_snapshot() != 49606) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_paths() != 32883) {

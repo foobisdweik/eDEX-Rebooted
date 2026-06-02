@@ -57,6 +57,11 @@ struct EdexCoreClient {
     func cpuSnapshot() -> FfiCpuSnapshot? {
         try? core.cpuSnapshot()
     }
+
+    /// Memory snapshot, or nil if the query fails (ramwatcher panel).
+    func memSnapshot() -> FfiMemSnapshot? {
+        try? core.memSnapshot()
+    }
 }
 
 private struct SettingsFile: Decodable {

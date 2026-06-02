@@ -3,6 +3,7 @@ import ClockSupport
 import CpuinfoSupport
 import HardwareSupport
 import LayoutSupport
+import RamwatcherSupport
 import SwiftUI
 import SysinfoSupport
 import ThemeSupport
@@ -11,6 +12,7 @@ struct ContentView: View {
     @Bindable var state: ShellState
     private let layoutEngine = EdexLayoutEngine()
     private let cpuFormatter = EdexCpuinfoFormatter()
+    private let ramFormatter = EdexRamwatcherFormatter()
 
     var body: some View {
         GeometryReader { proxy in
@@ -71,6 +73,8 @@ struct ContentView: View {
                     hardwarePanel(vh: vh)
                 } else if label == "CPU" {
                     cpuPanel(vh: vh)
+                } else if label == "RAM" {
+                    ramPanel(vh: vh)
                 } else {
                     panelStub(label, vh: vh)
                 }
@@ -481,6 +485,97 @@ struct ContentView: View {
                 .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func ramPanel(vh: Double) -> some View {
+        let mem = state.mem
+        let active = mem.map { ramFormatter.activeCount(active: $0.active, total: $0.total) } ?? 0
+        let available = mem.map { ramFormatter.availableCount(available: $0.available, free: $0.free, total: $0.total) } ?? 0
+        let swapPct = mem.map { ramFormatter.swapPercent(used: $0.swapUsed, total: $0.swapTotal) } ?? 0
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text("MEMORY")
+                    .font(.custom(state.theme.fonts.main, size: 12))
+                Spacer(minLength: 4)
+                Text(mem.map { ramFormatter.infoText(active: $0.active, total: $0.total) } ?? "")
+                    .font(.custom(state.theme.fonts.terminal, size: 9))
+                    .foregroundStyle(state.theme.accent.opacity(0.7))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            ramGrid(active: active, available: available)
+            HStack(spacing: 8) {
+                Text("SWAP")
+                    .font(.custom(state.theme.fonts.main, size: 10))
+                    .foregroundStyle(state.theme.accent.opacity(0.7))
+                ramSwapBar(percent: swapPct)
+                Text(mem.map { ramFormatter.swapText(used: $0.swapUsed) } ?? "0 GiB")
+                    .font(.custom(state.theme.fonts.terminal, size: 10))
+                    .foregroundStyle(state.theme.terminalForeground)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+        .augmentedSurface(
+            style: .panel(vh: vh),
+            fill: state.theme.terminalBackground.opacity(0.72),
+            stroke: state.theme.accent
+        )
+        .task {
+            // ramwatcher.class.js polls every 1500ms.
+            while !Task.isCancelled {
+                await state.refreshMem()
+                try? await Task.sleep(for: .milliseconds(1500))
+            }
+        }
+    }
+
+    private func ramGrid(active: Int, available: Int) -> some View {
+        let cols = 40
+        let rows = EdexRamwatcherFormatter.gridCellCount / 40 // 11
+        return Canvas { ctx, size in
+            guard size.width.isFinite, size.width > 0,
+                  size.height.isFinite, size.height > 0 else { return }
+            let ranks = state.ramGridRanks
+            guard ranks.count == cols * rows else { return }
+            let cellW = size.width / Double(cols)
+            let cellH = size.height / Double(rows)
+            let pad = min(cellW, cellH) * 0.16
+            for position in 0..<(cols * rows) {
+                let column = position % cols
+                let row = position / cols
+                let tier = ramFormatter.cellState(rank: ranks[position], activeCount: active, availableCount: available)
+                let opacity: Double
+                switch tier {
+                case .active: opacity = 1.0
+                case .available: opacity = 0.45
+                case .free: opacity = 0.12
+                }
+                let rect = CGRect(
+                    x: Double(column) * cellW + pad,
+                    y: Double(row) * cellH + pad,
+                    width: max(0.5, cellW - 2 * pad),
+                    height: max(0.5, cellH - 2 * pad)
+                )
+                ctx.fill(Path(roundedRect: rect, cornerRadius: 0.5), with: .color(state.theme.accent.opacity(opacity)))
+            }
+        }
+        .frame(height: 60)
+    }
+
+    private func ramSwapBar(percent: Int) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Rectangle().fill(state.theme.accent.opacity(0.2))
+                Rectangle()
+                    .fill(state.theme.accent)
+                    .frame(width: geo.size.width * Double(min(max(percent, 0), 100)) / 100.0)
+            }
+        }
+        .frame(height: 4)
     }
 
     private func keyStub(width: Double, vh: Double) -> some View {

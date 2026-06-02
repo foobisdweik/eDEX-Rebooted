@@ -4,6 +4,7 @@ import Darwin
 import Foundation
 import HardwareSupport
 import Observation
+import RamwatcherSupport
 import SwiftUI
 import SysinfoSupport
 import ThemeSupport
@@ -29,6 +30,12 @@ final class ShellState {
     /// Per-core CPU load history feeding the two scrolling graphs.
     var cpuSeries: [[Double]] { cpuBuffer.series }
     private static let cpuSampleCapacity = 64
+
+    var mem: FfiMemSnapshot?
+    /// A fixed random permutation of the 440 grid positions → dot ranks, shuffled
+    /// once (like the legacy `shuffleArray`) so the active/available regions
+    /// scatter across the grid instead of filling left-to-right.
+    let ramGridRanks: [Int] = Array(0..<EdexRamwatcherFormatter.gridCellCount).shuffled()
 
     /// Bridges the FFI battery record into the FFI-free `SysinfoSupport` input.
     /// Falls back to a wired/no-battery state (POWER → "ON") before the first poll.
@@ -99,6 +106,15 @@ final class ShellState {
         cpuBuffer.append(loads: snapshot.loads)
         cpuLastSampleDate = Date()
         cpu = snapshot
+    }
+
+    /// Pulls a memory snapshot for the ramwatcher panel, offloaded off the
+    /// MainActor. The panel polls every 1.5s (legacy cadence).
+    func refreshMem() async {
+        let client = self.client
+        mem = await Task.detached(priority: .background) {
+            client.memSnapshot()
+        }.value
     }
 
     private func terminateIfSmokeWindow() {

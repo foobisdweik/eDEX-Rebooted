@@ -105,6 +105,32 @@ pub struct FfiCpuSnapshot {
     pub loads: Vec<f64>,
 }
 
+/// The `MemStats` fields the native ramwatcher panel consumes (mirrors the
+/// `snapshot.mem` reads in ramwatcher.class.js): the active/available/free
+/// breakdown for the 440-dot grid plus swap totals.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct FfiMemSnapshot {
+    pub total: u64,
+    pub free: u64,
+    pub active: u64,
+    pub available: u64,
+    pub swap_total: u64,
+    pub swap_used: u64,
+}
+
+impl From<edex_core::sysinfo::MemStats> for FfiMemSnapshot {
+    fn from(mem: edex_core::sysinfo::MemStats) -> Self {
+        Self {
+            total: mem.total,
+            free: mem.free,
+            active: mem.active,
+            available: mem.available,
+            swap_total: mem.swaptotal,
+            swap_used: mem.swapused,
+        }
+    }
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct FfiPtySpawnOptions {
     pub shell: String,
@@ -229,6 +255,15 @@ impl EdexCore {
         })
     }
 
+    /// Memory snapshot for the ramwatcher panel. Uses the lighter cached
+    /// `mem()` accessor (not the full panel snapshot the JS over-fetched).
+    pub fn mem_snapshot(&self) -> Result<FfiMemSnapshot, EdexError> {
+        self.sysinfo
+            .mem()
+            .map(FfiMemSnapshot::from)
+            .map_err(EdexError::from)
+    }
+
     /// Host hardware identity (hardware-inspector panel). Combines the two
     /// sources the JS panel reads: manufacturer/model from `system()` and the
     /// chassis type from `chassis()`.
@@ -320,6 +355,18 @@ mod tests {
         // edex-core hard-codes Apple on the macOS-only target.
         assert_eq!(hw.manufacturer, "Apple");
         assert!(!hw.chassis_type.is_empty());
+    }
+
+    #[test]
+    fn mem_snapshot_reports_consistent_totals() {
+        let core = EdexCore::new();
+        let mem = core.mem_snapshot().expect("mem snapshot should succeed");
+        assert!(mem.total > 0, "a running host should report total memory");
+        assert!(mem.free <= mem.total);
+        assert!(
+            mem.available >= mem.free,
+            "available is max(available, free)"
+        );
     }
 
     #[test]
