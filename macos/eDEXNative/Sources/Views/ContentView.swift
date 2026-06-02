@@ -8,12 +8,14 @@ import RamwatcherSupport
 import SwiftUI
 import SysinfoSupport
 import ThemeSupport
+import ToplistSupport
 
 struct ContentView: View {
     @Bindable var state: ShellState
     private let layoutEngine = EdexLayoutEngine()
     private let cpuFormatter = EdexCpuinfoFormatter()
     private let ramFormatter = EdexRamwatcherFormatter()
+    private let toplistFormatter = EdexToplistFormatter()
 
     var body: some View {
         GeometryReader { proxy in
@@ -77,6 +79,8 @@ struct ContentView: View {
                     cpuPanel(vh: vh)
                 } else if label == "RAM" {
                     ramPanel(vh: vh)
+                } else if label == "TOPLIST" {
+                    toplistPanel(vh: vh)
                 } else {
                     panelStub(label, vh: vh)
                 }
@@ -206,8 +210,11 @@ struct ContentView: View {
                 theme: state.theme,
                 vh: vh,
                 containerSize: size,
+                processRows: state.processRows,
+                processSort: state.processSort,
                 onFocus: { state.modalManager.focus(modal.id) },
                 onMove: { dx, dy in state.modalManager.move(modal.id, dx: dx, dy: dy) },
+                onProcessSort: { field in state.processSort = state.processSort.toggled(field) },
                 onClose: { state.closeModal(modal.id) }
             )
             .zIndex(Double(modal.zIndex))
@@ -596,6 +603,67 @@ struct ContentView: View {
         .frame(height: 4)
     }
 
+    private func toplistPanel(vh: Double) -> some View {
+        Button {
+            state.openProcessListModal()
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text("TOP PROCESSES")
+                        .font(.custom(state.theme.fonts.main, size: 12))
+                    Spacer(minLength: 4)
+                    Text("PID | NAME | CPU | MEM")
+                        .font(.custom(state.theme.fonts.main, size: 9))
+                        .foregroundStyle(state.theme.accent.opacity(0.48))
+                }
+                VStack(spacing: 2) {
+                    ForEach(state.topProcesses, id: \.pid) { row in
+                        toplistMiniRow(row)
+                    }
+                    if state.topProcesses.isEmpty {
+                        Text("NO PROCESS DATA")
+                            .font(.custom(state.theme.fonts.terminal, size: 10))
+                            .foregroundStyle(state.theme.terminalForeground.opacity(0.52))
+                            .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
+            .augmentedSurface(
+                style: .panel(vh: vh),
+                fill: state.theme.terminalBackground.opacity(0.72),
+                stroke: state.theme.accent
+            )
+        }
+        .buttonStyle(.plain)
+        .task {
+            // toplist.class.js polls the compact top-five table every 2s.
+            while !Task.isCancelled {
+                await state.refreshToplist()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    private func toplistMiniRow(_ row: FfiTopProcessRow) -> some View {
+        HStack(spacing: 5) {
+            Text("\(row.pid)")
+                .frame(width: 42, alignment: .leading)
+            Text(row.name)
+                .foregroundStyle(state.theme.terminalForeground)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(toplistFormatter.percentText(row.cpu))
+                .frame(width: 42, alignment: .trailing)
+            Text(toplistFormatter.percentText(row.mem))
+                .frame(width: 42, alignment: .trailing)
+        }
+        .font(.custom(state.theme.fonts.terminal, size: 10))
+        .foregroundStyle(state.theme.accent.opacity(0.86))
+    }
+
     private func keyStub(width: Double, vh: Double) -> some View {
         AugmentedBorderShape(style: .settingsButton(vh: vh))
             .stroke(state.theme.accent.opacity(0.45), lineWidth: 1)
@@ -734,8 +802,11 @@ private struct EdexModalChrome: View {
     let theme: NativeTheme
     let vh: Double
     let containerSize: CGSize
+    let processRows: [FfiProcessRow]
+    let processSort: EdexProcessSort
     let onFocus: () -> Void
     let onMove: (_ dx: Double, _ dy: Double) -> Void
+    let onProcessSort: (EdexProcessSortField) -> Void
     let onClose: () -> Void
 
     @State private var lastDrag = CGSize.zero
@@ -816,7 +887,12 @@ private struct EdexModalChrome: View {
                 .lineLimit(12)
                 .textSelection(.enabled)
         case .processList:
-            customStatus("PROCESS MODAL", detail: "Ready for Phase 5.6 process rows")
+            EdexProcessListTable(
+                rows: processRows,
+                sort: processSort,
+                theme: theme,
+                onSort: onProcessSort
+            )
         case .textEditor:
             customStatus("TEXT EDITOR", detail: "Ready for Phase 7.3 file editing")
         case .mediaViewer:
@@ -880,11 +956,17 @@ private struct EdexModalChrome: View {
     }
 
     private var modalWidth: CGFloat {
-        min(max(safeContainerWidth * 0.42, 380), 740)
+        if modal.content == .processList {
+            return min(max(safeContainerWidth * 0.72, 680), 980)
+        }
+        return min(max(safeContainerWidth * 0.42, 380), 740)
     }
 
     private var modalHeight: CGFloat {
-        modal.kind == .custom ? 260 : 150
+        if modal.content == .processList {
+            return min(max(safeContainerHeight * 0.55, 360), 620)
+        }
+        return modal.kind == .custom ? 260 : 150
     }
 
     private var safeContainerWidth: CGFloat {
@@ -893,6 +975,124 @@ private struct EdexModalChrome: View {
 
     private var safeContainerHeight: CGFloat {
         containerSize.height.isFinite && containerSize.height > 0 ? containerSize.height : 600
+    }
+}
+
+private struct EdexProcessListTable: View {
+    let rows: [FfiProcessRow]
+    let sort: EdexProcessSort
+    let theme: NativeTheme
+    let onSort: (EdexProcessSortField) -> Void
+
+    private let formatter = EdexToplistFormatter()
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            ScrollView(.horizontal) {
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    ScrollView(.vertical) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(sortedRows(now: context.date), id: \.pid) { row in
+                                processRow(row, now: context.date)
+                            }
+                        }
+                    }
+                    .frame(minHeight: 220, maxHeight: 430)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .overlay {
+                if rows.isEmpty {
+                    Text("NO PROCESS DATA")
+                        .font(.custom(theme.fonts.terminal, size: 12))
+                        .foregroundStyle(theme.terminalForeground.opacity(0.58))
+                }
+            }
+            .augmentedSurface(
+                style: .panel(vh: 8),
+                fill: theme.terminalBackground.opacity(0.7),
+                stroke: theme.accent
+            )
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 0) {
+            headerCell(.pid, width: 58)
+            headerCell(.name, width: 160)
+            headerCell(.user, width: 90)
+            headerCell(.cpu, width: 58)
+            headerCell(.memory, width: 72)
+            headerCell(.state, width: 82)
+            headerCell(.started, width: 154)
+            headerCell(.runtime, width: 88)
+        }
+        .padding(.trailing, 10)
+    }
+
+    private func headerCell(_ field: EdexProcessSortField, width: CGFloat) -> some View {
+        Button {
+            onSort(field)
+        } label: {
+            Text(headerTitle(field))
+                .font(.custom(theme.fonts.main, size: 10))
+                .foregroundStyle(theme.panelBackground)
+                .lineLimit(1)
+                .frame(width: width, height: 24)
+                .background(theme.accent.opacity(0.72))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func processRow(_ row: EdexProcessRow, now: Date) -> some View {
+        HStack(spacing: 0) {
+            cell("\(row.pid)", width: 58, alignment: .leading)
+            cell(row.name, width: 160, alignment: .leading)
+            cell(row.user, width: 90, alignment: .leading)
+            cell(formatter.percentText(row.cpu), width: 58, alignment: .trailing)
+            cell(formatter.percentText(row.mem), width: 72, alignment: .trailing)
+            cell(row.state, width: 82, alignment: .center)
+            cell(row.started, width: 154, alignment: .leading)
+            cell(formatter.runtimeText(started: row.started, now: now), width: 88, alignment: .leading)
+        }
+        .padding(.vertical, 2)
+        .background(theme.accent.opacity(0.035))
+    }
+
+    private func cell(_ text: String, width: CGFloat, alignment: Alignment) -> some View {
+        Text(text.isEmpty ? "-" : text)
+            .font(.custom(theme.fonts.terminal, size: 10))
+            .foregroundStyle(theme.terminalForeground)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(width: width, alignment: alignment)
+            .padding(.horizontal, 3)
+    }
+
+    private func sortedRows(now: Date) -> [EdexProcessRow] {
+        formatter.sorted(
+            rows.map {
+                EdexProcessRow(
+                    pid: $0.pid,
+                    name: $0.name,
+                    user: $0.user,
+                    cpu: $0.cpu,
+                    mem: $0.mem,
+                    state: $0.state,
+                    started: $0.started
+                )
+            },
+            sort: sort,
+            now: now
+        )
+    }
+
+    private func headerTitle(_ field: EdexProcessSortField) -> String {
+        guard case let .field(current, ascending) = sort, current == field else {
+            return field.rawValue
+        }
+        return "\(field.rawValue)\(ascending ? "▲" : "▼")"
     }
 }
 

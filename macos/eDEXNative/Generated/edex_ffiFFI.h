@@ -361,6 +361,11 @@ uint32_t uniffi_edex_ffi_fn_method_edexcore_spawn_pty(uint64_t ptr, RustBuffer o
 RustBuffer uniffi_edex_ffi_fn_method_edexcore_sysinfo_snapshot_json(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_TOPLIST_SNAPSHOT
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_TOPLIST_SNAPSHOT
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_toplist_snapshot(uint64_t ptr, int8_t collapse_threads_by_name, int8_t include_process_list, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_UPTIME
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_UPTIME
 uint64_t uniffi_edex_ffi_fn_method_edexcore_uptime(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -717,6 +722,12 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_spawn_pty(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_SYSINFO_SNAPSHOT_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_SYSINFO_SNAPSHOT_JSON
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_sysinfo_snapshot_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_TOPLIST_SNAPSHOT
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_TOPLIST_SNAPSHOT
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_toplist_snapshot(void
     
 );
 #endif

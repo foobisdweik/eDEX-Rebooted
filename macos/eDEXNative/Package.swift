@@ -51,6 +51,10 @@ let package = Package(
             path: "Sources/RamwatcherSupport"
         ),
         .target(
+            name: "ToplistSupport",
+            path: "Sources/ToplistSupport"
+        ),
+        .target(
             name: "AudioSupport",
             path: "Sources/AudioSupport"
         ),
@@ -65,7 +69,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "eDEXNative",
-            dependencies: ["AudioSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SysinfoSupport", "ThemeSupport"],
+            dependencies: ["AudioSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
             path: ".",
             exclude: [
                 "README.md",
@@ -80,6 +84,7 @@ let package = Package(
                 "Sources/RamwatcherSupport",
                 "Sources/SysinfoSupport",
                 "Sources/ThemeSupport",
+                "Sources/ToplistSupport",
                 "Tests"
             ],
             sources: [
@@ -107,7 +112,7 @@ let package = Package(
         ),
         .testTarget(
             name: "eDEXNativeTests",
-            dependencies: ["AudioSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SysinfoSupport", "ThemeSupport"],
+            dependencies: ["AudioSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "HardwareSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SysinfoSupport", "ThemeSupport", "ToplistSupport"],
             path: "Tests"
         )
     ],
