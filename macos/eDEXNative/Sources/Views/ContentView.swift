@@ -296,7 +296,7 @@ struct ContentView: View {
             // Battery cadence in sysinfo.class.js is 3s; uptime barely moves, so
             // refreshing both on the same tick is faithful and cheap.
             while !Task.isCancelled {
-                state.refreshSysinfo()
+                await state.refreshSysinfo()
                 try? await Task.sleep(for: .seconds(3))
             }
         }

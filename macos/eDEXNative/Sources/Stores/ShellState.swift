@@ -50,11 +50,17 @@ final class ShellState {
         }
     }
 
-    /// Pulls uptime + battery from the Rust core for the sysinfo panel. Cheap
-    /// libc/IOKit reads; the panel polls this on a timer (see ContentView).
-    func refreshSysinfo() {
-        uptimeSeconds = client.uptimeSeconds()
-        battery = client.battery()
+    /// Pulls uptime + battery from the Rust core for the sysinfo panel. The
+    /// battery query hits IOKit (a few ms), so the FFI calls are offloaded to a
+    /// background task to keep the main thread free; results land back on the
+    /// MainActor. The panel polls this on a timer (see ContentView).
+    func refreshSysinfo() async {
+        let client = self.client
+        let (uptime, battery) = await Task.detached(priority: .background) {
+            (client.uptimeSeconds(), client.battery())
+        }.value
+        uptimeSeconds = uptime
+        self.battery = battery
     }
 
     private func terminateIfSmokeWindow() {
