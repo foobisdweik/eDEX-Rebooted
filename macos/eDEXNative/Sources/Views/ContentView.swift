@@ -1,27 +1,33 @@
+import LayoutSupport
 import SwiftUI
 import ThemeSupport
 
 struct ContentView: View {
     @Bindable var state: ShellState
+    private let layoutEngine = EdexLayoutEngine()
 
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [state.theme.background, .black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+        GeometryReader { proxy in
+            let layout = layoutEngine.layout(
+                in: LayoutSize(
+                    width: Double(proxy.size.width),
+                    height: Double(proxy.size.height)
+                )
             )
-            .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                Divider().overlay(state.theme.accent.opacity(0.7))
-                ffiProof
-                themePreview
-                Spacer(minLength: 12)
-                viabilityHint
+            ZStack(alignment: .topLeading) {
+                background(size: proxy.size)
+                column(layout.leftColumn, title: "PANEL", subtitle: "SYSTEM", side: .left)
+                mainShell(layout.mainShell)
+                column(layout.rightColumn, title: "PANEL", subtitle: "NETWORK", side: .right)
+                if !layout.filesystem.isHidden {
+                    filesystem(layout.filesystem)
+                }
+                keyboard(layout.keyboard)
+                statusRibbon
             }
-            .padding(32)
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
         }
         .foregroundStyle(state.theme.accent)
         .overlay(alignment: .top) {
@@ -34,103 +40,244 @@ struct ContentView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("eDEX Native")
-                .font(.custom(state.theme.fonts.main, size: 34))
-                .tracking(3)
-            Text("Phase 4.1 native theme loader")
-                .font(.custom(state.theme.fonts.mainLight, size: 16))
-                .foregroundStyle(state.theme.accent.opacity(0.78))
+    private func background(size: CGSize) -> some View {
+        ZStack {
+            state.theme.palette.background.color
+            EdexGridBackground(
+                color: state.theme.palette.panelBackground.color.opacity(0.95),
+                step: max(1, size.height * 0.0204),
+                lineWidth: max(0.5, size.height * 0.00092)
+            )
         }
+        .ignoresSafeArea()
     }
 
-    private var ffiProof: some View {
-        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 10) {
-            statusRow("FFI status", state.statusText)
-            statusRow("settings theme", state.settingsSummary.theme)
-            statusRow("keepGeometry", state.keepGeometry ? "true — 16:10 content aspect lock applied" : "false — freeform resizing")
-            statusRow("userData", state.paths?.userData ?? "pending")
-            statusRow("settings.json", state.paths?.settingsFile ?? "pending")
-            statusRow("settings bytes", state.settingsSummary.byteCount.map(String.init) ?? "pending")
-            statusRow("theme source", state.theme.source)
-        }
-        .font(.custom(state.theme.fonts.terminal, size: 13))
-        .textSelection(.enabled)
-    }
-
-    private func statusRow(_ label: String, _ value: String) -> some View {
-        GridRow {
-            Text(label.uppercased())
-                .foregroundStyle(state.theme.accent.opacity(0.62))
-            Text(value)
-                .foregroundStyle(state.theme.accent)
-                .lineLimit(2)
-                .truncationMode(.middle)
-        }
-    }
-
-    private var themePreview: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                swatch("ACCENT", state.theme.palette.accent)
-                swatch("PANEL", state.theme.palette.panelBackground)
-                swatch("TERM", state.theme.palette.terminalBackground)
-                swatch("SELECT", state.theme.palette.terminalSelection)
-            }
-            HStack(alignment: .top, spacing: 14) {
-                placeholderPanel("SYS", "UPTIME 00:00:00")
-                placeholderPanel("CPU", "AVG 0.00%")
-                terminalSample
-            }
-        }
-    }
-
-    private func swatch(_ label: String, _ color: NativeColor) -> some View {
-        HStack(spacing: 7) {
-            Rectangle()
-                .fill(color.color)
-                .frame(width: 20, height: 20)
-                .overlay(Rectangle().stroke(state.theme.accent.opacity(0.45), lineWidth: 1))
-            Text(label)
-                .font(.custom(state.theme.fonts.terminal, size: 11))
-                .foregroundStyle(state.theme.accent.opacity(0.68))
-        }
-    }
-
-    private func placeholderPanel(_ label: String, _ value: String) -> some View {
+    private func column(_ frame: LayoutRect, title: String, subtitle: String, side: ColumnSide) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(label)
-                .font(.custom(state.theme.fonts.main, size: 13))
-            Text(value)
-                .font(.custom(state.theme.fonts.terminal, size: 12))
-                .foregroundStyle(state.theme.accent.opacity(0.74))
+            sectionTitle(title, subtitle)
+            Spacer(minLength: 0)
+            ForEach(side.placeholders, id: \.self) { label in
+                panelStub(label)
+            }
+            Spacer(minLength: 0)
         }
-        .padding(12)
-        .frame(width: 145, height: 72, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .background(state.theme.panelBackground.opacity(0.82))
-        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.38), lineWidth: 1))
+        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.28), lineWidth: 1))
+        .positioned(in: frame)
     }
 
-    private var terminalSample: some View {
+    private func mainShell(_ frame: LayoutRect) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("TERMINAL")
-                .font(.custom(state.theme.fonts.main, size: 13))
-            Text("$ theme --native \(state.theme.name)")
-                .font(.custom(state.theme.fonts.terminal, size: 12))
+            sectionTitle("TERMINAL", "MAIN SHELL")
+            HStack(spacing: 0) {
+                ForEach(1...5, id: \.self) { index in
+                    Text("SHELL \(index)")
+                        .font(.custom(state.theme.fonts.main, size: 11))
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                        .background(index == 1 ? state.theme.accent : state.theme.panelBackground)
+                        .foregroundStyle(index == 1 ? state.theme.panelBackground : state.theme.accent)
+                        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.35), lineWidth: 1))
+                }
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("$ edex-native --theme \(state.theme.name)")
+                Text(state.statusText)
+                    .foregroundStyle(state.theme.accent.opacity(0.68))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                Text(state.paths?.userData ?? "userdata pending")
+                    .foregroundStyle(state.theme.accent.opacity(0.58))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.custom(state.theme.fonts.terminal, size: 13))
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(state.theme.terminalBackground.opacity(0.92))
+            .foregroundStyle(state.theme.terminalForeground)
+        }
+        .padding(8)
+        .background(state.theme.panelBackground.opacity(0.74))
+        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.5), lineWidth: 1.5))
+        .positioned(in: frame)
+    }
+
+    private func filesystem(_ frame: LayoutRect) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionTitle("FILESYSTEM", "TRACKING ACTIVE")
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
+                ForEach(["..", "src", "crates", "macos", "docs", "themes"], id: \.self) { item in
+                    VStack(spacing: 4) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .stroke(state.theme.accent.opacity(0.45), lineWidth: 1)
+                            .frame(width: 34, height: 28)
+                        Text(item)
+                            .font(.custom(state.theme.fonts.terminal, size: 10))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                }
+            }
+            Spacer(minLength: 0)
+            Rectangle()
+                .fill(state.theme.accent.opacity(0.45))
+                .frame(height: 7)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(state.theme.accent)
+                        .frame(width: max(24, CGFloat(frame.width) * 0.32), height: 7)
+                }
+        }
+        .padding(10)
+        .background(state.theme.panelBackground.opacity(0.72))
+        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.34), lineWidth: 1))
+        .positioned(in: frame)
+    }
+
+    private func keyboard(_ metrics: KeyboardLayoutMetrics) -> some View {
+        VStack(spacing: CGFloat(metrics.rowGap)) {
+            ForEach(0..<5, id: \.self) { row in
+                HStack(spacing: 6) {
+                    ForEach(0..<keyboardKeyCount(for: row), id: \.self) { index in
+                        keyStub(width: keyboardKeyWidth(row: row, index: index, metrics: metrics))
+                    }
+                }
+                .frame(height: CGFloat(metrics.rowHeight))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(state.theme.panelBackground.opacity(0.42))
+        .positioned(in: metrics.frame)
+    }
+
+    private func sectionTitle(_ left: String, _ right: String) -> some View {
+        HStack {
+            Text(left)
+            Spacer(minLength: 8)
+            Text(right)
+        }
+        .font(.custom(state.theme.fonts.main, size: 11))
+        .foregroundStyle(state.theme.accent.opacity(0.76))
+        .padding(.horizontal, 5)
+        .padding(.bottom, 3)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(state.theme.accent.opacity(0.28))
+                .frame(height: 1)
+        }
+    }
+
+    private func panelStub(_ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.custom(state.theme.fonts.main, size: 12))
+            Text("00:00:00")
+                .font(.custom(state.theme.fonts.terminal, size: 11))
                 .foregroundStyle(state.theme.terminalForeground)
                 .lineLimit(1)
         }
-        .padding(12)
-        .frame(maxWidth: 330, minHeight: 72, alignment: .leading)
-        .background(state.theme.terminalBackground.opacity(0.9))
-        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.45), lineWidth: 1))
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+        .background(state.theme.terminalBackground.opacity(0.72))
+        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.24), lineWidth: 1))
     }
 
-    private var viabilityHint: some View {
-        Text("F11 toggles fullscreen. Windowed mode keeps standard traffic lights and a transparent titlebar. This surface is intentionally only a shell; panels come later if this spike remains viable.")
-            .font(.custom(state.theme.fonts.terminal, size: 11))
-            .foregroundStyle(state.theme.accent.opacity(0.72))
-            .fixedSize(horizontal: false, vertical: true)
+    private func keyStub(width: Double) -> some View {
+        RoundedRectangle(cornerRadius: 4)
+            .stroke(state.theme.accent.opacity(0.45), lineWidth: 1)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(state.theme.accent.opacity(0.06))
+            )
+            .frame(width: CGFloat(width), height: 28)
+    }
+
+    private var statusRibbon: some View {
+        HStack(spacing: 14) {
+            Text("eDEX NATIVE")
+                .font(.custom(state.theme.fonts.main, size: 13))
+            Text(state.settingsSummary.theme)
+                .font(.custom(state.theme.fonts.terminal, size: 11))
+                .foregroundStyle(state.theme.accent.opacity(0.68))
+            Text(state.keepGeometry ? "16:10" : "FREE")
+                .font(.custom(state.theme.fonts.terminal, size: 11))
+                .foregroundStyle(state.theme.accent.opacity(0.68))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(state.theme.panelBackground.opacity(0.78))
+        .overlay(Rectangle().stroke(state.theme.accent.opacity(0.32), lineWidth: 1))
+        .position(x: 132, y: 23)
+    }
+
+    private func keyboardKeyCount(for row: Int) -> Int {
+        let counts = [13, 13, 12, 11, 6]
+        guard counts.indices.contains(row) else { return 0 }
+        return counts[row]
+    }
+
+    private func keyboardKeyWidth(row: Int, index: Int, metrics: KeyboardLayoutMetrics) -> Double {
+        if row == 4 && index == 2 {
+            return metrics.spacebarWidth
+        }
+        if index == 0 || index == keyboardKeyCount(for: row) - 1 {
+            return metrics.keySide * 1.7
+        }
+        return metrics.keySide
+    }
+}
+
+private enum ColumnSide {
+    case left
+    case right
+
+    var placeholders: [String] {
+        switch self {
+        case .left:
+            return ["CLOCK", "SYSINFO", "HARDWARE", "CPU", "RAM", "TOPLIST"]
+        case .right:
+            return ["NETSTAT", "CONNECTION", "GLOBE", "MEDIA"]
+        }
+    }
+}
+
+private struct EdexGridBackground: View {
+    var color: Color
+    var step: CGFloat
+    var lineWidth: CGFloat
+
+    var body: some View {
+        Canvas { context, size in
+            guard step.isFinite, step > 0.5 else { return }
+            var path = Path()
+            var x = step * 0.9
+            while x <= size.width {
+                path.move(to: CGPoint(x: x, y: 0))
+                path.addLine(to: CGPoint(x: x, y: size.height))
+                x += step
+            }
+
+            var y = step * 0.9
+            while y <= size.height {
+                path.move(to: CGPoint(x: 0, y: y))
+                path.addLine(to: CGPoint(x: size.width, y: y))
+                y += step
+            }
+
+            context.stroke(path, with: .color(color), lineWidth: lineWidth)
+        }
+    }
+}
+
+private extension View {
+    func positioned(in rect: LayoutRect) -> some View {
+        frame(width: CGFloat(rect.width), height: CGFloat(rect.height))
+            .position(
+                x: CGFloat(rect.x + (rect.width / 2)),
+                y: CGFloat(rect.y + (rect.height / 2))
+            )
     }
 }

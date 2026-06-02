@@ -23,16 +23,21 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "LayoutSupport",
+            path: "Sources/LayoutSupport"
+        ),
+        .target(
             name: "ThemeSupport",
             path: "Sources/ThemeSupport"
         ),
         .executableTarget(
             name: "eDEXNative",
-            dependencies: ["ThemeSupport"],
+            dependencies: ["LayoutSupport", "ThemeSupport"],
             path: ".",
             exclude: [
                 "README.md",
                 "Scripts",
+                "Sources/LayoutSupport",
                 "Sources/ThemeSupport",
                 "Tests"
             ],
@@ -61,7 +66,7 @@ let package = Package(
         ),
         .testTarget(
             name: "eDEXNativeTests",
-            dependencies: ["ThemeSupport"],
+            dependencies: ["LayoutSupport", "ThemeSupport"],
             path: "Tests"
         )
     ],
