@@ -597,6 +597,13 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     
     func ensureUserdata() throws 
     
+    /**
+     * Host hardware identity (hardware-inspector panel). Combines the two
+     * sources the JS panel reads: manufacturer/model from `system()` and the
+     * chassis type from `chassis()`.
+     */
+    func hardware()  -> FfiHardware
+    
     func killPty(id: UInt32) throws 
     
     func loadKeyboardJson(name: String) throws  -> String
@@ -699,6 +706,19 @@ open func ensureUserdata()throws   {try rustCallWithError(FfiConverterTypeEdexEr
             self.uniffiCloneHandle(),$0
     )
 }
+}
+    
+    /**
+     * Host hardware identity (hardware-inspector panel). Combines the two
+     * sources the JS panel reads: manufacturer/model from `system()` and the
+     * chassis type from `chassis()`.
+     */
+open func hardware() -> FfiHardware  {
+    return try!  FfiConverterTypeFfiHardware_lift(try! rustCall() {
+    uniffi_edex_ffi_fn_method_edexcore_hardware(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
 open func killPty(id: UInt32)throws   {try rustCallWithError(FfiConverterTypeEdexError_lift) {
@@ -911,6 +931,69 @@ public func FfiConverterTypeFfiBattery_lift(_ buf: RustBuffer) throws -> FfiBatt
 #endif
 public func FfiConverterTypeFfiBattery_lower(_ value: FfiBattery) -> RustBuffer {
     return FfiConverterTypeFfiBattery.lower(value)
+}
+
+
+/**
+ * The subset of `SystemInfo` + `ChassisInfo` the native hardware-inspector
+ * panel consumes (mirrors `window.si.system()`/`chassis()` in
+ * hardwareInspector.class.js: manufacturer + model from system, type from chassis).
+ */
+public struct FfiHardware: Equatable, Hashable {
+    public var manufacturer: String
+    public var model: String
+    public var chassisType: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(manufacturer: String, model: String, chassisType: String) {
+        self.manufacturer = manufacturer
+        self.model = model
+        self.chassisType = chassisType
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiHardware: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiHardware: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiHardware {
+        return
+            try FfiHardware(
+                manufacturer: FfiConverterString.read(from: &buf), 
+                model: FfiConverterString.read(from: &buf), 
+                chassisType: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiHardware, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.manufacturer, into: &buf)
+        FfiConverterString.write(value.model, into: &buf)
+        FfiConverterString.write(value.chassisType, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiHardware_lift(_ buf: RustBuffer) throws -> FfiHardware {
+    return try FfiConverterTypeFfiHardware.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiHardware_lower(_ value: FfiHardware) -> RustBuffer {
+    return FfiConverterTypeFfiHardware.lower(value)
 }
 
 
@@ -1472,6 +1555,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_ensure_userdata() != 25364) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_edex_ffi_checksum_method_edexcore_hardware() != 10614) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_kill_pty() != 56903) {

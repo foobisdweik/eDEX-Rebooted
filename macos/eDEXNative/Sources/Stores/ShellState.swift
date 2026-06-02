@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import HardwareSupport
 import Observation
 import SwiftUI
 import SysinfoSupport
@@ -18,6 +19,7 @@ final class ShellState {
     var theme = NativeTheme.fallback
     var uptimeSeconds: UInt64 = 0
     var battery: FfiBattery?
+    var hardware: FfiHardware?
 
     /// Bridges the FFI battery record into the FFI-free `SysinfoSupport` input.
     /// Falls back to a wired/no-battery state (POWER → "ON") before the first poll.
@@ -61,6 +63,16 @@ final class ShellState {
         }.value
         uptimeSeconds = uptime
         self.battery = battery
+    }
+
+    /// Pulls host hardware identity from the Rust core for the hardware-inspector
+    /// panel. Offloaded off the MainActor like `refreshSysinfo()`. The data is
+    /// effectively static at runtime; the panel re-polls on the legacy 20s cadence.
+    func refreshHardware() async {
+        let client = self.client
+        hardware = await Task.detached(priority: .background) {
+            client.hardware()
+        }.value
     }
 
     private func terminateIfSmokeWindow() {

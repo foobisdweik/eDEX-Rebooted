@@ -301,6 +301,11 @@ RustBuffer uniffi_edex_ffi_fn_method_edexcore_battery(uint64_t ptr, RustCallStat
 void uniffi_edex_ffi_fn_method_edexcore_ensure_userdata(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_HARDWARE
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_HARDWARE
+RustBuffer uniffi_edex_ffi_fn_method_edexcore_hardware(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_KILL_PTY
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_FN_METHOD_EDEXCORE_KILL_PTY
 void uniffi_edex_ffi_fn_method_edexcore_kill_pty(uint64_t ptr, uint32_t id, RustCallStatus *_Nonnull out_status
@@ -630,6 +635,12 @@ uint16_t uniffi_edex_ffi_checksum_method_edexcore_battery(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_ENSURE_USERDATA
 #define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_ENSURE_USERDATA
 uint16_t uniffi_edex_ffi_checksum_method_edexcore_ensure_userdata(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_HARDWARE
+#define UNIFFI_FFIDEF_UNIFFI_EDEX_FFI_CHECKSUM_METHOD_EDEXCORE_HARDWARE
+uint16_t uniffi_edex_ffi_checksum_method_edexcore_hardware(void
     
 );
 #endif
