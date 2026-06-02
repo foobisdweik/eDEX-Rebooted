@@ -8,12 +8,18 @@ public struct EdexHardwareFormatter: Sendable {
     public init() {}
 
     public func format(manufacturer: String, model: String, chassisType: String) -> EdexHardwareInfo {
-        EdexHardwareInfo(
-            // No filters → first two space-split words.
-            manufacturer: trim(manufacturer, filters: []),
-            // Strip any word equal to the manufacturer or chassis-type string,
-            // then keep the first two words.
-            model: trim(model, filters: [manufacturer, chassisType]),
+        // No filters → first two space-split words.
+        let formattedManufacturer = trim(manufacturer, filters: [])
+
+        // Strip any model word equal to the manufacturer or chassis type, then
+        // keep the first two words. Filter against the *formatted* manufacturer
+        // (so stray whitespace still matches) and never inject an empty-string
+        // filter, which would clip empty tokens out of the model.
+        let modelFilters = [formattedManufacturer, chassisType].filter { !$0.isEmpty }
+
+        return EdexHardwareInfo(
+            manufacturer: formattedManufacturer,
+            model: trim(model, filters: modelFilters),
             // CHASSIS is used raw — no trimming.
             chassis: chassisType
         )

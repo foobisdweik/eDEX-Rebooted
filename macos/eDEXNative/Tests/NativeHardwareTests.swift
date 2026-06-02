@@ -40,6 +40,19 @@ final class NativeHardwareTests: XCTestCase {
         XCTAssertEqual(info.model, "")
     }
 
+    func testModelStripsManufacturerEvenWhenManufacturerHasStrayWhitespace() {
+        // The manufacturer filter is compared against the *formatted* (trimmed)
+        // manufacturer, so a padded "  Apple  " still strips "Apple" from model.
+        let info = formatter.format(manufacturer: "  Apple  ", model: "Apple MacBook", chassisType: "Laptop")
+        XCTAssertEqual(info.model, "MacBook")
+    }
+
+    func testEmptyManufacturerDoesNotFilterModelWords() {
+        // An empty manufacturer/chassis must not inject an empty-string filter.
+        let info = formatter.format(manufacturer: "", model: "MacBook Pro", chassisType: "")
+        XCTAssertEqual(info.model, "MacBook Pro")
+    }
+
     // MARK: - Chassis (raw, untrimmed)
 
     func testChassisIsUsedRaw() {
