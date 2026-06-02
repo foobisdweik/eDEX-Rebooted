@@ -224,10 +224,7 @@ struct ContentView: View {
                 Text("CLOCK")
                     .font(.custom(state.theme.fonts.main, size: 12))
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    ForEach(Array(clock.time.enumerated()), id: \.offset) { _, character in
-                        Text(String(character))
-                            .foregroundStyle(character == ":" ? state.theme.accent.opacity(0.58) : state.theme.terminalForeground)
-                    }
+                    clockTimeText(clock.time)
                     if let meridiem = clock.meridiem {
                         Text(meridiem)
                             .font(.custom(state.theme.fonts.main, size: 12))
@@ -248,6 +245,19 @@ struct ContentView: View {
                 stroke: state.theme.accent
             )
         }
+    }
+
+    private func clockTimeText(_ time: String) -> Text {
+        let components = time.split(separator: ":").map(String.init)
+        guard components.count == 3 else {
+            return Text(time).foregroundColor(state.theme.terminalForeground)
+        }
+
+        return Text(components[0]).foregroundColor(state.theme.terminalForeground)
+            + Text(":").foregroundColor(state.theme.accent.opacity(0.58))
+            + Text(components[1]).foregroundColor(state.theme.terminalForeground)
+            + Text(":").foregroundColor(state.theme.accent.opacity(0.58))
+            + Text(components[2]).foregroundColor(state.theme.terminalForeground)
     }
 
     private func keyStub(width: Double, vh: Double) -> some View {
