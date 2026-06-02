@@ -43,6 +43,12 @@ final class NativeCpuinfoTests: XCTestCase {
         XCTAssertEqual(formatter.average(loads: []), 0)
     }
 
+    func testAverageIgnoresNonFiniteLoads() {
+        // NaN/inf must not crash the Int(mean.rounded()) cast.
+        XCTAssertEqual(formatter.average(loads: [.nan, 10, 20]), 15)
+        XCTAssertEqual(formatter.average(loads: [.infinity, -.infinity]), 0)
+    }
+
     // MARK: - Footer cell formatting
 
     func testTemperatureTextDropsTrailingZeroAndAddsUnit() {
@@ -52,6 +58,12 @@ final class NativeCpuinfoTests: XCTestCase {
 
     func testSpeedTextAppendsGHz() {
         XCTAssertEqual(formatter.speedText("3.20"), "3.20GHz")
+    }
+
+    func testTemperatureTextHandlesNonFiniteWithoutCrashing() {
+        // A non-finite sensor read must not crash the Int(value) cast.
+        XCTAssertEqual(formatter.temperatureText(.infinity), "inf°C")
+        XCTAssertEqual(formatter.temperatureText(.nan), "nan°C")
     }
 
     func testTasksTextIsCount() {
@@ -88,5 +100,13 @@ final class NativeCpuinfoTests: XCTestCase {
         XCTAssertEqual(buffer.series[0], [9])
         XCTAssertEqual(buffer.series[1], [0])
         XCTAssertEqual(buffer.series[2], [0])
+    }
+
+    func testBufferSanitizesNonFiniteAndClampsLoads() {
+        var buffer = CpuSeriesBuffer(coreCount: 3, capacity: 8)
+        buffer.append(loads: [.nan, 150, -5])
+        XCTAssertEqual(buffer.series[0], [0])   // NaN → 0
+        XCTAssertEqual(buffer.series[1], [100]) // 150 clamped to 100
+        XCTAssertEqual(buffer.series[2], [0])   // -5 clamped to 0
     }
 }

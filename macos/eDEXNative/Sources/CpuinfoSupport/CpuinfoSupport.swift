@@ -26,10 +26,12 @@ public struct EdexCpuinfoFormatter: Sendable {
     }
 
     /// Rounded mean of a graph half's per-core loads (legacy
-    /// `Math.round(sum / length)`). Empty → 0 (the legacy would yield `NaN`).
+    /// `Math.round(sum / length)`). Non-finite samples are dropped (a `NaN`/`inf`
+    /// would otherwise crash the `Int(mean.rounded())` cast); empty → 0.
     public func average(loads: [Double]) -> Int {
-        guard !loads.isEmpty else { return 0 }
-        let mean = loads.reduce(0, +) / Double(loads.count)
+        let finite = loads.filter(\.isFinite)
+        guard !finite.isEmpty else { return 0 }
+        let mean = finite.reduce(0, +) / Double(finite.count)
         return Int(mean.rounded())
     }
 
@@ -49,9 +51,13 @@ public struct EdexCpuinfoFormatter: Sendable {
     }
 
     /// JS-style number stringification: whole numbers print without a trailing
-    /// `.0`, fractional values keep their decimals.
+    /// `.0`, fractional values keep their decimals. Non-finite or out-of-`Int`
+    /// values fall through to `String(value)` so the `Int(value)` cast can't crash.
     private static func number(_ value: Double) -> String {
-        value == value.rounded() ? String(Int(value)) : String(value)
+        guard value.isFinite, value >= Double(Int.min), value <= Double(Int.max) else {
+            return String(value)
+        }
+        return value == value.rounded() ? String(Int(value)) : String(value)
     }
 }
 
@@ -70,10 +76,13 @@ public struct CpuSeriesBuffer: Sendable {
 
     /// Append one sample per core. Cores missing from `loads` get a 0 sample so
     /// every series stays the same length (legacy appends per reported CPU).
+    /// Samples are sanitized — non-finite → 0, otherwise clamped to 0…100 — so
+    /// neither the average nor the graph path ever sees a bad coordinate.
     public mutating func append(loads: [Double]) {
         guard coreCount > 0 else { return }
         for index in 0..<coreCount {
-            let value = index < loads.count ? loads[index] : 0
+            let raw = loads.indices.contains(index) ? loads[index] : 0
+            let value = raw.isFinite ? min(max(raw, 0), 100) : 0
             series[index].append(value)
             if series[index].count > capacity {
                 series[index].removeFirst(series[index].count - capacity)

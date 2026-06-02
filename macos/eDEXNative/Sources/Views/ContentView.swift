@@ -419,7 +419,7 @@ struct ContentView: View {
 
         return VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 6) {
-                Text("# \(rangeStart) - \(rangeEnd)")
+                Text(cores > 0 ? "# \(rangeStart) - \(rangeEnd)" : "# --")
                 Spacer(minLength: 4)
                 Text(avg.map { "Avg. \($0)%" } ?? "Avg. --%")
             }
