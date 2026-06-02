@@ -1,4 +1,5 @@
 import BorderSupport
+import ClockSupport
 import LayoutSupport
 import SwiftUI
 import ThemeSupport
@@ -58,7 +59,11 @@ struct ContentView: View {
             sectionTitle(title, subtitle)
             Spacer(minLength: 0)
             ForEach(side.placeholders, id: \.self) { label in
-                panelStub(label, vh: vh)
+                if label == "CLOCK" {
+                    clockPanel(vh: vh)
+                } else {
+                    panelStub(label, vh: vh)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -210,6 +215,49 @@ struct ContentView: View {
             fill: state.theme.terminalBackground.opacity(0.72),
             stroke: state.theme.accent
         )
+    }
+
+    private func clockPanel(vh: Double) -> some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let clock = EdexClockFormatter(clockHours: state.settingsSummary.clockHours).format(context.date)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("CLOCK")
+                    .font(.custom(state.theme.fonts.main, size: 12))
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    clockTimeText(clock.time)
+                    if let meridiem = clock.meridiem {
+                        Text(meridiem)
+                            .font(.custom(state.theme.fonts.main, size: 12))
+                            .foregroundStyle(state.theme.accent.opacity(0.72))
+                            .padding(.leading, 3)
+                    }
+                }
+                .font(.custom(state.theme.fonts.terminal, size: 22))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            .augmentedSurface(
+                style: .panel(vh: vh),
+                fill: state.theme.terminalBackground.opacity(0.72),
+                stroke: state.theme.accent
+            )
+        }
+    }
+
+    private func clockTimeText(_ time: String) -> Text {
+        let components = time.split(separator: ":").map(String.init)
+        guard components.count == 3 else {
+            return Text(time).foregroundColor(state.theme.terminalForeground)
+        }
+
+        return Text(components[0]).foregroundColor(state.theme.terminalForeground)
+            + Text(":").foregroundColor(state.theme.accent.opacity(0.58))
+            + Text(components[1]).foregroundColor(state.theme.terminalForeground)
+            + Text(":").foregroundColor(state.theme.accent.opacity(0.58))
+            + Text(components[2]).foregroundColor(state.theme.terminalForeground)
     }
 
     private func keyStub(width: Double, vh: Double) -> some View {
