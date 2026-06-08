@@ -172,11 +172,11 @@ These are the genuinely-unresolved decisions (order-changing ones have been fold
 - **`injectCSS` themes:** is silently dropping custom-theme `injectCSS` (with a warning) acceptable, or should a small allowlist of safe overrides be supported?
 
 ## References
-- Design of record: `docs/superpowers/specs/2026-05-29-native-panel-conversion-design.md`
-- Phase 0/1 plan: `docs/superpowers/plans/2026-05-29-native-panel-slots-phase0-1.md`
-- Phase 2 plan: `docs/superpowers/plans/2026-05-29-native-panel-slots-phase2-cpu-ram.md`
-- Per-panel specs: `docs/native-migration/{clock,sysinfo,hardwareInspector,cpuinfo,ramwatcher,toplist}.spec.md`
-- Broad slice map: `CONVERSION_WORKFLOW.md` · Security context: `Ultrareview.md`
+- FFI-throughput decision (feeds Phase 9): `docs/plans/ffi-throughput-decision-2026-05-30.md`
+- Plan critique: `docs/reviews/full-native-conversion-plan-critique-2026-05-30.md`
+- Security context: `Ultrareview.md`
+- Native app: `macos/eDEXNative/` (SwiftPM) · Rust core: `crates/edex-core` + `crates/edex-ffi`
+- The interim Approach-A slot design + per-panel research specs and the early gpui slice map were removed once superseded; legacy panel behavior is read from `src/classes/*.class.js`.
 - PR #11 merge: `7a81b0d` (commits `3e9100d`, `91ff30f`, `df5ed19`)
 - Tauri windowing: https://docs.rs/tauri/latest/tauri/window/struct.WindowBuilder.html · tao: https://docs.rs/tao/latest/tao/window/struct.Window.html
 - Swift↔Rust interop: swift-bridge https://docs.rs/swift-bridge · UniFFI https://mozilla.github.io/uniffi-rs/latest/swift/overview.html · cxx https://cxx.rs/
@@ -221,7 +221,7 @@ These are the genuinely-unresolved decisions (order-changing ones have been fold
 
 **The proven per-panel recipe (followed for 5.2–5.5 — replicate it):**
 1. New branch off `origin/post-web-runtime`: `git checkout -b codex/native-<panel>-panel origin/post-web-runtime`.
-2. Read the legacy `src/classes/<panel>.class.js` + `docs/native-migration/<panel>.spec.md` (if present) for the exact data contract.
+2. Read the legacy `src/classes/<panel>.class.js` for the exact data contract (the legacy class IS the spec).
 3. TDD a **pure, FFI-free** `Sources/<Panel>Support/` module (like `ClockSupport`/`SysinfoSupport`): write failing tests in `Tests/Native<Panel>Tests.swift`, watch them fail, implement. Register the new target in `Package.swift` in **4 places** (target list, executable `dependencies`, executable `exclude`, test-target `dependencies`).
 4. If new backend data is needed, add a typed `Ffi…` record + an `EdexCore` method in `crates/edex-ffi/src/lib.rs` (with a `cargo test`), then **regenerate bindings**:
    `cd crates/edex-ffi && cargo build --release && cargo run --bin uniffi-bindgen -- generate --library target/release/libedex_ffi.dylib --language swift --out-dir ../../macos/eDEXNative/Generated`

@@ -49,13 +49,13 @@ Anything not covered by a test is smoke-tested by running `cargo tauri dev` and 
 
 - **IPC boundary is Tauri `invoke()`** (in-process). `window.si` in `renderer.js` is a `Proxy` mapping camelCase → snake_case `si_*` commands, so visual classes don't know they talk to Rust.
 - Backend (`src-tauri/src/`): `lib.rs` is the wiring hub (`invoke_handler!` + `.manage()` state + `.setup()`); `sysinfo_service.rs` (cached typed queries) and `sysinfo_cmds.rs` (thin `si_*` wrappers) are **two layers — read together**; `pty.rs` (portable-pty); `native_mount.rs` / `native_panels.rs` (AppKit interop — every `*mut Object` is stashed as `usize` and only touched inside `dispatch::Queue::main`; web→AppKit rects need a y-flip).
-- **Active workstream: native-panel conversion (Approach A — per-panel NSView slots).** See Project knowledge below.
+- **Active workstream: the full SwiftUI + Rust native app under `macos/eDEXNative/`** (SwiftPM, linking `crates/edex-core` via the `crates/edex-ffi` UniFFI layer), replacing the WKWebView frontend panel-by-panel. The earlier Approach-A per-panel `NSView` slots are a frozen/superseded interim bridge. See Project knowledge below.
 
 ## Project knowledge (where to look)
 
-- `docs/superpowers/specs/2026-05-29-native-panel-conversion-design.md` — **design spec, read first** (Approach A, the column-granular blocker, scope, risks).
-- `docs/superpowers/plans/2026-05-29-native-panel-slots-phase0-1.md` — task-by-task implementation plan to **execute**.
-- `docs/native-migration/*.spec.md` — per-panel research (clock, sysinfo, hardwareInspector, cpuinfo, ramwatcher, toplist).
+- `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — **the authoritative plan, read first**: Phase 0–11 roadmap, dependency/deletion gates, the per-phase recipe, and the running completion log.
+- `docs/plans/ffi-throughput-decision-2026-05-30.md` — the FFI-throughput decision feeding Phase 9.
+- `macos/eDEXNative/` — the native app (per-panel pure `*Support` modules + SwiftUI views). Legacy panel behavior is read from `src/classes/*.class.js` during each conversion.
 - `CLAUDE.md` — fuller architecture map and gotchas.
 
 ## Commit & PR conventions

@@ -39,7 +39,7 @@ cd src-tauri && cargo test && cargo test --test sysinfo_contract && cargo fmt --
 
 - **IPC boundary is Tauri `invoke()`** (in-process). `window.si` in `renderer.js` is a `Proxy` mapping camelCase → snake_case `si_*` commands; visual classes consume it unaware they're talking to Rust.
 - Backend (`src-tauri/src/`): `lib.rs` wires everything (`invoke_handler!` + `.manage()` + `.setup()`); `sysinfo_service.rs` (cached typed queries) + `sysinfo_cmds.rs` (thin `si_*` wrappers) are two layers; `pty.rs` (portable-pty); `native_mount.rs` / `native_panels.rs` are AppKit interop — opaque pointers stashed as `usize`, dereferenced only inside `dispatch::Queue::main`, web→AppKit rects y-flipped.
-- **Active workstream: native-panel conversion (Approach A — per-panel NSView slots),** default-off behind `experimentalNative*` flags. Full design + plan imported below.
+- **Active workstream: the full SwiftUI + Rust native app under `macos/eDEXNative/`** (SwiftPM, linking `crates/edex-core` via the `crates/edex-ffi` UniFFI layer), replacing the WKWebView frontend panel-by-panel. The earlier Approach-A per-panel `NSView` slots are a frozen/superseded interim bridge. Authoritative plan imported below.
 
 ## Security
 
@@ -51,9 +51,8 @@ Substantial / multi-file changes go on an isolated branch + PR after full valida
 
 ## Imported context (migration docs)
 
-Point Gemini at **both** the design (orientation) and the plan (execution). These `@`-imports inline the live docs into context:
+Point Gemini at the authoritative plan (roadmap + per-phase recipe + completion log). This `@`-import inlines the live doc into context:
 
-@./docs/superpowers/specs/2026-05-29-native-panel-conversion-design.md
-@./docs/superpowers/plans/2026-05-29-native-panel-slots-phase0-1.md
+@./docs/plans/full-native-swift-rust-conversion-2026-05-30.md
 
-Per-panel research lives in `docs/native-migration/*.spec.md` — import an individual file with `@./docs/native-migration/<panel>.spec.md` when working that panel. The plan import is large; comment it out to save context window when only orientation is needed.
+The FFI-throughput decision that feeds Phase 9 is `docs/plans/ffi-throughput-decision-2026-05-30.md`; import it with `@./docs/plans/ffi-throughput-decision-2026-05-30.md` when working the terminal path. The plan import is large; comment it out to save context window when only orientation is needed.
