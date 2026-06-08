@@ -8,6 +8,7 @@ import FuzzyFinderSupport
 import Foundation
 import HardwareSupport
 import KeyboardSupport
+import KeyboardViewSupport
 import ModalSupport
 import Observation
 import RamwatcherSupport
@@ -91,6 +92,12 @@ final class ShellState {
     // Phase 8.1 keyboard layout state.
     var keyboardLayout: NativeKeyboardLayout?
     var keyboardStatus = "keyboard layout not loaded"
+
+    // Phase 8.2 keyboard view state (visual only; routing lands in 8.3).
+    /// Engaged modifiers + password mode, driving label emphasis and dimming.
+    var keyboardModifiers = KeyboardModifierState()
+    /// Keys currently showing the active/blink press animation, by descriptor id.
+    var pressedKeyIDs: Set<String> = []
 
     // Phase 6.4 shortcuts state.
     var shortcuts: EdexShortcutsDocument?
@@ -447,6 +454,26 @@ final class ShellState {
         case let .failure(error):
             keyboardLayout = nil
             keyboardStatus = "Keyboard layout \(name) failed: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: Keyboard view (Phase 8.2)
+
+    /// Toggle a modifier's visual state. Caps/Fn behave as sticky toggles like
+    /// the legacy on-screen keyboard; Shift/Alt/Ctrl toggle here too so the
+    /// label-emphasis rendering can be exercised before Phase 8.3 wires real
+    /// press-and-hold + routing semantics.
+    func toggleKeyboardModifier(_ modifier: KeyboardModifier) {
+        keyboardModifiers.toggle(modifier)
+    }
+
+    /// Flash a key's active/blink press animation (visual only — no command is
+    /// emitted; routing to the terminal/modals is Phase 8.3).
+    func pressKeyVisual(id: String) {
+        pressedKeyIDs.insert(id)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            self?.pressedKeyIDs.remove(id)
         }
     }
 

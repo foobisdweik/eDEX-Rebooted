@@ -4,6 +4,8 @@ import ClockSupport
 import CpuinfoSupport
 import FilesystemSupport
 import HardwareSupport
+import KeyboardSupport
+import KeyboardViewSupport
 import LayoutSupport
 import ModalSupport
 import RamwatcherSupport
@@ -159,6 +161,141 @@ struct ContentView: View {
     }
 
     private func keyboard(_ metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
+        Group {
+            if let layout = state.keyboardLayout {
+                keyboardBand(layout: layout, metrics: metrics, vh: vh)
+            } else {
+                keyboardStubBand(metrics: metrics, vh: vh)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .augmentedSurface(
+            style: .panel(vh: vh),
+            fill: state.theme.panelBackground.opacity(0.42),
+            stroke: state.theme.accent
+        )
+        .opacity(
+            KeyboardViewModel.bandOpacity(
+                modifiers: state.keyboardModifiers,
+                isDetached: state.modalManager.isKeyboardDetached
+            )
+        )
+        .positioned(in: metrics.frame)
+    }
+
+    // The real on-screen keyboard, rendered from the Phase 8.1 layout model.
+    private func keyboardBand(layout: NativeKeyboardLayout, metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
+        let rows = KeyboardViewModel.descriptors(for: layout)
+        return VStack(spacing: CGFloat(metrics.rowGap)) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 6) {
+                    ForEach(row) { descriptor in
+                        keyView(descriptor, metrics: metrics, vh: vh)
+                    }
+                }
+                .frame(height: CGFloat(metrics.rowHeight))
+            }
+        }
+    }
+
+    private func keyView(_ descriptor: KeyboardKeyDescriptor, metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
+        let modifiers = state.keyboardModifiers
+        let isPressed = state.pressedKeyIDs.contains(descriptor.id)
+        let isHighlighted = descriptor.isHighlighted(modifiers: modifiers)
+        let isFilled = isPressed || isHighlighted
+        let accent = state.theme.accent
+        let isEmphasizedEdge: Bool
+        switch descriptor.role {
+        case .spacebar, .enter, .enterContinuation:
+            isEmphasizedEdge = true
+        default:
+            isEmphasizedEdge = false
+        }
+
+        return ZStack {
+            AugmentedBorderShape(style: .settingsButton(vh: vh))
+                .fill(isFilled ? accent : accent.opacity(0.06))
+            AugmentedBorderShape(style: .settingsButton(vh: vh))
+                .stroke(accent.opacity(isEmphasizedEdge ? 0.6 : 0.45), lineWidth: 1)
+            keyContent(descriptor, modifiers: modifiers, filled: isFilled)
+        }
+        .frame(width: CGFloat(keyboardKeyWidth(for: descriptor, metrics: metrics, vh: vh)))
+        .frame(maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .animation(.easeOut(duration: 0.12), value: isFilled)
+        .onTapGesture {
+            if let modifier = descriptor.modifier {
+                state.toggleKeyboardModifier(modifier)
+            } else {
+                state.pressKeyVisual(id: descriptor.id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func keyContent(_ descriptor: KeyboardKeyDescriptor, modifiers: KeyboardModifierState, filled: Bool) -> some View {
+        let textColor = filled ? state.theme.panelBackground : state.theme.accent
+        if let icon = descriptor.iconName {
+            Image(systemName: keyboardIconSymbol(icon))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(textColor)
+        } else {
+            let primary = descriptor.prominentLabel(modifiers: modifiers)
+            ZStack {
+                Text(primary)
+                    .font(.custom(state.theme.fonts.main, size: 13))
+                    .foregroundStyle(textColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Corner label tiers (h2 shift / h5 alt-shift / h3 alt), dimmed,
+                // hidden when they would duplicate the prominent label.
+                keyCornerLabel(descriptor.shiftLabel, primary: primary, color: textColor, alignment: .topLeading)
+                keyCornerLabel(descriptor.altShiftLabel, primary: primary, color: textColor, alignment: .topTrailing)
+                keyCornerLabel(descriptor.altLabel, primary: primary, color: textColor, alignment: .bottomTrailing)
+            }
+            .padding(2)
+        }
+    }
+
+    @ViewBuilder
+    private func keyCornerLabel(_ label: String?, primary: String, color: Color, alignment: Alignment) -> some View {
+        if let label, !label.isEmpty, label != primary {
+            Text(label)
+                .font(.custom(state.theme.fonts.terminal, size: 8))
+                .foregroundStyle(color.opacity(0.55))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+        }
+    }
+
+    private func keyboardIconSymbol(_ name: String) -> String {
+        switch name {
+        case "ARROW_UP": return "arrow.up"
+        case "ARROW_DOWN": return "arrow.down"
+        case "ARROW_LEFT": return "arrow.left"
+        case "ARROW_RIGHT": return "arrow.right"
+        default: return "questionmark.square.dashed"
+        }
+    }
+
+    private func keyboardKeyWidth(for descriptor: KeyboardKeyDescriptor, metrics: KeyboardLayoutMetrics, vh: Double) -> Double {
+        switch descriptor.role {
+        case .spacebar:
+            return metrics.spacebarWidth
+        case .enter:
+            return max(metrics.keySide * 1.8, 9.72 * vh)
+        case .enterContinuation:
+            return max(metrics.keySide * 1.4, 7.78 * vh)
+        case .wide:
+            return metrics.keySide * 1.7
+        case .standard, .icon:
+            return metrics.keySide
+        }
+    }
+
+    // Pre-layout placeholder grid, shown only until the configured layout loads.
+    private func keyboardStubBand(metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
         VStack(spacing: CGFloat(metrics.rowGap)) {
             ForEach(0..<5, id: \.self) { row in
                 HStack(spacing: 6) {
@@ -169,14 +306,6 @@ struct ContentView: View {
                 .frame(height: CGFloat(metrics.rowHeight))
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .augmentedSurface(
-            style: .panel(vh: vh),
-            fill: state.theme.panelBackground.opacity(0.42),
-            stroke: state.theme.accent
-        )
-        .opacity(state.modalManager.isKeyboardDetached ? 0.18 : 1.0)
-        .positioned(in: metrics.frame)
     }
 
     private func modalLayer(size: CGSize, vh: Double) -> some View {

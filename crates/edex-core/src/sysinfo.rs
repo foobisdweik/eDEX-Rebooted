@@ -791,7 +791,6 @@ fn temp_stats_from_components(comps: &Components) -> TempStats {
 fn mem_stats_from_system(sys: &System) -> MemStats {
     let total = sys.total_memory();
     let used = sys.used_memory();
-    let free = sys.free_memory();
     let available = sys.available_memory();
     let free_strict = total.saturating_sub(used);
 
@@ -800,7 +799,10 @@ fn mem_stats_from_system(sys: &System) -> MemStats {
         free: free_strict,
         used,
         active: used,
-        available: available.max(free),
+        // Clamp against the same `free_strict` we store, not the raw
+        // `sys.free_memory()`, so the reported `available >= free` invariant
+        // (relied on by the ramwatcher `available - free` partition) always holds.
+        available: available.max(free_strict),
         buffers: 0,
         cached: 0,
         slab: 0,
