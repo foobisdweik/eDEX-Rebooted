@@ -47,6 +47,11 @@ let package = Package(
             path: "Sources/KeyboardSupport"
         ),
         .target(
+            name: "KeyboardViewSupport",
+            dependencies: ["KeyboardSupport"],
+            path: "Sources/KeyboardViewSupport"
+        ),
+        .target(
             name: "CpuinfoSupport",
             path: "Sources/CpuinfoSupport"
         ),
@@ -99,7 +104,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "eDEXNative",
-            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "FuzzyFinderSupport", "HardwareSupport", "KeyboardSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "FuzzyFinderSupport", "HardwareSupport", "KeyboardSupport", "KeyboardViewSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
             path: ".",
             exclude: [
                 "README.md",
@@ -113,6 +118,7 @@ let package = Package(
                 "Sources/FuzzyFinderSupport",
                 "Sources/HardwareSupport",
                 "Sources/KeyboardSupport",
+                "Sources/KeyboardViewSupport",
                 "Sources/LayoutSupport",
                 "Sources/ModalSupport",
                 "Sources/RamwatcherSupport",
@@ -149,7 +155,7 @@ let package = Package(
         ),
         .testTarget(
             name: "eDEXNativeTests",
-            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "FuzzyFinderSupport", "HardwareSupport", "KeyboardSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "FuzzyFinderSupport", "HardwareSupport", "KeyboardSupport", "KeyboardViewSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
             path: "Tests"
         )
     ],
