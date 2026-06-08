@@ -1,0 +1,37 @@
+name: Native CI
+
+# Authoritative checks for the native-conversion tree (macos/eDEXNative + crates/).
+# The legacy ci.yml only covers the frozen Tauri stack (src-tauri/ + src/*.test.js);
+# this workflow is what actually validates phase PRs. It runs the SAME gate agents
+# run locally — `bash scripts/native-phase verify --full` — so local and CI cannot
+# drift. The smoke-window is intentionally excluded (needs a window session).
+
+on:
+  push:
+    branches: [master, post-web-runtime]
+  pull_request:
+    branches: [master, post-web-runtime]
+
+concurrency:
+  group: native-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-gate:
+    name: Native gate (verify --full)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/edex-ffi
+      # macos-latest ships a recent Xcode with Swift 6.x; point the helper at it.
+      - name: Run the native gate
+        env:
+          SWIFT_BIN: swift
+          SWIFT_DISPLAY: swift
+          NATIVE_PHASE_FULL: "1"
+        run: bash scripts/native-phase verify --full
