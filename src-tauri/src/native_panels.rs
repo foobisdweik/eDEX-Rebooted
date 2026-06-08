@@ -1,5 +1,6 @@
 //! Approach A: per-panel native NSView "slots" mounted above the WKWebView.
-//! See docs/superpowers/plans/2026-05-29-native-panel-slots-phase0-1.md.
+//! Interim/frozen bridge — superseded by the SwiftUI app in `macos/eDEXNative/`.
+//! See docs/plans/full-native-swift-rust-conversion-2026-05-30.md.
 //!
 //! Thread safety: AppKit/CALayer pointers are stored as `usize` and only
 //! dereferenced inside `dispatch::Queue::main()` work, matching

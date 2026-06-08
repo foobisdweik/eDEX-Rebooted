@@ -80,7 +80,6 @@ EOF
       cat <<'EOF'
 Phase 5.6 first-read files:
   src/classes/toplist.class.js
-  docs/native-migration/toplist.spec.md
   macos/eDEXNative/Sources/Views/ContentView.swift
   macos/eDEXNative/Sources/Stores/ShellState.swift
   docs/plans/full-native-swift-rust-conversion-2026-05-30.md
