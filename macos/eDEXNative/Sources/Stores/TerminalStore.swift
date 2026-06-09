@@ -89,6 +89,8 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         let s = sessions[tabs.active]
         if s.exited {
             respawn(s)
+            guard let id = s.ptyId else { return }
+            try? terminalClient.writePty(id: id, data: text)
             return
         }
         guard let id = s.ptyId else { return }
@@ -121,7 +123,7 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     }
 
     private func spawnIfNeeded(_ s: TerminalSession) {
-        guard s.ptyId == nil else { return }
+        guard s.ptyId == nil, !s.exited else { return }
 
         var env = ProcessInfo.processInfo.environment
         env["TERM"] = "xterm-256color"
@@ -186,6 +188,8 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         // on-screen path in sendInput) rather than vanishing against a dead PTY.
         if session.exited {
             respawn(session)
+            guard let id = session.ptyId else { return }
+            try? terminalClient.writePty(id: id, data: String(decoding: data, as: UTF8.self))
             return
         }
         guard let id = session.ptyId else { return }
