@@ -35,9 +35,13 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
 
     /// The active tab's working directory and foreground process, mirrored into
     /// observable storage so SwiftUI (and the filesystem-panel follow logic)
-    /// re-evaluate when a metadata poll or tab switch changes them. Defaults to
-    /// home until the first successful poll.
+    /// re-evaluate when a metadata poll or tab switch changes them.
+    ///
+    /// `activeCwd` coerces an unknown cwd to home for display/`TerminalSessionProviding`;
+    /// `activeCwdRaw` preserves nil so the cwd-follow can ignore a poll that
+    /// couldn't read the shell's cwd instead of treating it as a `cd ~`.
     private(set) var activeCwd: String = NSHomeDirectory()
+    private(set) var activeCwdRaw: String?
     private(set) var activeProcess: String?
 
     var activeTab: Int { tabs.active }
@@ -154,6 +158,7 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     /// the newly-active tab) and after each successful poll.
     private func syncActiveMetadata() {
         let active = sessions[tabs.active]
+        activeCwdRaw = active.cwd
         activeCwd = active.cwd ?? NSHomeDirectory()
         activeProcess = active.process
     }

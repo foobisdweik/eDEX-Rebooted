@@ -653,15 +653,26 @@ final class ShellState: EdexActionHandler {
 
     private func performTerminalMetadataRefresh() async {
         await terminal.refreshActiveMetadata()
+        // Feed the *raw* (possibly nil) cwd: a poll that can't read the shell's
+        // cwd must not be coerced to home (TerminalStore.activeCwd does that for
+        // display), which would look like a real `cd ~` and yank the panel.
         switch TerminalCwdFollow.decide(
-            newCwd: terminal.activeCwd,
+            newCwd: terminal.activeCwdRaw,
             lastFollowedCwd: lastFollowedCwd,
             isDiskView: fsIsDiskView
         ) {
         case let .navigate(path):
-            await navigateFS(to: path)
-            if fsPath == path {
+            switch await navigateFS(to: path) {
+            case .navigated, .failed:
+                // The follow resolved: either the panel now shows `path`, or the
+                // directory is unreadable (a hard failure already played the
+                // denied cue once). Stamp so the 1 Hz poll stops re-attempting —
+                // and stops replaying that cue — until the shell cwd changes again.
                 lastFollowedCwd = path
+            case .skipped:
+                // Another read held `fsReading`; leave `lastFollowedCwd` unset so
+                // the next poll retries this still-pending follow.
+                break
             }
         case .ignore:
             break
@@ -677,8 +688,9 @@ final class ShellState: EdexActionHandler {
     /// Reads a directory and rebuilds the displayed rows. The FFI listing runs
     /// off the MainActor; results land back here. A read failure sets the failed
     /// state and plays the denied cue (mirrors the legacy setFailedState path).
-    func navigateFS(to path: String) async {
-        guard !fsReading else { return }
+    @discardableResult
+    func navigateFS(to path: String) async -> FilesystemNavigationOutcome {
+        guard !fsReading else { return .skipped }
         fsReading = true
         defer { fsReading = false }
 
@@ -691,7 +703,7 @@ final class ShellState: EdexActionHandler {
             fsFailed = true
             fsItems = []
             playAudio(.denied)
-            return
+            return .failed
         }
 
         fsFailed = false
@@ -702,6 +714,7 @@ final class ShellState: EdexActionHandler {
         }
         fsItems = FilesystemListBuilder.items(entries: mapped, path: path, context: fsContext)
         await refreshFsDiskUsage(forPath: path)
+        return .navigated
     }
 
     /// Recomputes the disk-usage bar for the current directory's mount.
@@ -1145,6 +1158,15 @@ final class ShellState: EdexActionHandler {
             Darwin.exit(0)
         }
     }
+}
+
+/// Outcome of a `navigateFS(to:)` call, so the cwd-follow can tell a resolved
+/// navigation (shown or hard-failed) apart from one skipped because another read
+/// held `fsReading` — only the latter should be retried on the next poll.
+enum FilesystemNavigationOutcome {
+    case navigated
+    case failed
+    case skipped
 }
 
 struct SettingsSummary: Sendable {
