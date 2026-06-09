@@ -48,8 +48,9 @@ final class ShellState: EdexActionHandler {
     var bootDisplayLines: [String] = []
 
     // Phase 7.1 filesystem panel state.
-    /// Current directory being displayed. Starts at the user's home; tab-CWD
-    /// tracking is deferred to Phase 9 (PTY seam).
+    /// Current directory being displayed. Starts at the user's home; Phase 9.5
+    /// wires the panel to follow the active terminal tab's CWD (see
+    /// `refreshTerminalMetadata`).
     var fsPath: String = NSHomeDirectory()
     /// The displayed rows (directory listing or "Show disks" view).
     var fsItems: [FilesystemItem] = []
@@ -63,6 +64,13 @@ final class ShellState: EdexActionHandler {
     /// Set when the current directory could not be read.
     var fsFailed = false
     @ObservationIgnored private var fsReading = false
+    /// The terminal cwd the filesystem panel last auto-followed. Compared against
+    /// each metadata poll so manual browsing isn't yanked back — only a real `cd`
+    /// (which changes the shell cwd) re-navigates the panel (Phase 9.5).
+    @ObservationIgnored private var lastFollowedCwd: String?
+    /// Serializes metadata polls and cwd-follow work so overlapping 1 Hz polls and
+    /// tab-switch follow-ups cannot apply stale PTY reads or skip navigation.
+    @ObservationIgnored private var terminalMetadataRefreshTail: Task<Void, Never>?
 
     // Phase 7.2 fuzzy finder state.
     var fuzzyQuery = ""
@@ -154,6 +162,7 @@ final class ShellState: EdexActionHandler {
             openFuzzyFinder()
         case let .switchTerminal(index):
             terminal.switchTab(index)
+            followActiveTabSoon()
         case .closeModal:
             guard let top = modalManager.modals.max(by: { $0.zIndex < $1.zIndex }) else { return }
             closeModal(top.id)
@@ -617,6 +626,59 @@ final class ShellState: EdexActionHandler {
         )
     }
 
+    /// Polls the active terminal tab's metadata (1 Hz, matching the legacy
+    /// terminal.class.js cadence) and follows its working directory in the
+    /// filesystem panel. Mirrors the legacy `followTab`: a real `cd` re-navigates
+    /// the panel, but manual browsing is left alone (see `TerminalCwdFollow`).
+    func refreshTerminalMetadata() async {
+        await enqueueTerminalMetadataRefresh().value
+    }
+
+    /// Re-follows the active tab's cwd immediately after a tab switch instead of
+    /// waiting up to a full poll interval (legacy `resendCWD`).
+    private func followActiveTabSoon() {
+        _ = enqueueTerminalMetadataRefresh()
+    }
+
+    private func enqueueTerminalMetadataRefresh() -> Task<Void, Never> {
+        let prior = terminalMetadataRefreshTail
+        let task = Task { @MainActor [weak self] in
+            if let prior { await prior.value }
+            guard let self else { return }
+            await self.performTerminalMetadataRefresh()
+        }
+        terminalMetadataRefreshTail = task
+        return task
+    }
+
+    private func performTerminalMetadataRefresh() async {
+        await terminal.refreshActiveMetadata()
+        // Feed the *raw* (possibly nil) cwd: a poll that can't read the shell's
+        // cwd must not be coerced to home (TerminalStore.activeCwd does that for
+        // display), which would look like a real `cd ~` and yank the panel.
+        switch TerminalCwdFollow.decide(
+            newCwd: terminal.activeCwdRaw,
+            lastFollowedCwd: lastFollowedCwd,
+            isDiskView: fsIsDiskView
+        ) {
+        case let .navigate(path):
+            switch await navigateFS(to: path) {
+            case .navigated, .failed:
+                // The follow resolved: either the panel now shows `path`, or the
+                // directory is unreadable (a hard failure already played the
+                // denied cue once). Stamp so the 1 Hz poll stops re-attempting —
+                // and stops replaying that cue — until the shell cwd changes again.
+                lastFollowedCwd = path
+            case .skipped:
+                // Another read held `fsReading`; leave `lastFollowedCwd` unset so
+                // the next poll retries this still-pending follow.
+                break
+            }
+        case .ignore:
+            break
+        }
+    }
+
     /// First load when the panel appears. Re-entrant-safe; no-op once populated.
     func loadInitialFilesystemIfNeeded() async {
         guard fsItems.isEmpty, !fsFailed, !fsReading else { return }
@@ -626,8 +688,9 @@ final class ShellState: EdexActionHandler {
     /// Reads a directory and rebuilds the displayed rows. The FFI listing runs
     /// off the MainActor; results land back here. A read failure sets the failed
     /// state and plays the denied cue (mirrors the legacy setFailedState path).
-    func navigateFS(to path: String) async {
-        guard !fsReading else { return }
+    @discardableResult
+    func navigateFS(to path: String) async -> FilesystemNavigationOutcome {
+        guard !fsReading else { return .skipped }
         fsReading = true
         defer { fsReading = false }
 
@@ -640,7 +703,7 @@ final class ShellState: EdexActionHandler {
             fsFailed = true
             fsItems = []
             playAudio(.denied)
-            return
+            return .failed
         }
 
         fsFailed = false
@@ -651,6 +714,7 @@ final class ShellState: EdexActionHandler {
         }
         fsItems = FilesystemListBuilder.items(entries: mapped, path: path, context: fsContext)
         await refreshFsDiskUsage(forPath: path)
+        return .navigated
     }
 
     /// Recomputes the disk-usage bar for the current directory's mount.
@@ -1015,8 +1079,10 @@ final class ShellState: EdexActionHandler {
             terminal.pasteClipboard()
         case .nextTab:
             terminal.selectNextTab()
+            followActiveTabSoon()
         case .previousTab:
             terminal.selectPreviousTab()
+            followActiveTabSoon()
         case .devDebug, .devReload:
             break
         }
@@ -1092,6 +1158,15 @@ final class ShellState: EdexActionHandler {
             Darwin.exit(0)
         }
     }
+}
+
+/// Outcome of a `navigateFS(to:)` call, so the cwd-follow can tell a resolved
+/// navigation (shown or hard-failed) apart from one skipped because another read
+/// held `fsReading` — only the latter should be retried on the next poll.
+enum FilesystemNavigationOutcome {
+    case navigated
+    case failed
+    case skipped
 }
 
 struct SettingsSummary: Sendable {
