@@ -1,4 +1,5 @@
 import XCTest
+@testable import EdexDomainSupport
 @testable import EdexRenderingSupport
 
 final class NativeThemeTests: XCTestCase {
@@ -23,13 +24,7 @@ final class NativeThemeTests: XCTestCase {
     }
 
     func testBundledThemesDecodeIntoNativeThemeModel() throws {
-        let packageDirectory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let themesDirectory = packageDirectory
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("src/assets/themes")
+        let themesDirectory = EdexBundledAssets.themesDirectory(from: #filePath)
         let themeFiles = try FileManager.default.contentsOfDirectory(
             at: themesDirectory,
             includingPropertiesForKeys: nil

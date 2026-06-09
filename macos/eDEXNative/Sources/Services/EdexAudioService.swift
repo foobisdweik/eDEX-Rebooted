@@ -53,12 +53,6 @@ final class EdexAudioService {
 
         // SwiftPM dev runs execute from `.build`; use the repository audio assets
         // until packaging moves these files into the native app bundle.
-        return URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // Services
-            .deletingLastPathComponent() // Sources
-            .deletingLastPathComponent() // eDEXNative
-            .deletingLastPathComponent() // macos
-            .deletingLastPathComponent() // repo root
-            .appendingPathComponent("src/assets/audio", isDirectory: true)
+        return EdexBundledAssets.audioDirectory(from: #filePath)
     }
 }

@@ -1,10 +1,9 @@
 name: Native CI
 
 # Authoritative checks for the native-conversion tree (macos/eDEXNative + crates/).
-# The legacy ci.yml only covers the frozen Tauri stack (src-tauri/ + src/*.test.js);
-# this workflow is what actually validates phase PRs. It runs the SAME gate agents
-# run locally — `bash scripts/native-phase verify --full` — so local and CI cannot
-# drift. The smoke-window is intentionally excluded (needs a window session).
+# This workflow runs the SAME gate agents run locally:
+# `bash scripts/native-phase verify --full`. The smoke-window is intentionally
+# excluded because it needs a window session.
 
 on:
   push:

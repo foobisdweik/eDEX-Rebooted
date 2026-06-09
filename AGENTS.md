@@ -10,12 +10,12 @@ to an edited file wins.
 
 ## Project overview
 
-eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**. Two stacks:
+eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**.
 
-- **Legacy Tauri 2 + Rust / WKWebView app** (`src-tauri/` + `src/`) — historically-shipping, **frozen** (master @ PR #12). Touch only to keep the transition build working.
-- **Active native app** (`macos/eDEXNative/` SwiftPM + `crates/edex-core` + `crates/edex-ffi`) — a SwiftUI app linking the Rust core via UniFFI, replacing the WKWebView frontend panel-by-panel along the Phase 0–11 plan. **All new work lands here**, on the `post-web-runtime` branch.
+- **Active native app** (`macos/eDEXNative/` SwiftPM + `crates/edex-core` + `crates/edex-ffi`) — a SwiftUI app linking the Rust core via UniFFI. **All new work lands here**, on the `post-web-runtime` branch.
+- **Bundled data assets** (`assets/`) — themes, keyboard layouts, fonts, audio cues, icons, and boot/log data shared by Swift and Rust.
 
-The earlier Approach-A per-panel `NSView` slots (`src-tauri/src/native_panels.rs`) are a frozen/superseded interim bridge.
+The legacy Tauri 2 / WKWebView frontend (`src-tauri/` + `src/`) was retired in Phase 9.7. Do not reintroduce a WebView runtime path.
 
 ## The workflow (debloated — `scripts/native-phase` is the single source of truth)
 
@@ -24,7 +24,7 @@ Verification is front-light, back-heavy: a fast **compile floor** before the PR;
 1. `scripts/native-phase start <phase> <slug>` — branch off latest `origin/post-web-runtime`, print first-read files.
 2. Write code, TDD. Keep pure domain/display logic testable and FFI-free. **Do not add another one-feature SwiftPM target by default**; use the consolidated native taxonomy (`EdexDomainSupport`, `EdexRenderingSupport`, or the app target) and keep routing/state/view responsibilities split. New backend data → typed `Ffi…` + `EdexCore` method in `crates/edex-ffi`, then regenerate bindings (see CLAUDE.md).
 3. `scripts/native-phase pr "<commit>" "<title>" "<summary>"` — the **only** ship command. It runs the compile floor (`precheck`) itself, then stages (excluding `memory.md`), commits, pushes, opens the PR against `post-web-runtime`. **Do not run the full gate by hand first** — that is CI's job.
-4. Work the post-PR loop (~5 min after submit): address **gemini-code-assist** review + **Native CI** status — review / validate / respond / resolve (push back with technical reasoning when wrong). **Ignore Cursor BugBot.**
+4. Work the post-PR loop (~5 min after submit): address **gemini-code-assist**, **Cursor BugBot**, and **Native CI** status on merit — review / validate / respond / resolve (push back with technical reasoning when wrong).
 5. A human merges and raises CI issues with you. No branch protection.
 
 ### Commands (don't run a remembered checklist — use these)
@@ -33,7 +33,7 @@ Verification is front-light, back-heavy: a fast **compile floor** before the PR;
 - `native-phase verify [--full]` — CI-safe full gate (build + swift test + cargo test/fmt/clippy), scope-aware. **Native CI runs `verify --full`**, so local-full == CI. Optional locally.
 - `native-phase smoke` — local-only `--smoke-window` (not in CI); run ad-hoc when touching FFI/bootstrap.
 
-CI: `.github/workflows/native-ci.yml` is authoritative for the native tree; `ci.yml` only covers the frozen Tauri stack.
+CI: `.github/workflows/native-ci.yml` is authoritative for the native tree.
 
 ## Conventions
 
@@ -50,7 +50,8 @@ CI: `.github/workflows/native-ci.yml` is authoritative for the native tree; `ci.
 - `docs/plans/anti-churn-strategem-2026-06-09.md` — staged branch plan for docs, SwiftPM taxonomy, architecture cleanup, and PR.
 - `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — authoritative roadmap, gates, and completion log. Historical per-panel recipes remain there for context, not as the default shape for new Swift code.
 - `docs/plans/ffi-throughput-decision-2026-05-30.md` — FFI-throughput decision feeding Phase 9.
-- `macos/eDEXNative/` — the native app (pure `*Support` modules + SwiftUI views); legacy panel behavior is read from `src/classes/*.class.js`.
+- `macos/eDEXNative/` — the native app (pure `*Support` modules + SwiftUI views).
+- `assets/` — shared bundled data mirrored into user data by `edex-core`.
 - `CLAUDE.md` — fuller architecture map and gotchas.
 
 ## Security

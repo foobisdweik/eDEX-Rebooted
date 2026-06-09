@@ -4,14 +4,16 @@ Guidance for Claude Code (and any agent) working in this repo. **Read this, then
 
 ## Repository status
 
-eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**. The repo holds **two stacks**:
+eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**.
 
-1. **Legacy Tauri 2 + Rust / WKWebView app** (`src-tauri/` + `src/`) — the historically-shipping build. **Frozen** (master is at PR #12). Touch it only to keep the transition build working.
-2. **The active native app** (`macos/eDEXNative/` SwiftPM + `crates/edex-core` + `crates/edex-ffi`) — a standalone SwiftUI app linking the Rust core via UniFFI, replacing the WKWebView frontend **panel-by-panel** along the Phase 0–11 roadmap. **All new work lands here**, on the `post-web-runtime` integration branch.
+The repo now holds the active native app plus shared data assets:
 
-The earlier **Approach-A** per-panel `NSView` slots (`src-tauri/src/native_panels.rs`) were an interim bridge and are **frozen/superseded** — do not invest there.
+1. **The active native app** (`macos/eDEXNative/` SwiftPM + `crates/edex-core` + `crates/edex-ffi`) — a standalone SwiftUI app linking the Rust core via UniFFI. **All new work lands here**, on the `post-web-runtime` integration branch.
+2. **Bundled data assets** (`assets/`) — themes, keyboard layouts, fonts, audio cues, icons, and boot/log data shared by Swift and Rust.
 
-Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, hardware, cpu, ram, toplist), Phase 6 (audio, modal manager, settings editor, shortcuts, boot screen), Phase 7 (filesystem, fuzzy finder, text editor), Phase 8.1 (keyboard layout loader), 8.2 (keyboard view), anti-churn cleanup (SwiftPM taxonomy, terminal/action seams, `KeyboardStore`, `EdexKeyboardPanel`), and 8.3 (on-screen keyboard input routing). **Phase 9** (native PTY terminal) is in progress on `codex/native-terminal-pty`. **Strategy decided (`docs/plans/phase-9-terminal-strategy-2026-06-08.md`): integrate SwiftTerm fed by the existing in-process PTY byte stream → working terminal → delete WKWebView.** The plan's original "emulate in Rust" approach (slices 9.1–9.2) is carved out as a separate future project; nothing is thrown away because the `PtyOutputSink` FFI seam is unchanged. The per-phase completion log lives in the authoritative plan.
+The legacy Tauri 2 / WKWebView frontend (`src-tauri/` + `src/`) and earlier Approach-A per-panel `NSView` slots were retired in Phase 9.7. Do not reintroduce a WebView runtime path.
+
+Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, hardware, cpu, ram, toplist), Phase 6 (audio, modal manager, settings editor, shortcuts, boot screen), Phase 7 (filesystem, fuzzy finder, text editor), Phase 8.1 (keyboard layout loader), 8.2 (keyboard view), anti-churn cleanup (SwiftPM taxonomy, terminal/action seams, `KeyboardStore`, `EdexKeyboardPanel`), 8.3 (on-screen keyboard input routing), and Phase 9 SwiftTerm integration through 9.6. Phase 9.7 retires the WKWebView runtime path and completes the terminal slice. The plan's original "emulate in Rust" approach (slices 9.1–9.2) is carved out as a separate future project; nothing is thrown away because the `PtyOutputSink` FFI seam is unchanged. The per-phase completion log lives in the authoritative plan.
 
 ## The per-phase workflow (debloated — follow it exactly)
 
@@ -20,7 +22,7 @@ Verification is **front-light, back-heavy**: a fast compile check before the PR,
 1. **`scripts/native-phase start <phase> <slug>`** — fast-forwards `post-web-runtime`, cuts `codex/native-<slug>`, prints first-read files.
 2. **Write code, TDD.** Pure domain/display logic still gets tests first, but **do not create another one-feature SwiftPM target by default**. The old per-panel target recipe is now migration history; new cross-cutting work should use the consolidated taxonomy (`EdexDomainSupport`, `EdexRenderingSupport`, or the app target). New backend data → typed `Ffi…` record + `EdexCore` method in `crates/edex-ffi`, then regenerate bindings (below).
 3. **`scripts/native-phase pr "<commit>" "<title>" "<summary>"`** — this is the *only* command you run to ship. It runs the **compile floor** (`precheck`) itself, then stages (excluding `memory.md`), commits, pushes, and opens the PR against `post-web-runtime`. Do **not** run the full local gate by hand first — that's CI's job now.
-4. **Work the post-PR loop (~5 min after submit):** address **gemini-code-assist** review comments + the **Native CI** status — review / validate / respond / resolve (push back with technical reasoning when a suggestion is wrong; don't perform agreement). **Ignore Cursor BugBot** — do not treat its comments or checks as authoritative.
+4. **Work the post-PR loop (~5 min after submit):** address **gemini-code-assist**, **Cursor BugBot**, and the **Native CI** status on merit — review / validate / respond / resolve (push back with technical reasoning when a suggestion is wrong; don't perform agreement).
 5. **A human merges** and raises any CI issue with you. There is no branch protection.
 
 ### The verification commands
@@ -32,7 +34,6 @@ Verification is **front-light, back-heavy**: a fast compile check before the PR,
 ### CI
 
 - `.github/workflows/native-ci.yml` is authoritative for the native tree (runs `verify --full` on PRs to `post-web-runtime`/`master`).
-- `.github/workflows/ci.yml` is the **legacy** workflow — it only validates the frozen Tauri stack (`src-tauri/` + `src/*.test.js`). Don't rely on it for native work.
 
 ### Regenerate UniFFI bindings (after any `crates/edex-ffi` signature change)
 
@@ -46,9 +47,7 @@ cd crates/edex-ffi && cargo build --release && \
 
 **Native app (`macos/eDEXNative/`, SwiftPM).** `ShellState` (`@Observable @MainActor`) is still the root app state, `ContentView` composes the shell + panels, and `EdexCoreClient` wraps the UniFFI `EdexCore`. Internal boundaries are in place: `TerminalSessionProviding` + `StubTerminalStore` (Phase 9 replaces the stub), `EdexActionHandler`, `KeyboardStore`, grouped `EdexDomainSupport` / `EdexRenderingSupport` targets, `EdexKeyboardPanel`, and Phase 8.3 input routing (`KeyboardCommandResolver`, diacritics, detached-field routing). Do not add feature logic to `ContentView`, do not add new feature ownership directly to `ShellState`, and route input/commands through the terminal seam + action router. The Swift toolchain is at `~/.swiftly/bin/swift` (Swift 6.x).
 
-**Rust core.** `crates/edex-core` is Tauri-free (sysinfo, PTY observer, settings, fs). `crates/edex-ffi` is the UniFFI layer (typed `Ffi…` records + `EdexCore` methods); committed Swift bindings live in `macos/eDEXNative/Generated/`. The native app links `-ledex_ffi` from `crates/edex-ffi/target/release`.
-
-**Legacy stack (frozen).** `src-tauri/` Rust backend over in-process Tauri `invoke()`; `src/` is the WKWebView frontend (`renderer.js` + `classes/*.class.js`, fully vendored under `src/assets/vendor/`). `window.si` is a Proxy mapping camelCase → `si_*`. Retired at Phase 11.
+**Rust core.** `crates/edex-core` is Tauri-free (sysinfo, PTY observer, settings, fs). `crates/edex-ffi` is the UniFFI layer (typed `Ffi…` records + `EdexCore` methods); committed Swift bindings live in `macos/eDEXNative/Generated/`. The native app links `-ledex_ffi` from `crates/edex-ffi/target/release`. `edex-core` embeds shared bundled data from `assets/`.
 
 ## Conversion docs (authoritative)
 
@@ -56,7 +55,7 @@ cd crates/edex-ffi && cargo build --release && \
 - `docs/plans/anti-churn-strategem-2026-06-09.md` — staged branch plan for docs, SwiftPM taxonomy, architecture cleanup, and PR.
 - `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — Phase 0–11 roadmap, gates, and completion log. Historical per-panel recipes remain there for context, not as the default architecture for new Swift work.
 - `docs/plans/ffi-throughput-decision-2026-05-30.md` — FFI-throughput decision feeding Phase 9.
-- Legacy panel behavior is read directly from `src/classes/*.class.js` during each conversion.
+- `assets/` is the source of truth for bundled themes, keyboard layouts, fonts, audio, icons, and boot/log data.
 
 ## Settings storage
 

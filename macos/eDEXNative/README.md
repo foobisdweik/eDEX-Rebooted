@@ -1,12 +1,12 @@
 # eDEXNative
 
-SwiftPM native macOS app for the `post-web-runtime` migration. It links the Rust core through `crates/edex-ffi` and is replacing the WKWebView frontend while the Tauri stack stays available as the transition build.
+SwiftPM native macOS app for the `post-web-runtime` migration. It links the Rust core through `crates/edex-ffi`; the legacy WKWebView/Tauri transition stack was retired in Phase 9.7.
 
 ## Current Status
 
-The original Phase 3 shell spike proved the app can launch a native eDEX window, control AppKit window chrome, and call the Rust core through UniFFI. The app has since advanced through Phase 8.3: telemetry panels, audio, modals, settings, shortcuts, boot screen, filesystem, fuzzy finder, text editor, keyboard layout loading, keyboard rendering, and on-screen keyboard input routing are native.
+The original Phase 3 shell spike proved the app can launch a native eDEX window, control AppKit window chrome, and call the Rust core through UniFFI. The app has since advanced through Phase 9.7: telemetry panels, audio, modals, settings, shortcuts, boot screen, filesystem, fuzzy finder, text editor, keyboard layout loading/rendering/input routing, and the SwiftTerm-backed PTY terminal are native.
 
-**Phase 9** (real PTY terminal) is next. Follow `Ultrareview.md`: the SwiftPM taxonomy groups support code into domain and rendering targets, terminal/action seams are in place, and new work should continue splitting `ShellState` ownership while keeping `ContentView` as a compositor.
+Follow `Ultrareview.md`: the SwiftPM taxonomy groups support code into domain and rendering targets, terminal/action seams are in place, and new work should continue splitting `ShellState` ownership while keeping `ContentView` as a compositor. Shared bundled data lives under the repo-level `assets/` directory.
 
 ## Build And Run
 
@@ -45,4 +45,4 @@ swift run eDEXNative
 - New input/routing work should target `TerminalSessionProviding` and `EdexActionHandler`, not direct view-to-store cross-calls.
 - `ContentView` should place surfaces; feature rendering belongs in dedicated views.
 
-This is still a dev SwiftPM executable rather than a signed `.app` distribution. Packaging, signing, notarization, asset bundling, and the production terminal renderer are later phases.
+This is still a dev SwiftPM executable rather than a signed `.app` distribution. Packaging, signing, notarization, and final asset bundling are later phases.

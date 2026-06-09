@@ -16,8 +16,8 @@ grep -q "git fetch --prune" <<<"$start_output" || fail "start dry-run does not f
 grep -q "git switch post-web-runtime" <<<"$start_output" || fail "start dry-run does not switch to post-web-runtime"
 grep -q "git merge --ff-only origin/post-web-runtime" <<<"$start_output" || fail "start dry-run does not fast-forward post-web-runtime"
 grep -q "git switch -c codex/native-modal-manager" <<<"$start_output" || fail "start dry-run does not create expected branch"
-grep -q "src/classes/modal.class.js" <<<"$start_output" || fail "start dry-run does not print modal legacy file"
-grep -q "src-tauri/src/native_modal.rs" <<<"$start_output" || fail "start dry-run does not print native_modal reference"
+grep -q "macos/eDEXNative/Package.swift" <<<"$start_output" || fail "start dry-run does not print native Package.swift"
+grep -q "macos/eDEXNative/Sources/Stores/ShellState.swift" <<<"$start_output" || fail "start dry-run does not print ShellState reference"
 
 precheck_output="$("$script" --dry-run precheck)"
 grep -q "cargo build --release" <<<"$precheck_output" || fail "precheck dry-run does not build the release FFI dylib"
