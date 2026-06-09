@@ -26,5 +26,7 @@ struct EdexTerminalSurface: NSViewRepresentable {
             blue: fg.blue,
             alpha: fg.alpha
         )
+        nsView.font = NSFont(name: theme.fonts.terminal, size: 13)
+            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
     }
 }

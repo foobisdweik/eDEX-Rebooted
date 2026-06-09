@@ -41,10 +41,32 @@ struct TerminalClient {
 final class PtyOutputBufferBox: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = PtyOutputBuffer()
+    private var notifyScheduled = false
 
     /// Called on MainActor after each synchronous append. Multiple coalesced
     /// notifications are safe because `drain()` atomically returns all pending bytes.
     var onDataAvailable: (@MainActor () -> Void)?
+
+    /// Coalesce drain notifications to at most one pending MainActor hop.
+    func scheduleNotify() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard onDataAvailable != nil, !notifyScheduled else { return }
+        notifyScheduled = true
+        Task { @MainActor in
+            self.fireNotify()
+        }
+    }
+
+    @MainActor
+    private func fireNotify() {
+        let callback: (@MainActor () -> Void)?
+        lock.lock()
+        notifyScheduled = false
+        callback = onDataAvailable
+        lock.unlock()
+        callback?()
+    }
 
     func append(_ bytes: [UInt8]) {
         lock.lock()
@@ -115,9 +137,7 @@ private final class PtyOutputSinkAdapter: PtyOutputSink, @unchecked Sendable {
         // unstructured Tasks onto MainActor are not resumed in creation order under load.
         box.append(Array(bytes))
         // Only the drain notification hops to main; append ordering is preserved above.
-        Task { @MainActor in
-            box.onDataAvailable?()
-        }
+        box.scheduleNotify()
     }
 
     func onExit(id: UInt32, status: Int32?) {

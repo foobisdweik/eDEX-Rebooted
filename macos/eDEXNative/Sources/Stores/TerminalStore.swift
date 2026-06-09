@@ -33,7 +33,6 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     /// Spawns the in-process PTY once settings and theme are available (post-bootstrap).
     func start(settings: SettingsSummary, theme: NativeTheme) {
         guard !spawned else { return }
-        spawned = true
 
         applyTheme(theme)
 
@@ -43,6 +42,8 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
 
         let cols = terminalView.terminal.cols
         let rows = terminalView.terminal.rows
+        let spawnCols = cols > 0 ? Double(cols) : Double(TerminalSpawnRequest.defaultCols)
+        let spawnRows = rows > 0 ? Double(rows) : Double(TerminalSpawnRequest.defaultRows)
         var env = ProcessInfo.processInfo.environment
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
@@ -51,12 +52,13 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         // 9.x TODO: read shell/cwd from settings when exposed by bootstrap FFI.
         let request = TerminalSpawnRequest.make(
             env: env,
-            cols: Double(cols),
-            rows: Double(rows)
+            cols: spawnCols,
+            rows: spawnRows
         )
 
         do {
             ptyId = try terminalClient.spawn(request: request, output: outputBox)
+            spawned = true
         } catch {
             print("eDEXNative terminal spawn failed: \(error.localizedDescription)")
         }
@@ -100,8 +102,11 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     }
 
     private func clampedDimension(_ value: Int, default defaultValue: UInt16) -> UInt16 {
-        guard value >= 1, value <= Int(UInt16.max) else {
+        guard value >= 1 else {
             return max(1, defaultValue)
+        }
+        if value > Int(UInt16.max) {
+            return UInt16.max
         }
         return UInt16(value)
     }
@@ -114,6 +119,7 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     }
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
+        guard newCols > 0, newRows > 0 else { return }
         guard let ptyId else { return }
         let cols = clampedDimension(newCols, default: TerminalSpawnRequest.defaultCols)
         let rows = clampedDimension(newRows, default: TerminalSpawnRequest.defaultRows)
