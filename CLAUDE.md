@@ -11,7 +11,7 @@ eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**. The r
 
 The earlier **Approach-A** per-panel `NSView` slots (`src-tauri/src/native_panels.rs`) were an interim bridge and are **frozen/superseded** — do not invest there.
 
-Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, hardware, cpu, ram, toplist), Phase 6 (audio, modal manager, settings editor, shortcuts, boot screen), Phase 7 (filesystem, fuzzy finder, text editor), Phase 8.1 (keyboard layout loader) + 8.2 (keyboard view). The anti-churn branch now consolidates the SwiftPM taxonomy, introduces the terminal/action seams, starts the `ShellState` split, and pushes keyboard rendering out of `ContentView`. Phase 8.3 input routing resumes after that PR. The per-phase completion log lives in the authoritative plan.
+Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, hardware, cpu, ram, toplist), Phase 6 (audio, modal manager, settings editor, shortcuts, boot screen), Phase 7 (filesystem, fuzzy finder, text editor), Phase 8.1 (keyboard layout loader), 8.2 (keyboard view), anti-churn cleanup (SwiftPM taxonomy, terminal/action seams, `KeyboardStore`, `EdexKeyboardPanel`), and 8.3 (on-screen keyboard input routing). **Phase 9** (real PTY terminal) is next. The per-phase completion log lives in the authoritative plan.
 
 ## The per-phase workflow (debloated — follow it exactly)
 
@@ -44,7 +44,7 @@ cd crates/edex-ffi && cargo build --release && \
 
 ## Architecture
 
-**Native app (`macos/eDEXNative/`, SwiftPM).** Today, `ShellState` (`@Observable @MainActor`) is still the app state, `ContentView` places the shell + panels, and `EdexCoreClient` wraps the UniFFI `EdexCore`. The anti-churn branch adds the first internal boundaries: `TerminalSessionProviding`, `EdexActionHandler`, `KeyboardStore`, grouped domain/rendering support targets, and `EdexKeyboardPanel`. Do not add feature logic to `ContentView`, do not add new feature ownership directly to `ShellState`, and route input/commands through the terminal seam + action router. The Swift toolchain is at `~/.swiftly/bin/swift` (Swift 6.x).
+**Native app (`macos/eDEXNative/`, SwiftPM).** `ShellState` (`@Observable @MainActor`) is still the root app state, `ContentView` composes the shell + panels, and `EdexCoreClient` wraps the UniFFI `EdexCore`. Internal boundaries are in place: `TerminalSessionProviding` + `StubTerminalStore` (Phase 9 replaces the stub), `EdexActionHandler`, `KeyboardStore`, grouped `EdexDomainSupport` / `EdexRenderingSupport` targets, `EdexKeyboardPanel`, and Phase 8.3 input routing (`KeyboardCommandResolver`, diacritics, detached-field routing). Do not add feature logic to `ContentView`, do not add new feature ownership directly to `ShellState`, and route input/commands through the terminal seam + action router. The Swift toolchain is at `~/.swiftly/bin/swift` (Swift 6.x).
 
 **Rust core.** `crates/edex-core` is Tauri-free (sysinfo, PTY observer, settings, fs). `crates/edex-ffi` is the UniFFI layer (typed `Ffi…` records + `EdexCore` methods); committed Swift bindings live in `macos/eDEXNative/Generated/`. The native app links `-ledex_ffi` from `crates/edex-ffi/target/release`.
 
@@ -52,7 +52,7 @@ cd crates/edex-ffi && cargo build --release && \
 
 ## Conversion docs (authoritative)
 
-- `Ultrareview.md` — binding anti-churn architecture addendum for the pre-8.3 cleanup.
+- `Ultrareview.md` — binding anti-churn architecture addendum (taxonomy, store split, compositor pattern); still applies through Phase 9.
 - `docs/plans/anti-churn-strategem-2026-06-09.md` — staged branch plan for docs, SwiftPM taxonomy, architecture cleanup, and PR.
 - `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — Phase 0–11 roadmap, gates, and completion log. Historical per-panel recipes remain there for context, not as the default architecture for new Swift work.
 - `docs/plans/ffi-throughput-decision-2026-05-30.md` — FFI-throughput decision feeding Phase 9.

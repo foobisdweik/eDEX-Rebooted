@@ -9,16 +9,16 @@ AGENTS.md to an edited file wins.
 
 ## Status
 
-This document is now the binding anti-churn addendum for the native Swift/Rust migration. The Phase 0-11 plan remains the roadmap and completion log; this file tells agents how to keep reducing coordination points before Phase 8.3 and Phase 9.
+This document is the binding anti-churn addendum for the native Swift/Rust migration. The Phase 0-11 plan remains the roadmap and completion log; this file tells agents how to keep reducing coordination points through Phase 9.
 
-The approved sequence is:
+The approved sequence (steps 1-4 **complete**, merged PRs #35 and #36):
 
-1. Inspect and consolidate documentation.
-2. Consolidate only the SwiftPM/package taxonomy.
-3. Immediately follow with architectural cleanup: terminal seam, action router, `ShellState` split, and `ContentView` compositor split.
-4. Resume Phase 8.3 input routing after the cleanup.
+1. Inspect and consolidate documentation. **Done.**
+2. Consolidate only the SwiftPM/package taxonomy. **Done.**
+3. Architectural cleanup: terminal seam, action router, `ShellState` split, and `ContentView` compositor split. **Done.**
+4. Phase 8.3 input routing. **Done.**
 
-Do not use this branch to implement Phase 8.3 behavior or Phase 9 terminal rendering.
+Continue applying these patterns for **Phase 9** terminal work and any further `ShellState` splits. Do not regress to per-feature SwiftPM targets or direct view-to-store cross-calls.
 
 ## Premises
 
@@ -112,7 +112,7 @@ Phase 8.3 and Phase 9 should mostly touch terminal/input stores, not a giant roo
 
 ## 3. Create The Terminal Seam
 
-The anti-churn branch introduced this before Phase 8.3:
+The anti-churn cleanup (merged PR #35) introduced this seam:
 
 ```swift
 protocol TerminalSessionProviding {
@@ -193,6 +193,5 @@ Useful follow-ups after the current branch:
 ## Non-Goals
 
 - Do not change legacy Tauri behavior except to keep the transition build working.
-- Do not add Phase 8.3 routing behavior during the package-only consolidation pass.
-- Do not start Phase 9 terminal rendering in the anti-churn branch.
-- Do not split Rust crates as part of this cleanup.
+- Do not split Rust crates as part of routine cleanup (keep `edex-core` + `edex-ffi` stable unless a concrete problem appears).
+- Do not add one SwiftPM target per feature or grow `ContentView` / `ShellState` with new feature ownership.
