@@ -68,6 +68,9 @@ final class ShellState: EdexActionHandler {
     /// each metadata poll so manual browsing isn't yanked back — only a real `cd`
     /// (which changes the shell cwd) re-navigates the panel (Phase 9.5).
     @ObservationIgnored private var lastFollowedCwd: String?
+    /// Serializes metadata polls and cwd-follow work so overlapping 1 Hz polls and
+    /// tab-switch follow-ups cannot apply stale PTY reads or skip navigation.
+    @ObservationIgnored private var terminalMetadataRefreshTail: Task<Void, Never>?
 
     // Phase 7.2 fuzzy finder state.
     var fuzzyQuery = ""
@@ -628,6 +631,27 @@ final class ShellState: EdexActionHandler {
     /// filesystem panel. Mirrors the legacy `followTab`: a real `cd` re-navigates
     /// the panel, but manual browsing is left alone (see `TerminalCwdFollow`).
     func refreshTerminalMetadata() async {
+        await enqueueTerminalMetadataRefresh().value
+    }
+
+    /// Re-follows the active tab's cwd immediately after a tab switch instead of
+    /// waiting up to a full poll interval (legacy `resendCWD`).
+    private func followActiveTabSoon() {
+        _ = enqueueTerminalMetadataRefresh()
+    }
+
+    private func enqueueTerminalMetadataRefresh() -> Task<Void, Never> {
+        let prior = terminalMetadataRefreshTail
+        let task = Task { @MainActor [weak self] in
+            if let prior { await prior.value }
+            guard let self else { return }
+            await self.performTerminalMetadataRefresh()
+        }
+        terminalMetadataRefreshTail = task
+        return task
+    }
+
+    private func performTerminalMetadataRefresh() async {
         await terminal.refreshActiveMetadata()
         switch TerminalCwdFollow.decide(
             newCwd: terminal.activeCwd,
@@ -635,17 +659,13 @@ final class ShellState: EdexActionHandler {
             isDiskView: fsIsDiskView
         ) {
         case let .navigate(path):
-            lastFollowedCwd = path
             await navigateFS(to: path)
+            if fsPath == path {
+                lastFollowedCwd = path
+            }
         case .ignore:
             break
         }
-    }
-
-    /// Re-follows the active tab's cwd immediately after a tab switch instead of
-    /// waiting up to a full poll interval (legacy `resendCWD`).
-    private func followActiveTabSoon() {
-        Task { await refreshTerminalMetadata() }
     }
 
     /// First load when the panel appears. Re-entrant-safe; no-op once populated.
