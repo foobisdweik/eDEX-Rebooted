@@ -1,4 +1,3 @@
-import FilesystemSupport
 import Foundation
 
 // Phase 7.3 text editor support — pure, FFI-free module.

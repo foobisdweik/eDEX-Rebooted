@@ -1,7 +1,7 @@
 import Foundation
-import AudioSupport
-import KeyboardSupport
-import ThemeSupport
+import EdexCoreBridge
+import EdexDomainSupport
+import EdexRenderingSupport
 
 struct BootstrapSnapshot: Sendable {
     var paths: FfiPaths

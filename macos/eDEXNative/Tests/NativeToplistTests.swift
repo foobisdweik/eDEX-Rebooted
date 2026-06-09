@@ -1,5 +1,5 @@
 import XCTest
-@testable import ToplistSupport
+@testable import EdexDomainSupport
 
 final class NativeToplistTests: XCTestCase {
     private let formatter = EdexToplistFormatter()

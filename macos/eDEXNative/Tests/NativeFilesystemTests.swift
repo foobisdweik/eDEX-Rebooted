@@ -1,5 +1,5 @@
 import XCTest
-@testable import FilesystemSupport
+@testable import EdexDomainSupport
 
 final class NativeFilesystemTests: XCTestCase {
 

@@ -1,32 +1,21 @@
 import AppKit
-import AudioSupport
-import BootSupport
-import CpuinfoSupport
 import Darwin
-import FilesystemSupport
-import FuzzyFinderSupport
+import EdexCoreBridge
+import EdexDomainSupport
 import Foundation
-import HardwareSupport
-import KeyboardSupport
-import KeyboardViewSupport
-import ModalSupport
 import Observation
-import RamwatcherSupport
-import SettingsEditorSupport
-import ShortcutsSupport
+import EdexRenderingSupport
 import SwiftUI
-import SysinfoSupport
-import TextEditorSupport
-import ThemeSupport
-import ToplistSupport
 
 @Observable
 @MainActor
-final class ShellState {
+final class ShellState: EdexActionHandler {
     private let client = EdexCoreClient()
     private let audio = EdexAudioService()
 
     let modalManager = EdexModalManager()
+    let terminal = StubTerminalStore()
+    let keyboard = KeyboardStore()
     var statusText = "booting"
     var paths: FfiPaths?
     var settingsSummary = SettingsSummary()
@@ -89,16 +78,6 @@ final class ShellState {
     var textEditorStatus = ""
     @ObservationIgnored private var textEditorModalID: EdexModalID?
 
-    // Phase 8.1 keyboard layout state.
-    var keyboardLayout: NativeKeyboardLayout?
-    var keyboardStatus = "keyboard layout not loaded"
-
-    // Phase 8.2 keyboard view state (visual only; routing lands in 8.3).
-    /// Engaged modifiers + password mode, driving label emphasis and dimming.
-    var keyboardModifiers = KeyboardModifierState()
-    /// Keys currently showing the active/blink press animation, by descriptor id.
-    var pressedKeyIDs: Set<String> = []
-
     // Phase 6.4 shortcuts state.
     var shortcuts: EdexShortcutsDocument?
     var shortcutsStatus = ""
@@ -118,7 +97,7 @@ final class ShellState {
     /// scatter across the grid instead of filling left-to-right.
     let ramGridRanks: [Int] = Array(0..<EdexRamwatcherFormatter.gridCellCount).shuffled()
 
-    /// Bridges the FFI battery record into the FFI-free `SysinfoSupport` input.
+    /// Bridges the FFI battery record into the FFI-free `EdexDomainSupport` input.
     /// Falls back to a wired/no-battery state (POWER → "ON") before the first poll.
     var powerState: EdexPowerState {
         guard let battery else {
@@ -130,6 +109,47 @@ final class ShellState {
             acConnected: battery.acConnected,
             percent: Int(battery.percent)
         )
+    }
+
+    // MARK: - Focused stores exposed for current views
+
+    var keyboardLayout: NativeKeyboardLayout? {
+        get { keyboard.layout }
+        set { keyboard.layout = newValue }
+    }
+
+    var keyboardStatus: String {
+        get { keyboard.status }
+        set { keyboard.status = newValue }
+    }
+
+    var keyboardModifiers: KeyboardModifierState {
+        get { keyboard.modifiers }
+        set { keyboard.modifiers = newValue }
+    }
+
+    var pressedKeyIDs: Set<String> {
+        get { keyboard.pressedKeyIDs }
+        set { keyboard.pressedKeyIDs = newValue }
+    }
+
+    // MARK: - Action routing
+
+    func handle(_ action: EdexAction) {
+        switch action {
+        case let .keyboardInput(text):
+            terminal.sendInput(text)
+            pendingTerminalInput = text
+        case .openSettings:
+            openSettingsModal()
+        case .openFuzzyFinder:
+            openFuzzyFinder()
+        case let .switchTerminal(index):
+            terminal.switchTab(index)
+        case .closeModal:
+            guard let top = modalManager.modals.max(by: { $0.zIndex < $1.zIndex }) else { return }
+            closeModal(top.id)
+        }
     }
 
     func bootstrap() async {
@@ -464,17 +484,13 @@ final class ShellState {
     /// label-emphasis rendering can be exercised before Phase 8.3 wires real
     /// press-and-hold + routing semantics.
     func toggleKeyboardModifier(_ modifier: KeyboardModifier) {
-        keyboardModifiers.toggle(modifier)
+        keyboard.toggleModifier(modifier)
     }
 
     /// Flash a key's active/blink press animation (visual only — no command is
     /// emitted; routing to the terminal/modals is Phase 8.3).
     func pressKeyVisual(id: String) {
-        pressedKeyIDs.insert(id)
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 120_000_000)
-            self?.pressedKeyIDs.remove(id)
-        }
+        keyboard.pressVisual(id: id)
     }
 
     // MARK: Filesystem panel (Phase 7.1)
@@ -682,7 +698,7 @@ final class ShellState {
         }
         let selected = fuzzyResults[fuzzySelection]
         let quotedPath = FuzzyTerminalInput.quotedPath(selected.path)
-        pendingTerminalInput = quotedPath
+        handle(.keyboardInput(quotedPath))
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(quotedPath, forType: .string)
         statusText = "Copied \(quotedPath) — terminal routing lands in Phase 9"
@@ -881,7 +897,7 @@ final class ShellState {
     func dispatchAppShortcut(_ action: AppShortcutAction, tabIndex: Int?) {
         switch action {
         case .settings:
-            openSettingsModal()
+            handle(.openSettings)
         case .shortcuts:
             openShortcutsModal()
         case .fsListView:
@@ -889,8 +905,12 @@ final class ShellState {
         case .fsDotfiles:
             toggleFsDotfiles()
         case .fuzzySearch:
-            openFuzzyFinder()
-        case .copy, .paste, .nextTab, .previousTab, .tabTemplate,
+            handle(.openFuzzyFinder)
+        case .tabTemplate:
+            if let tabIndex {
+                handle(.switchTerminal(tabIndex))
+            }
+        case .copy, .paste, .nextTab, .previousTab,
              .kbPassmode, .devDebug, .devReload:
             // These actions are dispatched by this handler but their targets
             // (terminal, keyboard) are built in later phases. Stubs prevent

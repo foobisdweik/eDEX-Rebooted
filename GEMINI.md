@@ -7,7 +7,7 @@
 
 ## Project
 
-eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**. Two stacks: the **legacy Tauri 2 + Rust / WKWebView app** (`src-tauri/` + `src/`, frozen at master/PR #12) and the **active SwiftUI + Rust native app** (`macos/eDEXNative/` + `crates/edex-core` + `crates/edex-ffi`) that replaces it panel-by-panel along the Phase 0–11 plan. All new work lands in the native app on `post-web-runtime`.
+eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**. Two stacks: the **legacy Tauri 2 + Rust / WKWebView app** (`src-tauri/` + `src/`, frozen at master/PR #12) and the **active SwiftUI + Rust native app** (`macos/eDEXNative/` + `crates/edex-core` + `crates/edex-ffi`) that replaces it along the Phase 0-11 plan. All new work lands in the native app on `post-web-runtime`.
 
 ## Workflow & commands (debloated — `scripts/native-phase` is the source of truth)
 
@@ -17,7 +17,8 @@ Verification is front-light, back-heavy: a fast compile floor before the PR; the
 # 1. Branch off latest origin/post-web-runtime + print first-read files.
 scripts/native-phase start <phase> <slug>
 
-# 2. Write code (TDD): pure FFI-free Sources/<Panel>Support/ module + XCTest first.
+# 2. Write code (TDD): keep pure domain/display logic tested and FFI-free.
+#    Do not add another one-feature SwiftPM target by default; follow Ultrareview.md.
 
 # 3. The ONLY ship command — runs the compile floor itself, then commits/pushes/opens the PR.
 scripts/native-phase pr "feat(native): ..." "feat(native): ..." "<summary>"
@@ -28,6 +29,8 @@ scripts/native-phase pr "feat(native): ..." "feat(native): ..." "<summary>"
 - `native-phase smoke` — local-only `--smoke-window` (not in CI).
 
 Post-PR (~5 min): address **gemini-code-assist** review + **Native CI** (review/validate/respond/resolve). **Ignore Cursor BugBot.** A human merges. The Swift toolchain is `~/.swiftly/bin/swift`; regenerate UniFFI bindings + `cargo fmt` after any `crates/edex-ffi` change.
+
+Before Phase 8.3, treat `Ultrareview.md` as binding anti-churn direction: use the consolidated SwiftPM taxonomy, route through the terminal/action seam, continue splitting `ShellState`, and keep `ContentView` as a compositor.
 
 ## Conventions
 
@@ -42,7 +45,7 @@ Post-PR (~5 min): address **gemini-code-assist** review + **Native CI** (review/
 
 - **IPC boundary is Tauri `invoke()`** (in-process). `window.si` in `renderer.js` is a `Proxy` mapping camelCase → snake_case `si_*` commands; visual classes consume it unaware they're talking to Rust.
 - Backend (`src-tauri/src/`): `lib.rs` wires everything (`invoke_handler!` + `.manage()` + `.setup()`); `sysinfo_service.rs` (cached typed queries) + `sysinfo_cmds.rs` (thin `si_*` wrappers) are two layers; `pty.rs` (portable-pty); `native_mount.rs` / `native_panels.rs` are AppKit interop — opaque pointers stashed as `usize`, dereferenced only inside `dispatch::Queue::main`, web→AppKit rects y-flipped.
-- **Active workstream: the full SwiftUI + Rust native app under `macos/eDEXNative/`** (SwiftPM, linking `crates/edex-core` via the `crates/edex-ffi` UniFFI layer), replacing the WKWebView frontend panel-by-panel. The earlier Approach-A per-panel `NSView` slots are a frozen/superseded interim bridge. Authoritative plan imported below.
+- **Active workstream: the full SwiftUI + Rust native app under `macos/eDEXNative/`** (SwiftPM, linking `crates/edex-core` via the `crates/edex-ffi` UniFFI layer), replacing the WKWebView frontend. The earlier Approach-A per-panel `NSView` slots are a frozen/superseded interim bridge. Authoritative plan imported below; anti-churn architecture addendum is `Ultrareview.md`.
 
 ## Security
 
@@ -50,7 +53,7 @@ No listening socket — terminal I/O is in-process IPC. Do not reintroduce a net
 
 ## Imported context (migration docs)
 
-Point Gemini at the authoritative plan (roadmap + per-phase recipe + completion log). This `@`-import inlines the live doc into context:
+Point Gemini at `Ultrareview.md` and `docs/plans/anti-churn-strategem-2026-06-09.md` for the anti-churn cleanup, then the authoritative plan for the roadmap + completion log. This `@`-import inlines the live plan into context:
 
 @./docs/plans/full-native-swift-rust-conversion-2026-05-30.md
 

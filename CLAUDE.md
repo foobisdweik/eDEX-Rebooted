@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code (and any agent) working in this repo. **Read this, then the authoritative plan: `docs/plans/full-native-swift-rust-conversion-2026-05-30.md`.**
+Guidance for Claude Code (and any agent) working in this repo. **Read this, then `Ultrareview.md`, then the authoritative plan: `docs/plans/full-native-swift-rust-conversion-2026-05-30.md`.**
 
 ## Repository status
 
@@ -11,14 +11,14 @@ eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**. The r
 
 The earlier **Approach-A** per-panel `NSView` slots (`src-tauri/src/native_panels.rs`) were an interim bridge and are **frozen/superseded** — do not invest there.
 
-Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, hardware, cpu, ram, toplist), Phase 6 (audio, modal manager, settings editor, shortcuts, boot screen), Phase 7 (filesystem, fuzzy finder, text editor), Phase 8.1 (keyboard layout loader) + 8.2 (keyboard view). The per-phase completion log lives in the authoritative plan.
+Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, hardware, cpu, ram, toplist), Phase 6 (audio, modal manager, settings editor, shortcuts, boot screen), Phase 7 (filesystem, fuzzy finder, text editor), Phase 8.1 (keyboard layout loader) + 8.2 (keyboard view). The anti-churn branch now consolidates the SwiftPM taxonomy, introduces the terminal/action seams, starts the `ShellState` split, and pushes keyboard rendering out of `ContentView`. Phase 8.3 input routing resumes after that PR. The per-phase completion log lives in the authoritative plan.
 
 ## The per-phase workflow (debloated — follow it exactly)
 
 Verification is **front-light, back-heavy**: a fast compile check before the PR, with the real gate running *as PR checks* afterward. `scripts/native-phase` is the single source of truth.
 
 1. **`scripts/native-phase start <phase> <slug>`** — fast-forwards `post-web-runtime`, cuts `codex/native-<slug>`, prints first-read files.
-2. **Write code, TDD.** Pure, FFI-free `Sources/<Panel>Support/` module first (failing tests in `Tests/Native<Panel>Tests.swift` → implement). Register new targets in `Package.swift` in **4 places** (target list, exe `dependencies`, exe `exclude`, test `dependencies`). New backend data → typed `Ffi…` record + `EdexCore` method in `crates/edex-ffi`, then regenerate bindings (below).
+2. **Write code, TDD.** Pure domain/display logic still gets tests first, but **do not create another one-feature SwiftPM target by default**. The old per-panel target recipe is now migration history; new cross-cutting work should use the consolidated taxonomy (`EdexDomainSupport`, `EdexRenderingSupport`, or the app target). New backend data → typed `Ffi…` record + `EdexCore` method in `crates/edex-ffi`, then regenerate bindings (below).
 3. **`scripts/native-phase pr "<commit>" "<title>" "<summary>"`** — this is the *only* command you run to ship. It runs the **compile floor** (`precheck`) itself, then stages (excluding `memory.md`), commits, pushes, and opens the PR against `post-web-runtime`. Do **not** run the full local gate by hand first — that's CI's job now.
 4. **Work the post-PR loop (~5 min after submit):** address **gemini-code-assist** review comments + the **Native CI** status — review / validate / respond / resolve (push back with technical reasoning when a suggestion is wrong; don't perform agreement). **Ignore Cursor BugBot** — do not treat its comments or checks as authoritative.
 5. **A human merges** and raises any CI issue with you. There is no branch protection.
@@ -44,7 +44,7 @@ cd crates/edex-ffi && cargo build --release && \
 
 ## Architecture
 
-**Native app (`macos/eDEXNative/`, SwiftPM).** `ShellState` (`@Observable @MainActor`) is the app state; `ContentView` renders the shell + panels; `EdexCoreClient` wraps the UniFFI `EdexCore`. Each panel is a pure, FFI-free `…Support` module (e.g. `ClockSupport`, `KeyboardViewSupport`) with its own XCTest target — formatting/decoding/display logic lives there, SwiftUI views stay thin. Theme/layout come from `ThemeSupport`/`LayoutSupport`/`BorderSupport`. The Swift toolchain is at `~/.swiftly/bin/swift` (Swift 6.x).
+**Native app (`macos/eDEXNative/`, SwiftPM).** Today, `ShellState` (`@Observable @MainActor`) is still the app state, `ContentView` places the shell + panels, and `EdexCoreClient` wraps the UniFFI `EdexCore`. The anti-churn branch adds the first internal boundaries: `TerminalSessionProviding`, `EdexActionHandler`, `KeyboardStore`, grouped domain/rendering support targets, and `EdexKeyboardPanel`. Do not add feature logic to `ContentView`, do not add new feature ownership directly to `ShellState`, and route input/commands through the terminal seam + action router. The Swift toolchain is at `~/.swiftly/bin/swift` (Swift 6.x).
 
 **Rust core.** `crates/edex-core` is Tauri-free (sysinfo, PTY observer, settings, fs). `crates/edex-ffi` is the UniFFI layer (typed `Ffi…` records + `EdexCore` methods); committed Swift bindings live in `macos/eDEXNative/Generated/`. The native app links `-ledex_ffi` from `crates/edex-ffi/target/release`.
 
@@ -52,7 +52,9 @@ cd crates/edex-ffi && cargo build --release && \
 
 ## Conversion docs (authoritative)
 
-- `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — Phase 0–11 roadmap, gates, per-phase recipe, completion log. **Start here.**
+- `Ultrareview.md` — binding anti-churn architecture addendum for the pre-8.3 cleanup.
+- `docs/plans/anti-churn-strategem-2026-06-09.md` — staged branch plan for docs, SwiftPM taxonomy, architecture cleanup, and PR.
+- `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — Phase 0–11 roadmap, gates, and completion log. Historical per-panel recipes remain there for context, not as the default architecture for new Swift work.
 - `docs/plans/ffi-throughput-decision-2026-05-30.md` — FFI-throughput decision feeding Phase 9.
 - Legacy panel behavior is read directly from `src/classes/*.class.js` during each conversion.
 
@@ -70,3 +72,4 @@ cd crates/edex-ffi && cargo build --release && \
 - **macOS-only.** Don't reintroduce `process.platform === "win32"` branches; cross-platform logic, if it returns, belongs in Rust.
 - **`sysinfo` is pinned at `0.32`** (API drifts) — re-check `crates/edex-core/src/sysinfo.rs` if bumped. Note `mem_stats_from_system` keeps the `available >= free` invariant by clamping against the stored `free_strict`.
 - **No listening socket** — terminal I/O is in-process. Do not reintroduce a network/WebSocket control channel (the original RCE class this fork removed).
+- **Anti-churn guardrails:** terminal-facing code should target `TerminalSessionProviding`; views should emit `EdexAction` rather than directly coordinating subsystems; `ContentView` should place surfaces, not implement them.

@@ -1,5 +1,5 @@
 import XCTest
-@testable import HardwareSupport
+@testable import EdexDomainSupport
 
 final class NativeHardwareTests: XCTestCase {
     private let formatter = EdexHardwareFormatter()

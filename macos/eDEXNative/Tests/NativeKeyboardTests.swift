@@ -1,5 +1,5 @@
 import XCTest
-@testable import KeyboardSupport
+@testable import EdexDomainSupport
 
 final class NativeKeyboardTests: XCTestCase {
     private func bundledKeyboardDirectory() -> URL {

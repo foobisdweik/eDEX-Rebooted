@@ -9,6 +9,8 @@ eDEX-UI is a fullscreen terminal emulator and system monitor that looks and feel
 
 This is a community-driven fork of the original eDEX-UI (archived October 2021). **v3.0.0 is a native rewrite on Tauri 2 + Rust**, replacing the original Electron + Node stack. The WebSocket-based terminal control channel that motivated this fork's security patches has been removed entirely — terminal I/O now flows through Tauri's in-process IPC, with no listening socket.
 
+The active development branch is now `post-web-runtime`: a SwiftUI + Rust native app under `macos/eDEXNative/` is replacing the WKWebView frontend while reusing `crates/edex-core` and `crates/edex-ffi`. The Tauri/WKWebView stack remains the historical v3.0.0 release path until the Phase 11 deletion gate is green.
+
 > [!NOTE]
 > Android port: [Edex-UI-android](https://github.com/theelderemo/Edex-UI-android)
 
@@ -56,11 +58,22 @@ Pre-built binaries from the original upstream repository still contain the WebSo
 
 ## Run from source
 
+Released Tauri/WKWebView stack:
+
 ```
 git clone https://github.com/theelderemo/eDEX-UI-security-patched.git
 cd eDEX-UI-security-patched
 cargo +stable tauri dev
 ```
+
+Active native app:
+
+```
+git switch post-web-runtime
+bash scripts/native-phase smoke
+```
+
+For manual native-app runs, see `macos/eDEXNative/README.md`.
 
 ## Produce a release `.app` / `.dmg`
 
@@ -85,6 +98,9 @@ npm run update-file-icons
 ```
 src-tauri/         Rust backend — Tauri commands, PTY, sysinfo, filesystem, settings
 src/               WKWebView frontend — ui.html + classes/*.class.js + vendored assets
+crates/edex-core/  Tauri-free Rust core shared by Tauri adapters and the native app
+crates/edex-ffi/   UniFFI bridge and generated Swift bindings source
+macos/eDEXNative/  SwiftPM native macOS app replacing the WKWebView frontend
 media/             Icons, logo
 file-icons/        File-icons source (git submodules; content, not code)
 ```
@@ -93,7 +109,7 @@ See `CLAUDE.md` for the full architecture map and per-module notes.
 
 # Contributing
 
-Bug reports and PRs are welcome. Please target `master`. If you're working on a v0.2-backlog module, open an issue first so we can sync on the design.
+Bug reports and PRs are welcome. Target `post-web-runtime` for native migration work. Target `master` only for release-branch/security fixes to the frozen Tauri stack. If you're working on a v0.2-backlog module, open an issue first so we can sync on the design.
 
 # Credits
 

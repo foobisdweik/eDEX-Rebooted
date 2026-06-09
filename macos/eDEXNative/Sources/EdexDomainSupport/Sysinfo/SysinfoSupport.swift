@@ -2,7 +2,7 @@ import Foundation
 
 /// Formats the four sysinfo panel cells (date / uptime / type / power) to match
 /// the legacy `src/classes/sysinfo.class.js` exactly. Pure and FFI-free so it can
-/// be unit-tested without the Rust dylib, mirroring `ClockSupport`.
+/// be unit-tested without the Rust dylib, mirroring `EdexDomainSupport`.
 public struct EdexSysinfoFormatter: Sendable {
     public let timeZone: TimeZone
 

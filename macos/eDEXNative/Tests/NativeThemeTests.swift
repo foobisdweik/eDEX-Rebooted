@@ -1,5 +1,5 @@
 import XCTest
-@testable import ThemeSupport
+@testable import EdexRenderingSupport
 
 final class NativeThemeTests: XCTestCase {
     func testThemeRejectsNonDictionaryJsonRoot() throws {

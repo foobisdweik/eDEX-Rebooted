@@ -1,5 +1,5 @@
 import XCTest
-@testable import ClockSupport
+@testable import EdexDomainSupport
 
 final class NativeClockTests: XCTestCase {
     func testTwentyFourHourClockZeroPadsComponents() {

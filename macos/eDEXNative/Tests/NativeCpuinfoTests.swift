@@ -1,5 +1,5 @@
 import XCTest
-@testable import CpuinfoSupport
+@testable import EdexDomainSupport
 
 final class NativeCpuinfoTests: XCTestCase {
     private let formatter = EdexCpuinfoFormatter()

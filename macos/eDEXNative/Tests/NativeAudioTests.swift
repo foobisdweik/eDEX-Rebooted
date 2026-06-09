@@ -1,5 +1,5 @@
 import XCTest
-@testable import AudioSupport
+@testable import EdexDomainSupport
 
 final class NativeAudioTests: XCTestCase {
     func testCueCatalogMatchesLegacyAudioManager() {

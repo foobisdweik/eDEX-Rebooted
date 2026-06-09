@@ -1,6 +1,5 @@
 import XCTest
-@testable import ModalSupport
-import AudioSupport
+@testable import EdexDomainSupport
 
 @MainActor
 final class NativeModalTests: XCTestCase {

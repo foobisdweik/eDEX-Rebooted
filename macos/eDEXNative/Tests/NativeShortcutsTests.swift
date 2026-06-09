@@ -1,5 +1,5 @@
 import XCTest
-@testable import ShortcutsSupport
+@testable import EdexDomainSupport
 
 final class NativeShortcutsTests: XCTestCase {
 
@@ -173,9 +173,9 @@ final class NativeShortcutsTests: XCTestCase {
         let doc = try EdexShortcutsDocument(jsonString: defaultJSON)
         let expanded = doc.expandedTabCombos()
         XCTAssertEqual(expanded.count, 5)
-        // Ctrl+1 through Ctrl+5
+        // Ctrl+1 through Ctrl+5 map to zero-based terminal tab indexes.
         for (index, (combo, tabIndex)) in expanded.enumerated() {
-            XCTAssertEqual(tabIndex, index + 1)
+            XCTAssertEqual(tabIndex, index)
             XCTAssertEqual(combo.modifiers, [.control])
             XCTAssertEqual(combo.key, .character(Character(String(index + 1))))
         }

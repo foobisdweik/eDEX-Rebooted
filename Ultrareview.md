@@ -1,58 +1,198 @@
-# eDEX-UI v3 — Ultrareview (Security Audit & Fixes)
+<!--
+Ultrareview.md — anti-churn architecture addendum for coding agents working in
+this repo. Agents: read AGENTS.md/CLAUDE.md first, then this file, then
+docs/plans/full-native-swift-rust-conversion-2026-05-30.md. The closest
+AGENTS.md to an edited file wins.
+-->
 
-**Scope:** full front-to-back snapshot audit of the JS↔Rust migration.
-**Baseline:** branch `master` @ `06ec245` · 2026-05-28 · target `aarch64-apple-darwin` (only supported platform).
-**Outcome:** all findings below fixed on branch `security/xss-ipc-hardening` → **PR #10**.
+# Ultrareview.md
 
----
+## Status
 
-## Core framing
+This document is now the binding anti-churn addendum for the native Swift/Rust migration. The Phase 0-11 plan remains the roadmap and completion log; this file tells agents how to keep reducing coordination points before Phase 8.3 and Phase 9.
 
-The renderer holds **unscoped IPC primitives** — `pty_spawn` (arbitrary exec), `fs_writefile`/`fs_readfile` (arbitrary write/read) — behind `withGlobalTauri: true` and a permissive CSP. So any DOM-injection sink fed external data is **arbitrary code execution on the host**, not merely XSS. The audit therefore prioritized eliminating reachable injection sinks.
+The approved sequence is:
 
----
+1. Inspect and consolidate documentation.
+2. Consolidate only the SwiftPM/package taxonomy.
+3. Immediately follow with architectural cleanup: terminal seam, action router, `ShellState` split, and `ContentView` compositor split.
+4. Resume Phase 8.3 input routing after the cleanup.
 
-## Findings (by severity)
+Do not use this branch to implement Phase 8.3 behavior or Phase 9 terminal rendering.
 
-### HIGH — reachable XSS → RCE
+## Premises
 
-| # | Location | Issue | Fix (brief) |
-|---|----------|-------|-------------|
-| H1 | `filesystem.class.js:391` (+317/327/337/338) | Raw filename `${e.name}` in `innerHTML`; fired on directory render with no click (`<img onerror>`). Raw `e.name`/`e.path` also interpolated into inline `onclick`. | Escape name+type via `_escapeHtml`; route disk/theme/kblayout `onclick` through runtime `fsDisp.cwd[i]` lookups so names never enter the handler string. |
-| H2 | `fuzzyFinder.class.js:110` | Raw match name `${file.name}` in `innerHTML`. | Wrap in `_escapeHtml`. |
-| H3 | `toplist.class.js:34, 159` | Raw process name `${proc.name}` (auto-refreshing panel, no user action needed). | Escape name/user/state/started. |
+- Apple Silicon only.
+- macOS Tahoe minimum.
+- No Intel, Windows, Linux, or iOS support.
+- Single application, not a reusable framework.
+- Rust core and UniFFI bridge already exist and are validated.
 
-### MEDIUM
+For this project shape, the native app should trade tiny per-feature modules for fewer, clearer coordination points.
 
-| # | Location | Issue | Fix (brief) |
-|---|----------|-------|-------------|
-| M1 | `pty.rs` reader thread | Cleanup was 100% frontend-driven; a WKWebView reload/theme-change orphaned the shell + leaked the map entry & master fd. | Reader thread now reaps the handle + kills the child when its read loop ends. |
-| M2 | `settings.rs:226,236` (`get_theme`/`get_keyboard_layout`) | Renderer-supplied `name` joined onto a trusted dir unvalidated → `name="../../etc/hosts"` reads arbitrary `*.json`. | `validate_basename()` rejects separators/`..`/NUL; unit-tested. |
-| M3 | `keyboard.class.js:76–83` | Keyboard-layout label fields in `innerHTML` unescaped → malicious layout = XSS. | Escape every label field. |
+## 1. Consolidate SwiftPM Targets
 
-### LOW / hardening
+This is worthwhile as a dedicated mechanical pass, not as a behavior change.
 
-| # | Location | Issue | Fix (brief) |
-|---|----------|-------|-------------|
-| L1 | `tauri.conf.json:28` | CSP allowed `'unsafe-eval'` (no loaded lib needs it; JS eval already hard-disabled). | Removed `'unsafe-eval'`. (`'unsafe-inline'` retained — inline handlers still depend on it.) |
-| L2 | renderer-wide | Inline `onclick=` handlers force `'unsafe-inline'` and amplify attribute-injection. | **Deferred** — migrate to `addEventListener` (larger refactor) to later drop `unsafe-inline`. |
-| L3 | `renderer.js:637, 648` | Shortcuts-help reflects `shortcuts.json` trigger/action into `value=""` unescaped. | Escape both. |
-| L4 | `native_mount.rs:164–185` | Transient `NSString`s in `build_view` never released (one-time leak). | Release after use (matches `native_modal`/`set_clock_text` pattern). |
-| L5 | `native_mount.rs` | `native_mount_set_*` reachable regardless of `experimentalNative*` (client-side gating only). | Documented at the trust boundary; safe today (view hidden/text-only). |
+Current shape:
 
-**Also hardened:** `_escapeHtml` (`renderer.js:5`) now coerces `undefined`/non-string input instead of throwing.
+```text
+ClockSupport
+SysinfoSupport
+HardwareSupport
+KeyboardSupport
+KeyboardViewSupport
+CpuinfoSupport
+RamwatcherSupport
+ToplistSupport
+FilesystemSupport
+FuzzyFinderSupport
+TextEditorSupport
+AudioSupport
+ModalSupport
+...
+```
 
----
+Every new subsystem used to touch `Package.swift` in multiple places. The consolidation pass groups support code into:
 
-## Verification
+```text
+EdexCoreBridge
+EdexDomainSupport
+EdexRenderingSupport
+eDEXNative
+```
 
-`node --check` (5 files) ✓ · `node --test` 30/30 ✓ · `cargo check` ✓ · `cargo clippy --all-targets -- -D warnings` ✓ · `cargo fmt --check` ✓ · `cargo test` 18/18 ✓ (incl. 2 new `validate_basename` tests).
+Target layout:
 
-**Not runtime-verified** (reviewer `cargo tauri dev` smoke test recommended): L1 CSP change (terminal/WebGL render) and L4 AppKit releases (native panel draw). Both independently revertable.
+```text
+Sources/
+├── EdexCoreBridge/
+├── EdexDomainSupport/
+│   ├── Clock/
+│   ├── Sysinfo/
+│   ├── Hardware/
+│   ├── Cpu/
+│   ├── Ram/
+│   ├── Toplist/
+│   ├── Filesystem/
+│   ├── Keyboard/
+│   ├── Settings/
+│   ├── Audio/
+│   └── Modal/
+├── EdexRenderingSupport/
+│   ├── Borders/
+│   ├── Layout/
+│   ├── Theme/
+│   └── Terminal/
+└── eDEXNative/
+```
 
----
+Keep future package work behavior-preserving. Move files, fix imports, update tests, and run the native gate before changing routing behavior.
 
-## Out of scope / accepted
+## 2. Split `ShellState`
 
-- The unscoped `fs_*`/`pty_spawn` commands are inherent to a terminal + file manager; defense is sink hygiene (above) + CSP, not command scoping.
-- **Dependabot (3 alerts: `nix`, `glib`)** — confirmed Linux/BSD-gated transitive deps **not compiled into the macOS binary** (`cargo tree --target aarch64-apple-darwin` shows both absent). Left open as accepted risk; only relevant if a Linux build is added.
+`ShellState` currently owns telemetry, filesystem, fuzzy finder, text editor, settings, shortcuts, keyboard, boot sequence, audio coordination, modal coordination, and FFI access. That was acceptable while porting panels; it is too much surface area for input routing and terminal work.
+
+The cleanup should move toward:
+
+```swift
+@Observable
+final class ShellState {
+    let app: AppStore
+    let telemetry: TelemetryStore
+    let filesystem: FilesystemStore
+    let settings: SettingsStore
+    let keyboard: KeyboardStore
+    let modal: ModalStore
+    let terminal: TerminalStore
+}
+```
+
+Phase 8.3 and Phase 9 should mostly touch terminal/input stores, not a giant root state object.
+
+## 3. Create The Terminal Seam
+
+The anti-churn branch introduced this before Phase 8.3:
+
+```swift
+protocol TerminalSessionProviding {
+    var activeCwd: String { get }
+    var activeTab: Int { get }
+
+    func sendInput(_ text: String)
+    func switchTab(_ index: Int)
+}
+```
+
+Back it with a native stub today, then replace the implementation during Phase 9. Filesystem, fuzzy finder, shortcuts, keyboard, and future terminal rendering should all target the same API.
+
+## 4. Introduce An Action Router
+
+Do not let this shape grow:
+
+```text
+Keyboard -> ShellState -> Modal -> Audio -> Terminal -> Shortcuts
+```
+
+Views should emit actions:
+
+```swift
+enum EdexAction {
+    case keyboardInput(String)
+    case openSettings
+    case openFuzzyFinder
+    case switchTerminal(Int)
+    case closeModal
+}
+
+protocol EdexActionHandler {
+    func handle(_ action: EdexAction)
+}
+```
+
+Stores consume actions. Views do not directly coordinate unrelated subsystems.
+
+## 5. Make `ContentView` A Compositor
+
+`ContentView` should place surfaces. It should not implement surfaces.
+
+Long-term shape:
+
+```text
+EdexTelemetryColumn
+EdexTerminalShell
+EdexFilesystemPanel
+EdexKeyboardPanel
+EdexStatusRibbon
+EdexModalLayer
+EdexBootOverlay
+```
+
+Do not add new feature rendering directly to `ContentView`. If a view body becomes feature logic, split it into a dedicated view.
+
+## 6. Keep Rust Stable
+
+The Rust side is already in good shape:
+
+- `edex-core`
+- `edex-ffi`
+- PTY observer abstraction
+- UniFFI bridge
+- Tauri adapters
+
+Avoid more Rust crate decomposition unless a concrete problem appears. Extra crates would likely increase Cargo complexity, FFI complexity, build times, and cross-crate refactor cost without improving this single-platform app.
+
+## 7. Tooling And Guardrails
+
+Useful follow-ups after the current branch:
+
+- Add `scripts/native-phase scaffold <phase> <slug>` only if repeated feature setup remains error-prone after SwiftPM consolidation.
+- Keep nested `AGENTS.md` files in native/Rust subtrees so local instructions travel with the code.
+- Keep `memory.md` uncommitted; it is a local handoff scratch file.
+
+## Non-Goals
+
+- Do not change legacy Tauri behavior except to keep the transition build working.
+- Do not add Phase 8.3 routing behavior during the package-only consolidation pass.
+- Do not start Phase 9 terminal rendering in the anti-churn branch.
+- Do not split Rust crates as part of this cleanup.

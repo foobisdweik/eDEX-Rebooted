@@ -1,4 +1,3 @@
-import FilesystemSupport
 import Foundation
 
 public enum FuzzyMatcher {

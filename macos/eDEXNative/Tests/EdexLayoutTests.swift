@@ -1,5 +1,5 @@
 import XCTest
-@testable import LayoutSupport
+@testable import EdexRenderingSupport
 
 final class EdexLayoutTests: XCTestCase {
     func testSixteenByTenLayoutMatchesCssRegionProportions() {

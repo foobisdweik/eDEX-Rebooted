@@ -1,5 +1,5 @@
 import AVFoundation
-import AudioSupport
+import EdexDomainSupport
 import Foundation
 
 @MainActor

@@ -1,5 +1,5 @@
 import XCTest
-@testable import SettingsEditorSupport
+@testable import EdexDomainSupport
 
 final class NativeSettingsEditorTests: XCTestCase {
     func testEmptyInitExposesDefaultsAndNoRawKeys() {

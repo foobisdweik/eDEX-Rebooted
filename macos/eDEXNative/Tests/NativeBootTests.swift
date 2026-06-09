@@ -1,5 +1,5 @@
 import XCTest
-@testable import BootSupport
+@testable import EdexDomainSupport
 
 final class NativeBootTests: XCTestCase {
 

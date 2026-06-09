@@ -219,7 +219,7 @@ public struct EdexShortcutsDocument: Equatable, Sendable {
     // MARK: TAB_X expansion
 
     /// Expands the TAB_X template entry ("Ctrl+X") into five combos for
-    /// Ctrl+1 … Ctrl+5, returning (combo, tabIndex) pairs.
+    /// Ctrl+1 … Ctrl+5, returning (combo, zeroBasedTabIndex) pairs.
     public func expandedTabCombos() -> [(KeyCombo, Int)] {
         guard let template = entries.first(where: { $0.action == AppShortcutAction.tabTemplate.rawValue }),
               template.enabled
@@ -234,7 +234,7 @@ public struct EdexShortcutsDocument: Equatable, Sendable {
         return (1...5).compactMap { n -> (KeyCombo, Int)? in
             let expanded = "\(prefix)+\(n)"
             guard let combo = KeyCombo(trigger: expanded) else { return nil }
-            return (combo, n)
+            return (combo, n - 1)
         }
     }
 }
