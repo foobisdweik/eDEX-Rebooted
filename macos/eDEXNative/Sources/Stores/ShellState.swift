@@ -659,10 +659,8 @@ final class ShellState: EdexActionHandler {
             isDiskView: fsIsDiskView
         ) {
         case let .navigate(path):
+            lastFollowedCwd = path
             await navigateFS(to: path)
-            if fsPath == path {
-                lastFollowedCwd = path
-            }
         case .ignore:
             break
         }
