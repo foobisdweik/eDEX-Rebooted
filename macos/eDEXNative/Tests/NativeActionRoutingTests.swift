@@ -14,6 +14,25 @@ final class NativeActionRoutingTests: XCTestCase {
         XCTAssertEqual(terminal.sentInputs, ["ls -la"])
     }
 
+    func testStubTerminalStoreTabNavigationWrapsAndRecordsCopyPaste() {
+        let terminal = StubTerminalStore(activeTab: 4)
+
+        terminal.selectNextTab()
+        XCTAssertEqual(terminal.activeTab, 0, "NEXT_TAB wraps past the last tab")
+
+        terminal.selectPreviousTab()
+        XCTAssertEqual(terminal.activeTab, 4, "PREVIOUS_TAB wraps past the first tab")
+
+        terminal.switchTab(99)
+        XCTAssertEqual(terminal.activeTab, 4, "an out-of-range switch is ignored")
+
+        terminal.copySelection()
+        terminal.copySelection()
+        terminal.pasteClipboard()
+        XCTAssertEqual(terminal.copyCount, 2)
+        XCTAssertEqual(terminal.pasteCount, 1)
+    }
+
     func testActionRouterForwardsTerminalAndModalActions() {
         let terminal = StubTerminalStore()
         var openedSettings = 0

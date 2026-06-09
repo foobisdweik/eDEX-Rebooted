@@ -5,51 +5,140 @@ import EdexRenderingSupport
 import Observation
 import SwiftTerm
 
+@MainActor private final class TerminalSession {
+    let index: Int
+    let view: TerminalView
+    let outputBox: PtyOutputBufferBox
+    var ptyId: UInt32?
+    var exited = false
+
+    init(index: Int) {
+        self.index = index
+        self.view = TerminalView()
+        self.outputBox = PtyOutputBufferBox()
+    }
+}
+
 @Observable
 @MainActor
 final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalViewDelegate {
     private let terminalClient: TerminalClient
-    private let outputBox: PtyOutputBufferBox
-    private var ptyId: UInt32?
-    private var spawned = false
-    private var storedActiveTab = 0
+    private var sessions: [TerminalSession]
+    private(set) var tabs = TerminalTabSet()
+    private var started = false
 
-    @ObservationIgnored private(set) var terminalView: TerminalView
+    var terminalView: TerminalView { sessions[tabs.active].view }
 
     var activeCwd: String {
-        outputBox.cwd ?? NSHomeDirectory()
+        sessions[tabs.active].outputBox.cwd ?? NSHomeDirectory()
     }
 
-    var activeTab: Int { storedActiveTab }
+    var activeTab: Int { tabs.active }
 
     init(core: EdexCore) {
         terminalClient = TerminalClient(core: core)
-        outputBox = PtyOutputBufferBox()
-        let view = TerminalView()
-        terminalView = view
-        view.terminalDelegate = self
+        sessions = (0..<5).map { TerminalSession(index: $0) }
+        for session in sessions {
+            session.view.terminalDelegate = self
+        }
     }
 
     /// Spawns the in-process PTY once settings and theme are available (post-bootstrap).
     func start(settings: SettingsSummary, theme: NativeTheme) {
-        guard !spawned else { return }
+        guard !started else { return }
+        started = true
 
         applyTheme(theme)
 
-        outputBox.onDataAvailable = { [weak self] in
-            self?.drainToTerminal()
+        for session in sessions {
+            // Weak-capture the session: outputBox is owned by the session, so a
+            // strong capture here would form a session → box → closure → session
+            // retain cycle and leak the TerminalView even after store teardown.
+            session.outputBox.onDataAvailable = { [weak self, weak session] in
+                guard let self, let session else { return }
+                self.drain(session)
+            }
+            session.outputBox.onExit = { [weak self, weak session] in
+                guard let self, let session else { return }
+                self.handleExit(session)
+            }
         }
 
-        let cols = terminalView.terminal.cols
-        let rows = terminalView.terminal.rows
-        let spawnCols = cols > 0 ? Double(cols) : Double(TerminalSpawnRequest.defaultCols)
-        let spawnRows = rows > 0 ? Double(rows) : Double(TerminalSpawnRequest.defaultRows)
+        spawnIfNeeded(sessions[tabs.active])
+    }
+
+    func applyTheme(_ theme: NativeTheme) {
+        for session in sessions {
+            let view = session.view
+            let bg = theme.palette.terminalBackground
+            view.nativeBackgroundColor = NSColor(
+                red: bg.red,
+                green: bg.green,
+                blue: bg.blue,
+                alpha: bg.alpha
+            )
+            let fg = theme.palette.terminalForeground
+            view.nativeForegroundColor = NSColor(
+                red: fg.red,
+                green: fg.green,
+                blue: fg.blue,
+                alpha: fg.alpha
+            )
+            let fontName = theme.fonts.terminal
+            view.font = NSFont(name: fontName, size: 13)
+                ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        }
+    }
+
+    func sendInput(_ text: String) {
+        let s = sessions[tabs.active]
+        if s.exited {
+            respawn(s)
+            guard let id = s.ptyId else { return }
+            try? terminalClient.writePty(id: id, data: text)
+            return
+        }
+        guard let id = s.ptyId else { return }
+        try? terminalClient.writePty(id: id, data: text)
+    }
+
+    func switchTab(_ index: Int) {
+        tabs.select(index)
+        spawnIfNeeded(sessions[tabs.active])
+    }
+
+    func selectNextTab() {
+        tabs.selectNext()
+        spawnIfNeeded(sessions[tabs.active])
+    }
+
+    func selectPreviousTab() {
+        tabs.selectPrevious()
+        spawnIfNeeded(sessions[tabs.active])
+    }
+
+    func copySelection() {
+        let view = sessions[tabs.active].view
+        view.copy(view)
+    }
+
+    func pasteClipboard() {
+        let view = sessions[tabs.active].view
+        view.paste(view)
+    }
+
+    private func spawnIfNeeded(_ s: TerminalSession) {
+        guard s.ptyId == nil, !s.exited else { return }
+
         var env = ProcessInfo.processInfo.environment
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
 
-        // SettingsSummary has no shell/cwd fields yet — use TerminalSpawnRequest defaults.
-        // 9.x TODO: read shell/cwd from settings when exposed by bootstrap FFI.
+        let cols = s.view.terminal.cols
+        let rows = s.view.terminal.rows
+        let spawnCols = cols > 0 ? Double(cols) : Double(TerminalSpawnRequest.defaultCols)
+        let spawnRows = rows > 0 ? Double(rows) : Double(TerminalSpawnRequest.defaultRows)
+
         let request = TerminalSpawnRequest.make(
             env: env,
             cols: spawnCols,
@@ -57,48 +146,41 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         )
 
         do {
-            ptyId = try terminalClient.spawn(request: request, output: outputBox)
-            spawned = true
+            s.ptyId = try terminalClient.spawn(request: request, output: s.outputBox)
+            s.exited = false
         } catch {
+            // A failed spawn leaves no PTY. Mark the session exited and surface
+            // the error so the dead tab isn't silent — this covers the initial
+            // lazy spawn (start/switchTab) as well as respawn, and the next
+            // keystroke then routes through respawn() to retry.
             print("eDEXNative terminal spawn failed: \(error.localizedDescription)")
+            s.exited = true
+            s.view.feed(text: "\r\n\u{001B}[31m[terminal spawn failed: \(error.localizedDescription)]\u{001B}[0m\r\n\u{001B}[38;5;245m[press any key to retry]\u{001B}[0m\r\n")
         }
     }
 
-    func applyTheme(_ theme: NativeTheme) {
-        let bg = theme.palette.terminalBackground
-        terminalView.nativeBackgroundColor = NSColor(
-            red: bg.red,
-            green: bg.green,
-            blue: bg.blue,
-            alpha: bg.alpha
-        )
-        let fg = theme.palette.terminalForeground
-        terminalView.nativeForegroundColor = NSColor(
-            red: fg.red,
-            green: fg.green,
-            blue: fg.blue,
-            alpha: fg.alpha
-        )
-        let fontName = theme.fonts.terminal
-        terminalView.font = NSFont(name: fontName, size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-    }
-
-    func sendInput(_ text: String) {
-        guard let ptyId else { return }
-        try? terminalClient.writePty(id: ptyId, data: text)
-    }
-
-    func switchTab(_ index: Int) {
-        guard (0..<5).contains(index) else { return }
-        storedActiveTab = index
-        // Single active PTY for now; multi-tab spawn/switch lands in 9.4.
-    }
-
-    private func drainToTerminal() {
-        let bytes = outputBox.drain()
+    private func drain(_ s: TerminalSession) {
+        let bytes = s.outputBox.drain()
         guard !bytes.isEmpty else { return }
-        terminalView.feed(byteArray: bytes[...])
+        s.view.feed(byteArray: bytes[...])
+    }
+
+    private func handleExit(_ s: TerminalSession) {
+        drain(s)
+        s.exited = true
+        if let id = s.ptyId {
+            try? terminalClient.killPty(id: id)
+        }
+        s.ptyId = nil
+        s.view.feed(text: "\r\n\u{001B}[38;5;245m[process exited — press any key to restart]\u{001B}[0m\r\n")
+    }
+
+    private func respawn(_ s: TerminalSession) {
+        // Clear `exited` so spawnIfNeeded's guard lets it through; if the spawn
+        // fails, spawnIfNeeded's catch re-sets `exited` (and shows the retry
+        // notice), so a failed restart stays retryable on the next keystroke.
+        s.exited = false
+        spawnIfNeeded(s)
     }
 
     private func clampedDimension(_ value: Int, default defaultValue: UInt16) -> UInt16 {
@@ -114,16 +196,27 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     // MARK: - TerminalViewDelegate
 
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        guard let ptyId else { return }
-        try? terminalClient.writePty(id: ptyId, data: String(decoding: data, as: UTF8.self))
+        guard let session = sessions.first(where: { $0.view === source }) else { return }
+        // The shell has exited and shows the "press any key to restart" notice;
+        // a physical keystroke into the focused view restarts it (mirrors the
+        // on-screen path in sendInput) rather than vanishing against a dead PTY.
+        if session.exited {
+            respawn(session)
+            guard let id = session.ptyId else { return }
+            try? terminalClient.writePty(id: id, data: String(decoding: data, as: UTF8.self))
+            return
+        }
+        guard let id = session.ptyId else { return }
+        try? terminalClient.writePty(id: id, data: String(decoding: data, as: UTF8.self))
     }
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         guard newCols > 0, newRows > 0 else { return }
-        guard let ptyId else { return }
+        let session = sessions.first { $0.view === source }
+        guard let id = session?.ptyId else { return }
         let cols = clampedDimension(newCols, default: TerminalSpawnRequest.defaultCols)
         let rows = clampedDimension(newRows, default: TerminalSpawnRequest.defaultRows)
-        try? terminalClient.resizePty(id: ptyId, cols: cols, rows: rows)
+        try? terminalClient.resizePty(id: id, cols: cols, rows: rows)
     }
 
     func setTerminalTitle(source: TerminalView, title: String) {}

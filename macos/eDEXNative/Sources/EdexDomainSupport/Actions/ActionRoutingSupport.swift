@@ -8,18 +8,35 @@ public protocol TerminalSessionProviding: AnyObject {
 
     func sendInput(_ text: String)
     func switchTab(_ index: Int)
+    /// Move to the next tab, wrapping past the last (NEXT_TAB shortcut).
+    func selectNextTab()
+    /// Move to the previous tab, wrapping past the first (PREVIOUS_TAB shortcut).
+    func selectPreviousTab()
+    /// Copy the active terminal's selection to the system clipboard (COPY).
+    func copySelection()
+    /// Paste the clipboard into the active terminal as input (PASTE).
+    func pasteClipboard()
 }
 
 @Observable
 @MainActor
 public final class StubTerminalStore: TerminalSessionProviding {
     public private(set) var activeCwd: String
-    public private(set) var activeTab: Int
+    public private(set) var tabs: TerminalTabSet
     public private(set) var sentInputs: [String]
+    public private(set) var copyCount = 0
+    public private(set) var pasteCount = 0
 
-    public init(activeCwd: String = NSHomeDirectory(), activeTab: Int = 0, sentInputs: [String] = []) {
+    public var activeTab: Int { tabs.active }
+
+    public init(
+        activeCwd: String = NSHomeDirectory(),
+        activeTab: Int = 0,
+        sentInputs: [String] = [],
+        tabCount: Int = 5
+    ) {
         self.activeCwd = activeCwd
-        self.activeTab = activeTab
+        self.tabs = TerminalTabSet(count: tabCount, active: activeTab)
         self.sentInputs = sentInputs
     }
 
@@ -28,7 +45,23 @@ public final class StubTerminalStore: TerminalSessionProviding {
     }
 
     public func switchTab(_ index: Int) {
-        activeTab = index
+        tabs.select(index)
+    }
+
+    public func selectNextTab() {
+        tabs.selectNext()
+    }
+
+    public func selectPreviousTab() {
+        tabs.selectPrevious()
+    }
+
+    public func copySelection() {
+        copyCount += 1
+    }
+
+    public func pasteClipboard() {
+        pasteCount += 1
     }
 }
 

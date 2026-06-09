@@ -982,11 +982,8 @@ final class ShellState: EdexActionHandler {
         switch match {
         case let .app(action, tabIndex):
             dispatchAppShortcut(action, tabIndex: tabIndex)
-        case .shell:
-            // Shell shortcuts write a command to the active terminal. Physical
-            // shortcuts consume the event now; execution is deferred until the
-            // Phase 9 PTY seam exists (the on-screen path emits immediately).
-            break
+        case let .shell(action, linebreak):
+            handle(.keyboardInput(linebreak ? action + "\r" : action))
         }
         return nil
     }
@@ -1012,11 +1009,15 @@ final class ShellState: EdexActionHandler {
             // Toggle on-screen keyboard password mode (legacy togglePasswordMode):
             // dims the band and silences key audio.
             keyboard.modifiers.passwordMode.toggle()
-        case .copy, .paste, .nextTab, .previousTab,
-             .devDebug, .devReload:
-            // These actions are dispatched by this handler but their targets
-            // (terminal) are built in later phases. Stubs prevent crashes when
-            // shortcuts fire before the feature exists.
+        case .copy:
+            terminal.copySelection()
+        case .paste:
+            terminal.pasteClipboard()
+        case .nextTab:
+            terminal.selectNextTab()
+        case .previousTab:
+            terminal.selectPreviousTab()
+        case .devDebug, .devReload:
             break
         }
     }
