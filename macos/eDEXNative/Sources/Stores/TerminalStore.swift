@@ -236,6 +236,7 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     }
 
     private func handleExit(_ s: TerminalSession) {
+        guard !s.exited else { return }
         drain(s)
         s.exited = true
         aliveTabs.remove(s.index)
