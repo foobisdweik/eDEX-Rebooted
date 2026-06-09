@@ -62,6 +62,24 @@ final class NativeTerminalTests: XCTestCase {
         XCTAssertEqual(request.rows, 1)
     }
 
+    func testEmptyEnvShellFallsBackToZsh() {
+        let request = TerminalSpawnRequest.make(environment: ["SHELL": ""])
+        XCTAssertEqual(request.shell, "/bin/zsh")
+    }
+
+    func testEmptyExplicitShellUsesEnvThenFallback() {
+        let fromEnv = TerminalSpawnRequest.make(shell: "", environment: ["SHELL": "/bin/bash"])
+        XCTAssertEqual(fromEnv.shell, "/bin/bash")
+
+        let fallback = TerminalSpawnRequest.make(shell: "", environment: [:])
+        XCTAssertEqual(fallback.shell, "/bin/zsh")
+    }
+
+    func testEmptyCwdFallsBackToHome() {
+        let request = TerminalSpawnRequest.make(cwd: "")
+        XCTAssertEqual(request.cwd, NSHomeDirectory())
+    }
+
     // MARK: - PtyOutputBuffer
 
     func testInitialStateIsRunningWithEmptyBuffer() {

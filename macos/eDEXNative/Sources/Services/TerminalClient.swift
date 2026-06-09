@@ -2,13 +2,16 @@ import Foundation
 import EdexCoreBridge
 import EdexDomainSupport
 
-/// PTY façade over a dedicated `EdexCore` instance.
+/// PTY façade over an `EdexCore` instance.
 ///
 /// `PtyManager` state lives on whichever `EdexCore` spawned the session. Slice 9.2
-/// must consolidate terminal I/O onto the app's shared `EdexCoreClient` core rather
-/// than keeping multiple `EdexCore` instances alive.
+/// will inject the app's shared `EdexCore` here so terminal I/O uses one core.
 struct TerminalClient {
-    private let core = EdexCore()
+    private let core: EdexCore
+
+    init(core: EdexCore = EdexCore()) {
+        self.core = core
+    }
 
     func spawn(request: TerminalSpawnRequest, output: PtyOutputBufferBox) throws -> UInt32 {
         // 9.2: inject TERM=xterm-256color (and COLORTERM) into env for SwiftTerm/full-screen apps.

@@ -39,14 +39,26 @@ public struct TerminalSpawnRequest: Equatable, Sendable {
         rows: Double? = nil,
         environment processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TerminalSpawnRequest {
-        let resolvedShell = shell
-            ?? processEnvironment["SHELL"]
-            ?? fallbackShell
+        let resolvedShell: String
+        if let shell, !shell.isEmpty {
+            resolvedShell = shell
+        } else if let envShell = processEnvironment["SHELL"], !envShell.isEmpty {
+            resolvedShell = envShell
+        } else {
+            resolvedShell = fallbackShell
+        }
+
+        let resolvedCwd: String
+        if let cwd, !cwd.isEmpty {
+            resolvedCwd = cwd
+        } else {
+            resolvedCwd = NSHomeDirectory()
+        }
 
         return TerminalSpawnRequest(
             shell: resolvedShell,
             args: args ?? [],
-            cwd: cwd ?? NSHomeDirectory(),
+            cwd: resolvedCwd,
             env: env ?? [:],
             cols: TerminalNumericSupport.clampedDimension(cols, default: defaultCols),
             rows: TerminalNumericSupport.clampedDimension(rows, default: defaultRows)
