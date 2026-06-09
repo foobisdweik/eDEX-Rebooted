@@ -116,6 +116,20 @@ struct ContentView: View {
                                 fill: selected ? state.theme.accent.opacity(0.2) : state.theme.panelBackground.opacity(0.25),
                                 stroke: state.theme.accent
                             )
+                            .overlay(alignment: .topTrailing) {
+                                if state.terminal.aliveTabs.contains(index - 1) {
+                                    Button {
+                                        state.handle(.closeTerminal(index - 1))
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 8, weight: .bold))
+                                            .padding(3)
+                                            .foregroundStyle(selected ? state.theme.panelBackground : state.theme.accent.opacity(0.8))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Close shell \(index)")
+                                }
+                            }
                     }
                     .buttonStyle(.plain)
                 }
@@ -124,6 +138,7 @@ struct ContentView: View {
                 .id(state.terminal.activeTab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(state.theme.terminalBackground.opacity(0.92))
+                .overlay { EdexTerminalAesthetic(theme: state.theme, vh: vh) }
         }
         .padding(8)
         .augmentedSurface(

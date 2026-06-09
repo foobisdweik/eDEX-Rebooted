@@ -5,6 +5,10 @@ import Observation
 public protocol TerminalSessionProviding: AnyObject {
     var activeCwd: String { get }
     var activeTab: Int { get }
+    var aliveTabs: Set<Int> { get }
+    /// Kill the shell in tab `index` (CLOSE affordance). The slot stays and
+    /// shows a restart notice; the next keystroke respawns it.
+    func closeTab(_ index: Int)
 
     func sendInput(_ text: String)
     func switchTab(_ index: Int)
@@ -26,6 +30,9 @@ public final class StubTerminalStore: TerminalSessionProviding {
     public private(set) var sentInputs: [String]
     public private(set) var copyCount = 0
     public private(set) var pasteCount = 0
+    public private(set) var aliveTabs: Set<Int> = []
+    /// Tabs closed via `closeTab`, in call order (router-forwarding assertions).
+    public private(set) var closedTabs: [Int] = []
 
     public var activeTab: Int { tabs.active }
 
@@ -63,6 +70,11 @@ public final class StubTerminalStore: TerminalSessionProviding {
     public func pasteClipboard() {
         pasteCount += 1
     }
+
+    public func closeTab(_ index: Int) {
+        closedTabs.append(index)
+        aliveTabs.remove(index)
+    }
 }
 
 public enum EdexAction: Equatable, Sendable {
@@ -70,6 +82,7 @@ public enum EdexAction: Equatable, Sendable {
     case openSettings
     case openFuzzyFinder
     case switchTerminal(Int)
+    case closeTerminal(Int)
     case closeModal
 }
 
@@ -107,6 +120,8 @@ public struct EdexActionRouter: EdexActionHandler {
             openFuzzyFinder()
         case let .switchTerminal(index):
             terminal.switchTab(index)
+        case let .closeTerminal(index):
+            terminal.closeTab(index)
         case .closeModal:
             closeModal()
         }

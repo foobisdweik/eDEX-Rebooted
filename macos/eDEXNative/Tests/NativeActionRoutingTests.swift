@@ -58,6 +58,21 @@ final class NativeActionRoutingTests: XCTestCase {
         XCTAssertEqual(closedModal, 1)
     }
 
+    func testActionRouterForwardsCloseTerminalToTheStore() {
+        let terminal = StubTerminalStore()
+        let router = EdexActionRouter(
+            terminal: terminal,
+            openSettings: {},
+            openFuzzyFinder: {},
+            closeModal: {}
+        )
+
+        router.handle(.closeTerminal(3))
+        router.handle(.closeTerminal(0))
+
+        XCTAssertEqual(terminal.closedTabs, [3, 0])
+    }
+
     func testKeyboardStoreOwnsLayoutStatusModifiersAndPressedKeys() async throws {
         let store = KeyboardStore()
 
