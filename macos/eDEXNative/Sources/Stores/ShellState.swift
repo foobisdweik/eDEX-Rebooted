@@ -71,6 +71,7 @@ final class ShellState: EdexActionHandler {
     /// Serializes metadata polls and cwd-follow work so overlapping 1 Hz polls and
     /// tab-switch follow-ups cannot apply stale PTY reads or skip navigation.
     @ObservationIgnored private var terminalMetadataRefreshTail: Task<Void, Never>?
+    @ObservationIgnored private var stdoutCueGate = StdoutAudioCueGate()
 
     // Phase 7.2 fuzzy finder state.
     var fuzzyQuery = ""
@@ -111,6 +112,12 @@ final class ShellState: EdexActionHandler {
         self.core = core
         self.client = EdexCoreClient(core: core)
         self.terminal = TerminalStore(core: core)
+        terminal.onStdout = { [weak self] in
+            guard let self else { return }
+            if self.stdoutCueGate.shouldPlay(at: Date(), passwordMode: self.keyboard.modifiers.passwordMode) {
+                self.playAudio(.stdout)
+            }
+        }
     }
 
     /// Bridges the FFI battery record into the FFI-free `EdexDomainSupport` input.
@@ -163,6 +170,8 @@ final class ShellState: EdexActionHandler {
         case let .switchTerminal(index):
             terminal.switchTab(index)
             followActiveTabSoon()
+        case let .closeTerminal(index):
+            terminal.closeTab(index)
         case .closeModal:
             guard let top = modalManager.modals.max(by: { $0.zIndex < $1.zIndex }) else { return }
             closeModal(top.id)

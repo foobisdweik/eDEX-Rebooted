@@ -28,5 +28,13 @@ struct EdexTerminalSurface: NSViewRepresentable {
         )
         nsView.font = NSFont(name: theme.fonts.terminal, size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        nsView.caretColor = NSColor(red: fg.red, green: fg.green, blue: fg.blue, alpha: 1)
+        let sel = theme.palette.terminalSelection
+        nsView.selectedTextBackgroundColor = NSColor(
+            red: sel.red,
+            green: sel.green,
+            blue: sel.blue,
+            alpha: max(sel.alpha, 0.001)
+        )
     }
 }

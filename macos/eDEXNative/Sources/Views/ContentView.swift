@@ -103,27 +103,43 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 ForEach(1...5, id: \.self) { index in
                     let selected = index - 1 == state.terminal.activeTab
-                    Button {
-                        state.handle(.switchTerminal(index - 1))
-                    } label: {
-                        Text("SHELL \(index)")
-                            .font(.custom(state.theme.fonts.main, size: 11))
-                            .frame(maxWidth: .infinity, minHeight: 30)
-                            .background(selected ? state.theme.accent : state.theme.panelBackground)
-                            .foregroundStyle(selected ? state.theme.panelBackground : state.theme.accent)
-                            .augmentedSurface(
-                                style: .settingsButton(vh: vh),
-                                fill: selected ? state.theme.accent.opacity(0.2) : state.theme.panelBackground.opacity(0.25),
-                                stroke: state.theme.accent
-                            )
+                    ZStack(alignment: .topTrailing) {
+                        Button {
+                            state.handle(.switchTerminal(index - 1))
+                        } label: {
+                            Text("SHELL \(index)")
+                                .font(.custom(state.theme.fonts.main, size: 11))
+                                .frame(maxWidth: .infinity, minHeight: 30)
+                                .background(selected ? state.theme.accent : state.theme.panelBackground)
+                                .foregroundStyle(selected ? state.theme.panelBackground : state.theme.accent)
+                                .augmentedSurface(
+                                    style: .settingsButton(vh: vh),
+                                    fill: selected ? state.theme.accent.opacity(0.2) : state.theme.panelBackground.opacity(0.25),
+                                    stroke: state.theme.accent
+                                )
+                        }
+                        .buttonStyle(.plain)
+
+                        if state.terminal.aliveTabs.contains(index - 1) {
+                            Button {
+                                state.handle(.closeTerminal(index - 1))
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .padding(3)
+                                    .foregroundStyle(selected ? state.theme.panelBackground : state.theme.accent.opacity(0.8))
+                            }
+                            .buttonStyle(.plain)
+                            .help("Close shell \(index)")
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
             }
             EdexTerminalSurface(terminalView: state.terminal.terminalView, theme: state.theme)
                 .id(state.terminal.activeTab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(state.theme.terminalBackground.opacity(0.92))
+                .overlay { EdexTerminalAesthetic(theme: state.theme, vh: vh) }
         }
         .padding(8)
         .augmentedSurface(

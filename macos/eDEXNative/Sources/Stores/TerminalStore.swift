@@ -29,7 +29,10 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     private let terminalClient: TerminalClient
     private var sessions: [TerminalSession]
     private(set) var tabs = TerminalTabSet()
+    private(set) var aliveTabs: Set<Int> = []
     private var started = false
+
+    var onStdout: (() -> Void)?
 
     var terminalView: TerminalView { sessions[tabs.active].view }
 
@@ -98,6 +101,14 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
             let fontName = theme.fonts.terminal
             view.font = NSFont(name: fontName, size: 13)
                 ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            view.caretColor = NSColor(red: fg.red, green: fg.green, blue: fg.blue, alpha: 1)
+            let sel = theme.palette.terminalSelection
+            view.selectedTextBackgroundColor = NSColor(
+                red: sel.red,
+                green: sel.green,
+                blue: sel.blue,
+                alpha: max(sel.alpha, 0.001)
+            )
         }
     }
 
@@ -173,6 +184,17 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         view.paste(view)
     }
 
+    func closeTab(_ index: Int) {
+        guard sessions.indices.contains(index) else { return }
+        let s = sessions[index]
+        drain(s)
+        if let id = s.ptyId { try? terminalClient.killPty(id: id) }
+        s.ptyId = nil
+        s.exited = true
+        aliveTabs.remove(index)
+        s.view.feed(text: "\r\n\u{001B}[38;5;245m[tab closed — press any key to restart]\u{001B}[0m\r\n")
+    }
+
     private func spawnIfNeeded(_ s: TerminalSession) {
         guard s.ptyId == nil, !s.exited else { return }
 
@@ -194,6 +216,7 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         do {
             s.ptyId = try terminalClient.spawn(request: request, output: s.outputBox)
             s.exited = false
+            aliveTabs.insert(s.index)
         } catch {
             // A failed spawn leaves no PTY. Mark the session exited and surface
             // the error so the dead tab isn't silent — this covers the initial
@@ -201,6 +224,7 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
             // keystroke then routes through respawn() to retry.
             print("eDEXNative terminal spawn failed: \(error.localizedDescription)")
             s.exited = true
+            aliveTabs.remove(s.index)
             s.view.feed(text: "\r\n\u{001B}[31m[terminal spawn failed: \(error.localizedDescription)]\u{001B}[0m\r\n\u{001B}[38;5;245m[press any key to retry]\u{001B}[0m\r\n")
         }
     }
@@ -209,11 +233,14 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         let bytes = s.outputBox.drain()
         guard !bytes.isEmpty else { return }
         s.view.feed(byteArray: bytes[...])
+        if s === sessions[tabs.active] { onStdout?() }
     }
 
     private func handleExit(_ s: TerminalSession) {
         drain(s)
+        guard !s.exited else { return }
         s.exited = true
+        aliveTabs.remove(s.index)
         if let id = s.ptyId {
             try? terminalClient.killPty(id: id)
         }
