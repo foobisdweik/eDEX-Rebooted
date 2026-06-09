@@ -40,6 +40,10 @@ public struct TerminalAestheticMetrics: Equatable, Sendable {
     /// for any non-finite or non-positive height so the drawing loop is a no-op.
     public func scanlineCount(forHeight height: Double) -> Int {
         guard height.isFinite, height > 0, scanlineSpacing > 0 else { return 0 }
-        return Int(height / scanlineSpacing)
+        let count = (height / scanlineSpacing).rounded(.down)
+        // Guard the Double -> Int cast: `Int(_:)` traps past Int.max. An absurd
+        // height is degenerate, so collapse to no lines rather than crash.
+        guard count.isFinite, count >= 0, count <= Double(Int.max) else { return 0 }
+        return Int(count)
     }
 }

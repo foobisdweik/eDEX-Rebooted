@@ -40,4 +40,12 @@ final class TerminalAestheticMetricsTests: XCTestCase {
         XCTAssertEqual(metrics.scanlineCount(forHeight: .nan), 0)
         XCTAssertEqual(metrics.scanlineCount(forHeight: -50), 0)
     }
+
+    func testAbsurdlyLargeHeightDoesNotTrapTheIntCast() {
+        // `Int(Double)` traps when the value exceeds Int.max. A height past that
+        // bound (divided by the 2pt floor) must clamp to 0 rather than crash —
+        // the project's "guard every Double -> Int cast" rule.
+        let metrics = TerminalAestheticMetrics(surfaceHeight: 600, vh: 10, intensity: 1.0)
+        XCTAssertEqual(metrics.scanlineCount(forHeight: .greatestFiniteMagnitude), 0)
+    }
 }
