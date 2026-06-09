@@ -226,20 +226,20 @@ These are the genuinely-unresolved decisions (order-changing ones have been fold
 4. If new backend data is needed, add a typed `Ffi…` record + an `EdexCore` method in `crates/edex-ffi/src/lib.rs` (with a `cargo test`), then **regenerate bindings**:
    `cd crates/edex-ffi && cargo build --release && cargo run --bin uniffi-bindgen -- generate --library target/release/libedex_ffi.dylib --language swift --out-dir ../../macos/eDEXNative/Generated`
 5. Wire: thin accessor in `EdexCoreClient`, observable state + an **offloaded** `refresh…()` in `ShellState`, and the panel view in `ContentView` (add a branch in `column(...)`'s placeholder switch).
-6. Update plan-doc status + `memory.md` resume notes + tick the progress tally; commit; push; open PR with `--base post-web-runtime`.
+6. Update plan-doc status + `memory.md` resume notes + tick the progress tally; ship with `scripts/native-phase pr …`; then work the post-PR review/CI loop.
 
-**Native phase workflow helper (added 2026-06-02):**
-- Use `scripts/native-phase start <phase> <slug>` to fetch/prune, fast-forward local `post-web-runtime`, create `codex/native-<slug>`, and print phase-specific first-read files. Example for the next subphase: `scripts/native-phase start 6.2 modal-manager`.
-- Use `scripts/native-phase verify` for the standard final gate: SwiftPM tests, native smoke-window run, and `crates/edex-ffi` cargo test/fmt/clippy.
-- Use `scripts/native-phase pr "<commit message>" "<PR title>" "<summary>"` to stage all repo changes except untracked/local `memory.md`, commit, push, and open a PR against `post-web-runtime`.
-- Use `--dry-run` on any helper command before executing when branch state is uncertain. The helper is validated by `bash scripts/test-native-phase.sh`.
+**Native phase workflow helper — debloated, front-light/back-heavy (verification moved to PR checks):**
+- `scripts/native-phase start <phase> <slug>` — fetch/prune, fast-forward `post-web-runtime`, create `codex/native-<slug>`, print first-read files.
+- `scripts/native-phase pr "<commit>" "<PR title>" "<summary>"` — the **only** ship command. Runs the compile **floor** (`precheck`) itself, then stages (excluding `memory.md`), commits, pushes, and opens the PR against `post-web-runtime`. **Do not run the full gate by hand first.**
+- After submit (~5 min): address **gemini-code-assist** review + the **Native CI** check (review/validate/respond/resolve). **Ignore Cursor BugBot.** A human merges and raises CI issues with you.
+- `precheck` (compile floor, the only required pre-PR check, scope-aware), `verify [--full]` (CI-safe full gate; **Native CI runs `verify --full`** so local-full == CI), and `smoke` (local-only `--smoke-window`) are the granular commands. Use `--dry-run` when branch state is uncertain. Validated by `bash scripts/test-native-phase.sh`.
 
 **Conventions / gotchas already learned (don't relearn the hard way):**
 - **Offload FFI off the MainActor.** `ShellState` is `@MainActor @Observable`; every `refresh…()` does `await Task.detached(priority: .background){ client.… }.value` then assigns. (PR #17 review made us do this; do it from the start.)
 - **Guard every `Double → Int` cast** against non-finite/out-of-range — the reviewer (and reality) crash on it. `RamwatcherSupport.safeInt` and `CpuinfoSupport` show the pattern. Write a crash-safety test (it will abort the suite on the unfixed path = your RED).
 - **Live graphs:** SwiftUI `Canvas` + `TimelineView(.animation)` (scrolls at OS refresh / ProMotion). The spec's CALayer recs are stale (pre-SwiftUI-pivot). Guard Canvas `size` finite+positive.
 - **Run `cargo fmt`** after editing Rust (CI gate is `cargo fmt --check`); rerun the bindgen after any FFI change.
-- **Verification gates (all must pass before PR):** `swift test` (from `macos/eDEXNative/`), `swift run eDEXNative --smoke-window`, and `cd crates/edex-ffi && cargo test && cargo fmt --check && cargo clippy --release -- -D warnings`. Test count was 63 at the end of 5.5.
+- **Verification (debloated):** pre-PR you run only the compile **floor** (`scripts/native-phase pr` runs it for you). The full gate — `swift build --build-tests` + `swift test` + `crates/edex-ffi` `cargo test`/`fmt --check`/`clippy -- -D warnings` — runs as **Native CI** (`scripts/native-phase verify --full`) on the PR, not on your critical path. Run `native-phase verify` / `smoke` locally only for extra confidence.
 - SourceKit "No such module 'BorderSupport'" diagnostics in-editor are **noise** (the SwiftPM CLI build is the source of truth) — ignore them.
 - **Toolchain:** needs a current stable Rust + Swift 6.x; `swift` is at `~/.swiftly/bin/swift`.
 

@@ -7,24 +7,27 @@
 
 ## Project
 
-eDEX-UI **v3.0.0** — a Tauri 2 + Rust native port of the historical Electron fork. **Target: `aarch64-apple-darwin` (Apple-Silicon macOS) only.** No Electron, no Node runtime, no `node_modules/` shipped. Terminal I/O and system info flow through Rust over in-process Tauri IPC (no listening socket). The frontend is a WKWebView payload of plain-JS classes + CSS, with no bundler.
+eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**. Two stacks: the **legacy Tauri 2 + Rust / WKWebView app** (`src-tauri/` + `src/`, frozen at master/PR #12) and the **active SwiftUI + Rust native app** (`macos/eDEXNative/` + `crates/edex-core` + `crates/edex-ffi`) that replaces it panel-by-panel along the Phase 0–11 plan. All new work lands in the native app on `post-web-runtime`.
 
-## Commands
+## Workflow & commands (debloated — `scripts/native-phase` is the source of truth)
+
+Verification is front-light, back-heavy: a fast compile floor before the PR; the real gate runs as PR checks afterward.
 
 ```bash
-# Run from source (needs a CURRENT stable Rust toolchain; Cargo <=1.81 fails).
-cargo +stable tauri dev
+# 1. Branch off latest origin/post-web-runtime + print first-read files.
+scripts/native-phase start <phase> <slug>
 
-# Release .app + .dmg
-cargo +stable tauri build --target aarch64-apple-darwin
+# 2. Write code (TDD): pure FFI-free Sources/<Panel>Support/ module + XCTest first.
 
-# Tests (no broad framework — run what's relevant)
-node --check <edited-frontend-file>.js
-node --test src/bridge/bridge.test.js src/bridge/native_mount.test.js src/classes/terminalTabs.class.test.js
-cd src-tauri && cargo test && cargo test --test sysinfo_contract && cargo fmt --check && cargo clippy -- -D warnings
+# 3. The ONLY ship command — runs the compile floor itself, then commits/pushes/opens the PR.
+scripts/native-phase pr "feat(native): ..." "feat(native): ..." "<summary>"
 ```
 
-`tauri-cli` v2 is at `~/.cargo/bin/cargo-tauri` (`cargo install tauri-cli --version "^2.0" --locked`). The dev watcher only watches `src-tauri/`; reload the WKWebView with **Cmd+R** for `src/` edits.
+- `native-phase precheck` — scope-aware compile floor (only required pre-PR check; runs inside `pr`).
+- `native-phase verify [--full]` — CI-safe full gate; **Native CI runs `verify --full`**, so local-full == CI. Optional locally — don't run the full gate by hand before a PR.
+- `native-phase smoke` — local-only `--smoke-window` (not in CI).
+
+Post-PR (~5 min): address **gemini-code-assist** review + **Native CI** (review/validate/respond/resolve). **Ignore Cursor BugBot.** A human merges. The Swift toolchain is `~/.swiftly/bin/swift`; regenerate UniFFI bindings + `cargo fmt` after any `crates/edex-ffi` change.
 
 ## Conventions
 
@@ -44,10 +47,6 @@ cd src-tauri && cargo test && cargo test --test sysinfo_contract && cargo fmt --
 ## Security
 
 No listening socket — terminal I/O is in-process IPC. Do not reintroduce a network/WebSocket control channel (the original RCE class this fork removed).
-
-## Workflow
-
-Substantial / multi-file changes go on an isolated branch + PR after full validation, not direct to `master`. Conventional-Commit messages (`feat(native): …`).
 
 ## Imported context (migration docs)
 

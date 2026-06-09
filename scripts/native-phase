@@ -7,22 +7,41 @@ if [[ "${1:-}" == "--dry-run" ]]; then
   shift
 fi
 
+BASE_BRANCH="post-web-runtime"
+BASE_REF="origin/${BASE_BRANCH}"
+
 usage() {
   cat <<'EOF'
 Usage:
   scripts/native-phase [--dry-run] start <phase> <slug>
-  scripts/native-phase [--dry-run] verify
+  scripts/native-phase [--dry-run] precheck
+  scripts/native-phase [--dry-run] verify [--full]
+  scripts/native-phase [--dry-run] smoke
   scripts/native-phase [--dry-run] pr <commit-message> <pr-title> <summary>
 
-Examples:
-  scripts/native-phase start 6.2 modal-manager
-  scripts/native-phase verify
-  scripts/native-phase pr "feat(native): add native modal manager" "feat(native): add native modal manager" "Adds the Phase 6.2 native modal manager."
+The debloated per-phase loop:
+  1. start  - branch off latest origin/post-web-runtime, print first-read files.
+  2. write code (TDD).
+  3. pr     - runs the compile FLOOR (precheck), then commits/pushes/opens the PR.
+  4. work the post-PR loop: address gemini-code-assist review + native CI
+     (review / validate / respond / resolve). IGNORE Cursor BugBot. Human merges.
+
+Commands:
+  precheck  Scope-aware COMPILE floor (the only required pre-PR check). Sees both
+            committed and uncommitted changes. swift build --build-tests (if
+            macos/ changed; builds the release FFI dylib first) + cargo check
+            --tests (if crates/ changed). Fast when the dylib is warm.
+  verify    The CI-safe full gate (build + swift test + cargo test/fmt/clippy).
+            Scope-aware locally; pass --full (or set NATIVE_PHASE_FULL=1) to run
+            everything. CI runs `bash scripts/native-phase verify --full`, so the
+            local full gate and CI cannot drift. Does NOT run the smoke-window.
+  smoke     The local-only `swift run eDEXNative --smoke-window` (needs a window
+            session; not in CI). Builds the release FFI dylib first.
+  pr        precheck -> stage (excluding memory.md) -> commit -> push -> open PR.
 
 Notes:
-  - Branches are created as codex/native-<slug> from latest origin/post-web-runtime.
-  - The PR command stages all repo changes except memory.md, commits, pushes, and opens a PR against post-web-runtime.
-  - Use --dry-run to inspect commands before executing.
+  - Branches are codex/native-<slug> off latest origin/post-web-runtime.
+  - Use --dry-run to print the full command plan without scope-filtering.
 EOF
 }
 
@@ -61,6 +80,113 @@ run_in() {
   if [[ "$dry_run" == "0" ]]; then
     (cd "$dir" && "$@")
   fi
+}
+
+swift_bin() {
+  printf '%s' "${SWIFT_BIN:-$HOME/.swiftly/bin/swift}"
+}
+
+# The swift executable passed to run_in. Real runs MUST use an expanded,
+# absolute path — bash does not perform tilde expansion on a quoted argument,
+# so a literal "~/.swiftly/bin/swift" would fail with "command not found".
+# Only dry-run prints the pretty tilde form.
+swift_display() {
+  if [[ "$dry_run" == "1" ]]; then
+    printf '%s' "${SWIFT_DISPLAY:-~/.swiftly/bin/swift}"
+  else
+    swift_bin
+  fi
+}
+
+# Build the release FFI dylib the Swift app links against (-ledex_ffi from
+# crates/edex-ffi/target/release). cargo is incremental so this is cheap when
+# warm; required on a clean checkout or after an FFI change before any swift
+# build/test/run.
+build_ffi_dylib() {
+  local root
+  root="$(repo_root)"
+  run_in "$root/crates/edex-ffi" cargo build --release
+}
+
+# Files changed on this branch vs the base, INCLUDING uncommitted work. The
+# floor in `pr` runs before `git commit`, so committed-only diffing would miss
+# fresh edits and no-op. Returns non-zero (treat as "all") if the base ref or
+# merge-base can't be resolved (fresh clone, detached state, CI).
+changed_paths() {
+  local base
+  base="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
+  [[ -n "$base" ]] || return 1
+  {
+    git diff --name-only "$base"...HEAD 2>/dev/null
+    git status --porcelain 2>/dev/null | cut -c4-
+  } | sed '/^$/d'
+}
+
+# Echo "swift" and/or "rust" for the areas this branch touches. In dry-run or
+# when --full / NATIVE_PHASE_FULL is set, or when scope can't be computed,
+# echoes both (the maximal plan).
+scope() {
+  local force_full="${1:-0}"
+  if [[ "$dry_run" == "1" || "$force_full" == "1" || "${NATIVE_PHASE_FULL:-0}" == "1" ]]; then
+    printf 'swift rust\n'
+    return 0
+  fi
+  local paths
+  if ! paths="$(changed_paths)"; then
+    printf 'swift rust\n'
+    return 0
+  fi
+  local out=""
+  grep -q '^macos/eDEXNative/' <<<"$paths" && out="swift"
+  grep -q '^crates/' <<<"$paths" && out="${out:+$out }rust"
+  printf '%s\n' "$out"
+}
+
+cmd_precheck() {
+  local root areas
+  root="$(repo_root)"
+  areas="$(scope 0)"
+  if [[ -z "$areas" ]]; then
+    printf 'native-phase: no compilable changes (docs/scripts only) — floor is a no-op.\n'
+    return 0
+  fi
+  if grep -qw rust <<<"$areas"; then
+    run_in "$root/crates/edex-ffi" cargo check --tests
+  fi
+  if grep -qw swift <<<"$areas"; then
+    build_ffi_dylib
+    run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests
+  fi
+}
+
+cmd_verify() {
+  local force_full=0
+  [[ "${1:-}" == "--full" ]] && force_full=1
+  local root areas
+  root="$(repo_root)"
+  areas="$(scope "$force_full")"
+
+  if [[ -z "$areas" ]]; then
+    printf 'native-phase: no compilable changes (docs/scripts only) — verify is a no-op.\n'
+    return 0
+  fi
+  if grep -qw rust <<<"$areas"; then
+    run_in "$root/crates/edex-ffi" cargo test
+    run_in "$root/crates/edex-ffi" cargo fmt --check
+    run_in "$root/crates/edex-ffi" cargo clippy -- -D warnings
+  fi
+  if grep -qw swift <<<"$areas"; then
+    build_ffi_dylib
+    run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests
+    run_in "$root/macos/eDEXNative" "$(swift_display)" test
+  fi
+}
+
+cmd_smoke() {
+  build_ffi_dylib
+  local root
+  root="$(repo_root)"
+  run_in "$root/macos/eDEXNative" "$(swift_display)" run eDEXNative --smoke-window
 }
 
 phase_files() {
@@ -105,31 +231,12 @@ cmd_start() {
   local branch="codex/native-${slug}"
 
   run git fetch --prune
-  run git switch post-web-runtime
-  run git merge --ff-only origin/post-web-runtime
+  run git switch "$BASE_BRANCH"
+  run git merge --ff-only "$BASE_REF"
   run git switch -c "$branch"
   printf '\n'
   phase_files "$phase"
-  printf '\nNext:\n  scripts/native-phase verify\n  scripts/native-phase pr \"feat(native): ...\" \"feat(native): ...\" \"<summary>\"\n'
-}
-
-cmd_verify() {
-  local root
-  root="$(repo_root)"
-  local swift_bin="${SWIFT_BIN:-$HOME/.swiftly/bin/swift}"
-  local swift_display="${SWIFT_DISPLAY:-~/.swiftly/bin/swift}"
-
-  if [[ "$dry_run" == "1" ]]; then
-    run_in "$root/macos/eDEXNative" "$swift_display" test
-    run_in "$root/macos/eDEXNative" "$swift_display" run eDEXNative --smoke-window
-  else
-    run_in "$root/macos/eDEXNative" "$swift_bin" test
-    run_in "$root/macos/eDEXNative" "$swift_bin" run eDEXNative --smoke-window
-  fi
-
-  run_in "$root/crates/edex-ffi" cargo test
-  run_in "$root/crates/edex-ffi" cargo fmt --check
-  run_in "$root/crates/edex-ffi" cargo clippy --release -- -D warnings
+  printf '\nNext:\n  write code (TDD), then:\n  scripts/native-phase pr "feat(native): ..." "feat(native): ..." "<summary>"\n  (pr runs the compile floor itself; then work the post-PR review/CI loop)\n'
 }
 
 cmd_pr() {
@@ -146,9 +253,14 @@ cmd_pr() {
     fi
   else
     [[ -n "$branch" ]] || die "not on a branch"
-    [[ "$branch" != "post-web-runtime" ]] || die "refusing to publish from post-web-runtime"
+    [[ "$branch" != "$BASE_BRANCH" ]] || die "refusing to publish from $BASE_BRANCH"
     [[ "$branch" == codex/native-* ]] || die "expected a codex/native-* phase branch, got $branch"
   fi
+
+  # Compile floor: do not open a PR that does not compile. Runs before staging,
+  # but scope sees uncommitted work, so fresh edits are covered.
+  printf '== compile floor (precheck) ==\n'
+  cmd_precheck
 
   run git add -A -- . ':!memory.md'
   if [[ "$dry_run" == "0" ]] && git diff --cached --quiet; then
@@ -165,10 +277,12 @@ cmd_pr() {
 - ${summary}
 
 ## Verification
-- scripts/native-phase verify
+- Compile floor (scripts/native-phase precheck) green before submit.
+- Native CI runs the full gate (scripts/native-phase verify --full) on this PR.
 EOF
 )"
-  run gh pr create --base post-web-runtime --head "$branch" --title "$pr_title" --body "$body"
+  run gh pr create --base "$BASE_BRANCH" --head "$branch" --title "$pr_title" --body "$body"
+  printf '\nPost-PR: address gemini-code-assist review + native CI (review/validate/respond/resolve). Ignore Cursor BugBot. Human merges.\n'
 }
 
 main() {
@@ -181,7 +295,9 @@ main() {
 
   case "$command" in
     start) cmd_start "$@" ;;
+    precheck) cmd_precheck "$@" ;;
     verify) cmd_verify "$@" ;;
+    smoke) cmd_smoke "$@" ;;
     pr) cmd_pr "$@" ;;
     *) usage >&2; exit 1 ;;
   esac

@@ -1,68 +1,54 @@
 <!--
-AGENTS.md — instructions for coding agents working in this repo (agents.md open
-format; plain Markdown, no required fields). Humans should read README.md.
-Agents: read this file, then the "Project knowledge" links before changing code.
-The closest AGENTS.md to an edited file wins if nested ones are added later.
+AGENTS.md — instructions for coding agents (Codex, Claude, etc.) working in this
+repo (agents.md open format). Humans should read README.md. Agents: read this,
+then docs/plans/full-native-swift-rust-conversion-2026-05-30.md before changing code.
+CLAUDE.md is the fuller companion. The closest AGENTS.md to an edited file wins.
 -->
 
 # AGENTS.md
 
 ## Project overview
 
-eDEX-UI **v3.0.0** — a Tauri 2 + Rust native port of the historical Electron fork. **Target: `aarch64-apple-darwin` (Apple-Silicon macOS) only.** No Electron, no Node runtime, no `node_modules/` shipped. Terminal I/O and system info run through Rust over in-process Tauri IPC; there is no listening socket. The frontend is a WKWebView payload of plain-JS classes + CSS (no bundler).
+eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**. Two stacks:
 
-## Setup & build
+- **Legacy Tauri 2 + Rust / WKWebView app** (`src-tauri/` + `src/`) — historically-shipping, **frozen** (master @ PR #12). Touch only to keep the transition build working.
+- **Active native app** (`macos/eDEXNative/` SwiftPM + `crates/edex-core` + `crates/edex-ffi`) — a SwiftUI app linking the Rust core via UniFFI, replacing the WKWebView frontend panel-by-panel along the Phase 0–11 plan. **All new work lands here**, on the `post-web-runtime` branch.
 
-- Toolchain: a **current stable** Rust toolchain (Cargo ≤1.81 fails to parse dependency metadata). `tauri-cli` v2 lives at `~/.cargo/bin/cargo-tauri`; install with `cargo install tauri-cli --version "^2.0" --locked`.
-- Run from source: `cargo +stable tauri dev`
-- Release build: `cargo +stable tauri build --target aarch64-apple-darwin` → `src-tauri/target/aarch64-apple-darwin/release/bundle/{macos,dmg}/`
-- The dev watcher only watches `src-tauri/`; reload the WKWebView with **Cmd+R** to pick up `src/` edits. Restart on `tauri.conf.json` / `capabilities/` changes.
+The earlier Approach-A per-panel `NSView` slots (`src-tauri/src/native_panels.rs`) are a frozen/superseded interim bridge.
 
-## Testing instructions (run before claiming work is done)
+## The workflow (debloated — `scripts/native-phase` is the single source of truth)
 
-There is no broad test framework — coverage is targeted. Run the relevant checks:
+Verification is front-light, back-heavy: a fast **compile floor** before the PR; the real gate runs as **PR checks** afterward.
 
-```bash
-# JS (repo root)
-node --check <edited-frontend-file>.js
-node --test src/bridge/bridge.test.js src/bridge/native_mount.test.js src/classes/terminalTabs.class.test.js
+1. `scripts/native-phase start <phase> <slug>` — branch off latest `origin/post-web-runtime`, print first-read files.
+2. Write code, TDD. Pure FFI-free `Sources/<Panel>Support/` module + XCTest target first; register new targets in `Package.swift` in **4 places**. New backend data → typed `Ffi…` + `EdexCore` method in `crates/edex-ffi`, then regenerate bindings (see CLAUDE.md).
+3. `scripts/native-phase pr "<commit>" "<title>" "<summary>"` — the **only** ship command. It runs the compile floor (`precheck`) itself, then stages (excluding `memory.md`), commits, pushes, opens the PR against `post-web-runtime`. **Do not run the full gate by hand first** — that is CI's job.
+4. Work the post-PR loop (~5 min after submit): address **gemini-code-assist** review + **Native CI** status — review / validate / respond / resolve (push back with technical reasoning when wrong). **Ignore Cursor BugBot.**
+5. A human merges and raises CI issues with you. No branch protection.
 
-# Rust (from src-tauri/)
-cargo test
-cargo test --test sysinfo_contract        # Rust→JS JSON wire-shape contract
-cargo fmt --check
-cargo clippy -- -D warnings
-```
+### Commands (don't run a remembered checklist — use these)
 
-Anything not covered by a test is smoke-tested by running `cargo tauri dev` and exercising the feature (terminal I/O, multi-tab spawn `Ctrl+X` then 1-5, theme swap `Ctrl+Shift+S`, the sysinfo/cpuinfo/ramwatcher/toplist panels).
+- `native-phase precheck` — scope-aware compile floor (the only required pre-PR check; runs inside `pr`).
+- `native-phase verify [--full]` — CI-safe full gate (build + swift test + cargo test/fmt/clippy), scope-aware. **Native CI runs `verify --full`**, so local-full == CI. Optional locally.
+- `native-phase smoke` — local-only `--smoke-window` (not in CI); run ad-hoc when touching FFI/bootstrap.
 
-## Code style & conventions
+CI: `.github/workflows/native-ci.yml` is authoritative for the native tree; `ci.yml` only covers the frozen Tauri stack.
 
-- **macOS-only.** Do not reintroduce `process.platform === "win32"` branches; cross-platform logic, if it returns, belongs in Rust commands.
-- Frontend libraries are **vendored** under `src/assets/vendor/` (UMD). Do not run `npm install` for the frontend; `src/package.json` is version-pinning documentation only.
-- The `module.exports = {…}` line at the bottom of every `src/classes/*.class.js` throws a harmless `ReferenceError` in WKWebView (no Node). Leave it — the class already registered on the global scope.
-- **Capabilities:** new APIs touching core plugins (window/webview/shell/process/global-shortcut) need a permission in `src-tauri/capabilities/default.json`, or Tauri rejects them at runtime. Custom `#[tauri::command]`s (the `si_*`, `fs_*`, `native_*` families) need **no** capability entry.
-- `sysinfo` is pinned at `0.32`; its API drifts — re-check `sysinfo_service.rs` if you bump it.
-- Match the style, naming, and comment density of surrounding code.
+## Conventions
 
-## Architecture pointers
-
-- **IPC boundary is Tauri `invoke()`** (in-process). `window.si` in `renderer.js` is a `Proxy` mapping camelCase → snake_case `si_*` commands, so visual classes don't know they talk to Rust.
-- Backend (`src-tauri/src/`): `lib.rs` is the wiring hub (`invoke_handler!` + `.manage()` state + `.setup()`); `sysinfo_service.rs` (cached typed queries) and `sysinfo_cmds.rs` (thin `si_*` wrappers) are **two layers — read together**; `pty.rs` (portable-pty); `native_mount.rs` / `native_panels.rs` (AppKit interop — every `*mut Object` is stashed as `usize` and only touched inside `dispatch::Queue::main`; web→AppKit rects need a y-flip).
-- **Active workstream: the full SwiftUI + Rust native app under `macos/eDEXNative/`** (SwiftPM, linking `crates/edex-core` via the `crates/edex-ffi` UniFFI layer), replacing the WKWebView frontend panel-by-panel. The earlier Approach-A per-panel `NSView` slots are a frozen/superseded interim bridge. See Project knowledge below.
+- **macOS-only.** No `process.platform === "win32"` branches; cross-platform logic belongs in Rust.
+- Offload FFI off the MainActor; guard every `Double → Int` cast; live graphs use `Canvas` + `TimelineView(.animation)`. Regenerate UniFFI bindings + `cargo fmt` after any Rust change.
+- SourceKit "No such module" diagnostics in-editor are noise — the SwiftPM CLI build is the source of truth.
+- Conventional-Commit messages (`feat(native): …`, `fix(native): …`). Keep `memory.md` out of commits.
+- Match surrounding code's style and naming.
 
 ## Project knowledge (where to look)
 
-- `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — **the authoritative plan, read first**: Phase 0–11 roadmap, dependency/deletion gates, the per-phase recipe, and the running completion log.
-- `docs/plans/ffi-throughput-decision-2026-05-30.md` — the FFI-throughput decision feeding Phase 9.
-- `macos/eDEXNative/` — the native app (per-panel pure `*Support` modules + SwiftUI views). Legacy panel behavior is read from `src/classes/*.class.js` during each conversion.
+- `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — **authoritative plan, read first**: roadmap, gates, per-phase recipe, completion log.
+- `docs/plans/ffi-throughput-decision-2026-05-30.md` — FFI-throughput decision feeding Phase 9.
+- `macos/eDEXNative/` — the native app (pure `*Support` modules + SwiftUI views); legacy panel behavior is read from `src/classes/*.class.js`.
 - `CLAUDE.md` — fuller architecture map and gotchas.
-
-## Commit & PR conventions
-
-- Substantial / multi-file changes go on an **isolated branch + PR after full validation**, not direct to `master`.
-- Use Conventional-Commit-style messages (`feat(native): …`, `fix(pty): …`).
 
 ## Security
 
-- The app has **no listening socket** — terminal I/O is in-process IPC. Do not reintroduce a network/WebSocket control channel (that was the original RCE class this fork removed).
+No listening socket — terminal I/O is in-process IPC. Do not reintroduce a network/WebSocket control channel (the original RCE class this fork removed).

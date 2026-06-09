@@ -19,12 +19,21 @@ grep -q "git switch -c codex/native-modal-manager" <<<"$start_output" || fail "s
 grep -q "src/classes/modal.class.js" <<<"$start_output" || fail "start dry-run does not print modal legacy file"
 grep -q "src-tauri/src/native_modal.rs" <<<"$start_output" || fail "start dry-run does not print native_modal reference"
 
+precheck_output="$("$script" --dry-run precheck)"
+grep -q "cargo build --release" <<<"$precheck_output" || fail "precheck dry-run does not build the release FFI dylib"
+grep -q "swift build --build-tests" <<<"$precheck_output" || fail "precheck dry-run does not include swift build --build-tests"
+grep -q "cargo check --tests" <<<"$precheck_output" || fail "precheck dry-run does not include cargo check --tests"
+
 verify_output="$("$script" --dry-run verify)"
 grep -q "~/.swiftly/bin/swift test" <<<"$verify_output" || fail "verify dry-run does not include swift test"
-grep -q "~/.swiftly/bin/swift run eDEXNative --smoke-window" <<<"$verify_output" || fail "verify dry-run does not include smoke-window"
-grep -q "cargo clippy --release -- -D warnings" <<<"$verify_output" || fail "verify dry-run does not include clippy gate"
+grep -q "cargo clippy -- -D warnings" <<<"$verify_output" || fail "verify dry-run does not include clippy gate"
+grep -q "smoke-window" <<<"$verify_output" && fail "verify must NOT run the smoke-window (CI-safe gate)"
+
+smoke_output="$("$script" --dry-run smoke)"
+grep -q "~/.swiftly/bin/swift run eDEXNative --smoke-window" <<<"$smoke_output" || fail "smoke dry-run does not include smoke-window"
 
 pr_output="$("$script" --dry-run pr "feat(native): add native modal manager" "feat(native): add native modal manager" "Modal manager summary")"
+grep -q "compile floor" <<<"$pr_output" || fail "pr dry-run does not run the compile floor (precheck)"
 grep -q "git commit -m" <<<"$pr_output" || fail "pr dry-run does not include commit"
 grep -q "git push -u origin" <<<"$pr_output" || fail "pr dry-run does not include push"
 grep -q "gh pr create --base post-web-runtime" <<<"$pr_output" || fail "pr dry-run does not create PR against post-web-runtime"

@@ -36,8 +36,11 @@ final class NativeSysinfoTests: XCTestCase {
     // MARK: - Uptime (mirrors sysinfo.class.js updateUptime)
 
     func testUptimeSplitsDaysHoursMinutesAndZeroPadsTime() {
-        // 2 days, 3 hours, 5 minutes, 40 seconds
-        let seconds: UInt64 = (2 * 86400) + (3 * 3600) + (5 * 60) + 40
+        // 2 days, 3 hours, 5 minutes, 40 seconds.
+        // Typed sub-terms so the Swift type-checker doesn't blow its solver
+        // budget on a long homogeneous literal-arithmetic chain (CI failure).
+        let days: UInt64 = 2, hours: UInt64 = 3, minutes: UInt64 = 5, secs: UInt64 = 40
+        let seconds = days * 86_400 + hours * 3_600 + minutes * 60 + secs
         let value = EdexSysinfoFormatter().uptime(seconds: seconds)
         XCTAssertEqual(value.days, 2)
         XCTAssertEqual(value.hours, "03")
@@ -46,8 +49,9 @@ final class NativeSysinfoTests: XCTestCase {
     }
 
     func testUptimeDoesNotZeroPadDaysAndDropsSeconds() {
-        // 12 days, 0 hours, 9 minutes, 59 seconds -> seconds dropped
-        let seconds: UInt64 = (12 * 86400) + (9 * 60) + 59
+        // 12 days, 0 hours, 9 minutes, 59 seconds -> seconds dropped.
+        let days: UInt64 = 12, minutes: UInt64 = 9, secs: UInt64 = 59
+        let seconds = days * 86_400 + minutes * 60 + secs
         let value = EdexSysinfoFormatter().uptime(seconds: seconds)
         XCTAssertEqual(value.text, "12d00:09")
     }
