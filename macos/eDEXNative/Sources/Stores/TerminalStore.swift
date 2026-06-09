@@ -51,11 +51,16 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         applyTheme(theme)
 
         for session in sessions {
-            session.outputBox.onDataAvailable = { [weak self, session] in
-                self?.drain(session)
+            // Weak-capture the session: outputBox is owned by the session, so a
+            // strong capture here would form a session → box → closure → session
+            // retain cycle and leak the TerminalView even after store teardown.
+            session.outputBox.onDataAvailable = { [weak self, weak session] in
+                guard let self, let session else { return }
+                self.drain(session)
             }
-            session.outputBox.onExit = { [weak self, session] in
-                self?.handleExit(session)
+            session.outputBox.onExit = { [weak self, weak session] in
+                guard let self, let session else { return }
+                self.handleExit(session)
             }
         }
 
@@ -144,7 +149,13 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
             s.ptyId = try terminalClient.spawn(request: request, output: s.outputBox)
             s.exited = false
         } catch {
+            // A failed spawn leaves no PTY. Mark the session exited and surface
+            // the error so the dead tab isn't silent — this covers the initial
+            // lazy spawn (start/switchTab) as well as respawn, and the next
+            // keystroke then routes through respawn() to retry.
             print("eDEXNative terminal spawn failed: \(error.localizedDescription)")
+            s.exited = true
+            s.view.feed(text: "\r\n\u{001B}[31m[terminal spawn failed: \(error.localizedDescription)]\u{001B}[0m\r\n\u{001B}[38;5;245m[press any key to retry]\u{001B}[0m\r\n")
         }
     }
 
@@ -165,11 +176,11 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     }
 
     private func respawn(_ s: TerminalSession) {
+        // Clear `exited` so spawnIfNeeded's guard lets it through; if the spawn
+        // fails, spawnIfNeeded's catch re-sets `exited` (and shows the retry
+        // notice), so a failed restart stays retryable on the next keystroke.
         s.exited = false
         spawnIfNeeded(s)
-        if s.ptyId == nil {
-            s.exited = true
-        }
     }
 
     private func clampedDimension(_ value: Int, default defaultValue: UInt16) -> UInt16 {
