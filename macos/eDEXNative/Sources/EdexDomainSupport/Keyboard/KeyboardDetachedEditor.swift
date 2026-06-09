@@ -21,10 +21,14 @@ public enum KeyboardDetachedEditor {
     public static func apply(command: String, to text: String) -> KeyboardFieldEdit {
         // Enter → submit.
         if command == "\r" || command == "\n" { return .submit }
-        // Empty command (Backspace/Escape key) → drop the last character.
-        if command.isEmpty { return .replace(String(text.dropLast())) }
-        // A leading C0 control character (e.g. Ctrl sequences, arrows) has no
-        // field meaning.
+        // Backspace/Delete → drop the last character. The on-screen BACK key
+        // emits BS (\u{8}); DEL (\u{7f}) and an empty command are handled the
+        // same for robustness.
+        if command.isEmpty || command == "\u{8}" || command == "\u{7f}" {
+            return .replace(String(text.dropLast()))
+        }
+        // Any other leading C0 control character (e.g. Ctrl sequences, arrow
+        // escape codes) has no field meaning.
         if let first = command.unicodeScalars.first, first.value < 0x20 { return .ignore }
         return .replace(text + command)
     }

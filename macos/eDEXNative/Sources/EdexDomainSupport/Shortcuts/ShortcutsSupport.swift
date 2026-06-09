@@ -250,8 +250,11 @@ public struct EdexShortcutsDocument: Equatable, Sendable {
             guard let entryCombo = entry.combo, entryCombo == combo else { continue }
             switch entry.type {
             case .app:
-                guard let action = AppShortcutAction(rawValue: entry.action) else { return nil }
-                return .app(action, tabIndex: nil)
+                // Skip (don't abort matching on) an unrecognised action so a
+                // later shortcut sharing the combo can still match.
+                if let action = AppShortcutAction(rawValue: entry.action) {
+                    return .app(action, tabIndex: nil)
+                }
             case .shell:
                 return .shell(action: entry.action, linebreak: entry.linebreak)
             }

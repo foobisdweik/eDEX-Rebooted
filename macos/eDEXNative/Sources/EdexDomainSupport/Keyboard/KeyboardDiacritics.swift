@@ -155,7 +155,9 @@ public enum KeyboardDiacritics {
     private static let greek: [String: String] = [
         "b": "β", "p": "π", "P": "Π", "d": "δ", "D": "Δ", "l": "λ",
         "L": "Λ", "j": "θ", "J": "Θ", "z": "ζ", "w": "ω", "W": "Ω",
-        "A": "α", "u": "υ", "U": "Υ", "i": "ι", "e": "ε", "t": "τ",
+        // Legacy `toGreek` mapped "A" → "α" with no lowercase "a" entry — a
+        // latent typo; lowercase "a" should compose to lowercase alpha.
+        "a": "α", "u": "υ", "U": "Υ", "i": "ι", "e": "ε", "t": "τ",
         "s": "σ", "S": "Σ", "r": "ρ", "R": "Ρ", "n": "ν", "m": "μ",
         "y": "ψ", "Y": "Ψ", "x": "ξ", "X": "Ξ", "k": "κ", "q": "χ",
         "Q": "Χ", "g": "γ", "G": "Γ", "h": "η", "f": "φ", "F": "Φ",

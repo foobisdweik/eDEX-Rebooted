@@ -244,4 +244,32 @@ final class NativeKeyboardInputTests: XCTestCase {
         // A control sequence (e.g. Ctrl+C \u{0003}) has no field meaning.
         XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\u{0003}", to: "foo"), .ignore)
     }
+
+    // MARK: - Review fixes
+
+    /// The legacy `toGreek` table mapped uppercase "A" → "α" and had no lowercase
+    /// "a" entry — a latent typo. Lowercase "a" should compose to lowercase alpha.
+    func testGreekLowercaseAComposes() {
+        XCTAssertEqual(KeyboardDiacritics.compose(.greek, "a"), "α")
+    }
+
+    /// The on-screen BACK key emits `\u{8}` (backspace). In a detached field it
+    /// must delete the last character, not be ignored as a control sequence.
+    func testDetachedBackspaceKeyDeletes() {
+        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\u{8}", to: "foo"), .replace("fo"))
+        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\u{7f}", to: "foo"), .replace("fo"))
+    }
+
+    /// An enabled entry whose action is unrecognised must not abort matching; a
+    /// later (e.g. TAB_X) shortcut sharing the combo should still match.
+    func testMatchSkipsUnrecognisedActionEntry() throws {
+        let doc = try EdexShortcutsDocument(jsonString: """
+        [
+          {"type":"app","trigger":"Ctrl+1","action":"BOGUS_ACTION","enabled":true},
+          {"type":"app","trigger":"Ctrl+X","action":"TAB_X","enabled":true}
+        ]
+        """)
+        let combo = KeyCombo(modifiers: [.control], key: .character("1"))
+        XCTAssertEqual(doc.match(combo), .app(.tabTemplate, tabIndex: 0))
+    }
 }

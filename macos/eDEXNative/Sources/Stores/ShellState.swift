@@ -502,8 +502,8 @@ final class ShellState: EdexActionHandler {
             shortcuts: shortcuts
         )
 
-        // Consume the armed dead key unless this very press armed a new one.
-        if case .armDeadKey = outcome {} else { keyboard.armedDeadKey = nil }
+        // Consume any armed dead key; the .armDeadKey case below re-arms it.
+        keyboard.armedDeadKey = nil
 
         var isEnter = false
         switch outcome {
@@ -543,7 +543,10 @@ final class ShellState: EdexActionHandler {
         case let .app(action, tabIndex):
             dispatchAppShortcut(action, tabIndex: tabIndex)
         case let .shell(action, linebreak):
-            routeEmit(linebreak ? action + "\r" : action)
+            // Shell shortcuts always target the terminal (legacy on-screen
+            // `term.write(cut.action)`), even while a modal holds the keyboard —
+            // they bypass detached-field routing.
+            handle(.keyboardInput(linebreak ? action + "\r" : action))
         }
     }
 
