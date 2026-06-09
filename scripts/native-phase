@@ -23,8 +23,8 @@ The debloated per-phase loop:
   1. start  - branch off latest origin/post-web-runtime, print first-read files.
   2. write code (TDD).
   3. pr     - runs the compile FLOOR (precheck), then commits/pushes/opens the PR.
-  4. work the post-PR loop: address gemini-code-assist review + native CI
-     (review / validate / respond / resolve). IGNORE Cursor BugBot. Human merges.
+  4. work the post-PR loop: address gemini-code-assist, Cursor BugBot, and
+     native CI on merit (review / validate / respond / resolve). Human merges.
 
 Commands:
   precheck  Scope-aware COMPILE floor (the only required pre-PR check). Sees both
@@ -190,29 +190,7 @@ cmd_smoke() {
 }
 
 phase_files() {
-  local phase="$1"
-  case "$phase" in
-    6.2)
-      cat <<'EOF'
-Phase 6.2 first-read files:
-  src/classes/modal.class.js
-  src-tauri/src/native_modal.rs
-  macos/eDEXNative/Sources/Views/ContentView.swift
-  macos/eDEXNative/Sources/Stores/ShellState.swift
-  docs/plans/full-native-swift-rust-conversion-2026-05-30.md
-EOF
-      ;;
-    5.6)
-      cat <<'EOF'
-Phase 5.6 first-read files:
-  src/classes/toplist.class.js
-  macos/eDEXNative/Sources/Views/ContentView.swift
-  macos/eDEXNative/Sources/Stores/ShellState.swift
-  docs/plans/full-native-swift-rust-conversion-2026-05-30.md
-EOF
-      ;;
-    *)
-      cat <<'EOF'
+  cat <<'EOF'
 Generic native phase first-read files:
   docs/plans/full-native-swift-rust-conversion-2026-05-30.md
   macos/eDEXNative/Package.swift
@@ -220,8 +198,6 @@ Generic native phase first-read files:
   macos/eDEXNative/Sources/Stores/ShellState.swift
   macos/eDEXNative/Sources/Services/EdexCoreClient.swift
 EOF
-      ;;
-  esac
 }
 
 cmd_start() {
@@ -282,7 +258,7 @@ cmd_pr() {
 EOF
 )"
   run gh pr create --base "$BASE_BRANCH" --head "$branch" --title "$pr_title" --body "$body"
-  printf '\nPost-PR: address gemini-code-assist review + native CI (review/validate/respond/resolve). Ignore Cursor BugBot. Human merges.\n'
+  printf '\nPost-PR: address gemini-code-assist, Cursor BugBot, and native CI on merit (review/validate/respond/resolve). Human merges.\n'
 }
 
 main() {

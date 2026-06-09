@@ -3,13 +3,7 @@ import XCTest
 
 final class NativeKeyboardTests: XCTestCase {
     private func bundledKeyboardDirectory() -> URL {
-        let packageDirectory = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        return packageDirectory
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("src/assets/kb_layouts")
+        EdexBundledAssets.keyboardsDirectory(from: #filePath)
     }
 
     private func enUSLayout() throws -> NativeKeyboardLayout {

@@ -9,7 +9,6 @@
     "gui",
     "tty",
     "terminal",
-    "tauri",
     "rust"
   ],
   "scripts": {

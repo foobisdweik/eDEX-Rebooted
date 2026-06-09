@@ -6,12 +6,12 @@ use std::path::PathBuf;
 
 // Bundled assets, embedded at compile time so the core does not depend on
 // Tauri resource_dir() plumbing. Mirrored into userData on first boot.
-static THEMES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../src/assets/themes");
-static KB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../src/assets/kb_layouts");
-static FONTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../src/assets/fonts");
+static THEMES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../assets/themes");
+static KB_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../assets/kb_layouts");
+static FONTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../assets/fonts");
 const BOOT_LOG: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../src/assets/misc/boot_log.txt"
+    "/../../assets/misc/boot_log.txt"
 ));
 
 #[derive(Serialize, Clone)]
