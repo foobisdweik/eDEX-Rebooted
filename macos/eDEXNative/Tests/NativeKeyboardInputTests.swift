@@ -1,0 +1,247 @@
+import XCTest
+@testable import EdexDomainSupport
+
+final class NativeKeyboardInputTests: XCTestCase {
+    // MARK: - Helpers
+
+    private func key(
+        _ command: String,
+        name: String = "k",
+        shiftCommand: String? = nil,
+        controlCommand: String? = nil,
+        alternateCommand: String? = nil,
+        alternateShiftCommand: String? = nil,
+        functionCommand: String? = nil,
+        capsLockCommand: String? = nil
+    ) -> NativeKeyboardKey {
+        NativeKeyboardKey(
+            name: name,
+            command: command,
+            shiftCommand: shiftCommand,
+            controlCommand: controlCommand,
+            alternateCommand: alternateCommand,
+            alternateShiftCommand: alternateShiftCommand,
+            functionCommand: functionCommand,
+            capsLockCommand: capsLockCommand
+        )
+    }
+
+    private func mods(
+        shift: Bool = false, capsLock: Bool = false, alt: Bool = false,
+        fn: Bool = false, ctrl: Bool = false
+    ) -> KeyboardModifierState {
+        KeyboardModifierState(shift: shift, capsLock: capsLock, alt: alt, fn: fn, ctrl: ctrl)
+    }
+
+    private func resolve(
+        _ key: NativeKeyboardKey,
+        _ modifiers: KeyboardModifierState,
+        armed: DeadKey? = nil,
+        shortcuts: EdexShortcutsDocument? = nil
+    ) -> KeyboardOutcome {
+        KeyboardCommandResolver.resolve(
+            key: key, modifiers: modifiers, armedDeadKey: armed, shortcuts: shortcuts
+        )
+    }
+
+    private func shortcutsDoc() throws -> EdexShortcutsDocument {
+        try EdexShortcutsDocument(jsonString: """
+        [
+          {"type":"app","trigger":"Ctrl+Shift+S","action":"SETTINGS","enabled":true},
+          {"type":"app","trigger":"Ctrl+X","action":"TAB_X","enabled":true},
+          {"type":"app","trigger":"Ctrl+P","action":"FUZZY_SEARCH","enabled":false},
+          {"type":"shell","trigger":"Ctrl+G","action":"git status","enabled":true,"linebreak":true}
+        ]
+        """)
+    }
+
+    // MARK: - Diacritics: one entry per table + special rows + passthrough
+
+    func testDiacriticTablesEachCompose() {
+        XCTAssertEqual(KeyboardDiacritics.compose(.circumflex, "a"), "â")
+        XCTAssertEqual(KeyboardDiacritics.compose(.trema, "a"), "ä")
+        XCTAssertEqual(KeyboardDiacritics.compose(.acute, "e"), "é")
+        XCTAssertEqual(KeyboardDiacritics.compose(.grave, "a"), "à")
+        XCTAssertEqual(KeyboardDiacritics.compose(.caron, "c"), "č")
+        XCTAssertEqual(KeyboardDiacritics.compose(.bar, "d"), "đ")
+        XCTAssertEqual(KeyboardDiacritics.compose(.breve, "g"), "ğ")
+        XCTAssertEqual(KeyboardDiacritics.compose(.tilde, "n"), "ñ")
+        XCTAssertEqual(KeyboardDiacritics.compose(.macron, "a"), "ā")
+        XCTAssertEqual(KeyboardDiacritics.compose(.cedilla, "c"), "ç")
+        XCTAssertEqual(KeyboardDiacritics.compose(.overring, "a"), "å")
+        XCTAssertEqual(KeyboardDiacritics.compose(.greek, "b"), "β")
+        XCTAssertEqual(KeyboardDiacritics.compose(.iotaSubscript, "a"), "ą")
+    }
+
+    func testDiacriticSuperscriptAndSubscriptNumbers() {
+        XCTAssertEqual(KeyboardDiacritics.compose(.circumflex, "2"), "²")
+        XCTAssertEqual(KeyboardDiacritics.compose(.caron, "2"), "₂")
+    }
+
+    func testDiacriticUppercaseAndPassthrough() {
+        XCTAssertEqual(KeyboardDiacritics.compose(.circumflex, "A"), "Â")
+        // No mapping → base char returned unchanged (legacy `default: return char`).
+        XCTAssertEqual(KeyboardDiacritics.compose(.circumflex, "q"), "q")
+        XCTAssertEqual(KeyboardDiacritics.compose(.overring, "x"), "x")
+    }
+
+    // MARK: - Modifier command selection (legacy pressKey 419-424)
+
+    func testPlainEmitsBaseCommand() {
+        XCTAssertEqual(resolve(key("a", shiftCommand: "A"), mods()), .emit("a"))
+    }
+
+    func testShiftSelectsShiftCommand() {
+        XCTAssertEqual(resolve(key("a", shiftCommand: "A"), mods(shift: true)), .emit("A"))
+    }
+
+    func testCapsLockUsesShiftCommandForLetters() {
+        XCTAssertEqual(resolve(key("a", shiftCommand: "A"), mods(capsLock: true)), .emit("A"))
+    }
+
+    func testCapsLockCommandOverridesShift() {
+        let k = key("a", shiftCommand: "A", capsLockCommand: "Ä")
+        XCTAssertEqual(resolve(k, mods(capsLock: true)), .emit("Ä"))
+    }
+
+    func testControlSelectsControlCommand() {
+        XCTAssertEqual(resolve(key("a", controlCommand: "\u{0001}"), mods(ctrl: true)), .emit("\u{0001}"))
+    }
+
+    func testAltSelectsAlternateCommand() {
+        XCTAssertEqual(resolve(key("a", alternateCommand: "æ"), mods(alt: true)), .emit("æ"))
+    }
+
+    func testAltShiftSelectsAlternateShiftCommand() {
+        let k = key("a", shiftCommand: "A", alternateCommand: "æ", alternateShiftCommand: "Æ")
+        XCTAssertEqual(resolve(k, mods(shift: true, alt: true)), .emit("Æ"))
+    }
+
+    func testFnSelectsFunctionCommand() {
+        XCTAssertEqual(resolve(key("a", functionCommand: "F"), mods(fn: true)), .emit("F"))
+    }
+
+    // MARK: - Escaped command classification
+
+    func testEscapedCapsLockToggles() {
+        XCTAssertEqual(resolve(key("ESCAPED|-- CAPSLCK: ON"), mods()), .setCapsLock(true))
+        XCTAssertEqual(resolve(key("ESCAPED|-- CAPSLCK: OFF"), mods()), .setCapsLock(false))
+    }
+
+    func testEscapedFnToggles() {
+        XCTAssertEqual(resolve(key("ESCAPED|-- FN: ON"), mods()), .setFn(true))
+        XCTAssertEqual(resolve(key("ESCAPED|-- FN: OFF"), mods()), .setFn(false))
+    }
+
+    func testEscapedDeadKeyArms() {
+        XCTAssertEqual(resolve(key("ESCAPED|-- CIRCUM"), mods()), .armDeadKey(.circumflex))
+        XCTAssertEqual(resolve(key("ESCAPED|-- GREEK"), mods()), .armDeadKey(.greek))
+        XCTAssertEqual(resolve(key("ESCAPED|-- IOTASUB"), mods()), .armDeadKey(.iotaSubscript))
+    }
+
+    func testUnknownEscapedCommandIsNone() {
+        XCTAssertEqual(resolve(key("ESCAPED|-- WAT"), mods()), .none)
+    }
+
+    // MARK: - Dead-key composition flow
+
+    func testArmedDeadKeyComposesNextKey() {
+        XCTAssertEqual(resolve(key("a"), mods(), armed: .circumflex), .emit("â"))
+    }
+
+    func testArmedDeadKeyComposesShiftedSelection() {
+        // Shift selects "A", then circumflex composes "Â".
+        XCTAssertEqual(resolve(key("a", shiftCommand: "A"), mods(shift: true), armed: .circumflex), .emit("Â"))
+    }
+
+    func testArmedDeadKeyPassthroughWhenNoMapping() {
+        XCTAssertEqual(resolve(key("q"), mods(), armed: .circumflex), .emit("q"))
+    }
+
+    // MARK: - On-screen shortcut interception
+
+    func testCtrlShiftCharFiresAppShortcut() throws {
+        let doc = try shortcutsDoc()
+        let outcome = resolve(key("s"), mods(shift: true, ctrl: true), shortcuts: doc)
+        XCTAssertEqual(outcome, .shortcut(.app(.settings, tabIndex: nil)))
+    }
+
+    func testCtrlDigitFiresTabTemplate() throws {
+        let doc = try shortcutsDoc()
+        let outcome = resolve(key("1"), mods(ctrl: true), shortcuts: doc)
+        XCTAssertEqual(outcome, .shortcut(.app(.tabTemplate, tabIndex: 0)))
+    }
+
+    func testShellShortcutFires() throws {
+        let doc = try shortcutsDoc()
+        let outcome = resolve(key("g"), mods(ctrl: true), shortcuts: doc)
+        XCTAssertEqual(outcome, .shortcut(.shell(action: "git status", linebreak: true)))
+    }
+
+    func testDisabledShortcutDoesNotFire() throws {
+        let doc = try shortcutsDoc()
+        // FUZZY_SEARCH (Ctrl+P) is disabled → should emit the char, not fire.
+        XCTAssertEqual(resolve(key("p"), mods(ctrl: true), shortcuts: doc), .emit("p"))
+    }
+
+    func testNoModifiersNeverIntercepts() throws {
+        let doc = try shortcutsDoc()
+        XCTAssertEqual(resolve(key("s"), mods(), shortcuts: doc), .emit("s"))
+    }
+
+    func testCapsAloneNeverIntercepts() throws {
+        let doc = try shortcutsDoc()
+        // Caps is not a transient modifier; "s" should select shift form and emit.
+        XCTAssertEqual(resolve(key("s", shiftCommand: "S"), mods(capsLock: true), shortcuts: doc), .emit("S"))
+    }
+
+    // MARK: - Shared shortcut matcher
+
+    func testDocumentMatchAppCombo() throws {
+        let doc = try shortcutsDoc()
+        let combo = KeyCombo(modifiers: [.control, .shift], key: .character("s"))
+        XCTAssertEqual(doc.match(combo), .app(.settings, tabIndex: nil))
+    }
+
+    func testDocumentMatchTabExpansion() throws {
+        let doc = try shortcutsDoc()
+        let combo = KeyCombo(modifiers: [.control], key: .character("3"))
+        XCTAssertEqual(doc.match(combo), .app(.tabTemplate, tabIndex: 2))
+    }
+
+    func testDocumentMatchShell() throws {
+        let doc = try shortcutsDoc()
+        let combo = KeyCombo(modifiers: [.control], key: .character("g"))
+        XCTAssertEqual(doc.match(combo), .shell(action: "git status", linebreak: true))
+    }
+
+    func testDocumentMatchMiss() throws {
+        let doc = try shortcutsDoc()
+        let combo = KeyCombo(modifiers: [.command], key: .character("z"))
+        XCTAssertNil(doc.match(combo))
+    }
+
+    // MARK: - Detached field editing
+
+    func testDetachedAppendsPrintable() {
+        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "a", to: "fo"), .replace("foa"))
+    }
+
+    func testDetachedBackspaceDropsLastChar() {
+        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "", to: "foo"), .replace("fo"))
+    }
+
+    func testDetachedBackspaceOnEmptyStaysEmpty() {
+        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "", to: ""), .replace(""))
+    }
+
+    func testDetachedEnterSubmits() {
+        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\r", to: "foo"), .submit)
+        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\n", to: "foo"), .submit)
+    }
+
+    func testDetachedControlSequenceIgnored() {
+        // A control sequence (e.g. Ctrl+C \u{0003}) has no field meaning.
+        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\u{0003}", to: "foo"), .ignore)
+    }
+}

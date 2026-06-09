@@ -156,7 +156,7 @@ struct ContentView: View {
             metrics: metrics,
             vh: vh,
             onToggleModifier: state.toggleKeyboardModifier,
-            onPressKey: { state.pressKeyVisual(id: $0) }
+            onPressKey: { state.pressKey($0) }
         )
         .positioned(in: metrics.frame)
     }

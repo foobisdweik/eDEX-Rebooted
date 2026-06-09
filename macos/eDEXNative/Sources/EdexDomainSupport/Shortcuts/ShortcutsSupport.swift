@@ -237,4 +237,38 @@ public struct EdexShortcutsDocument: Equatable, Sendable {
             return (combo, n - 1)
         }
     }
+
+    // MARK: Combo matching
+
+    /// Matches a key combo against the enabled shortcuts (regular entries first,
+    /// then the TAB_X expansion). Shared by the physical-key NSEvent monitor and
+    /// the on-screen keyboard so both dispatch identically. Returns nil when no
+    /// enabled shortcut matches.
+    public func match(_ combo: KeyCombo) -> ShortcutMatch? {
+        for entry in enabledEntries() {
+            guard entry.action != AppShortcutAction.tabTemplate.rawValue else { continue }
+            guard let entryCombo = entry.combo, entryCombo == combo else { continue }
+            switch entry.type {
+            case .app:
+                guard let action = AppShortcutAction(rawValue: entry.action) else { return nil }
+                return .app(action, tabIndex: nil)
+            case .shell:
+                return .shell(action: entry.action, linebreak: entry.linebreak)
+            }
+        }
+        for (tabCombo, tabIndex) in expandedTabCombos() where tabCombo == combo {
+            return .app(.tabTemplate, tabIndex: tabIndex)
+        }
+        return nil
+    }
+}
+
+// MARK: - Shortcut match result
+
+/// The resolved action for a matched shortcut combo. `app` carries a recognised
+/// `AppShortcutAction` (with the zero-based tab index for TAB_X); `shell` carries
+/// the raw command text and whether to append a line break.
+public enum ShortcutMatch: Equatable, Sendable {
+    case app(AppShortcutAction, tabIndex: Int?)
+    case shell(action: String, linebreak: Bool)
 }

@@ -11,7 +11,7 @@ struct EdexKeyboardPanel: View {
     let metrics: KeyboardLayoutMetrics
     let vh: Double
     let onToggleModifier: @MainActor (KeyboardModifier) -> Void
-    let onPressKey: @MainActor (String) -> Void
+    let onPressKey: @MainActor (KeyboardKeyDescriptor) -> Void
 
     var body: some View {
         Group {
@@ -72,7 +72,7 @@ struct EdexKeyboardPanel: View {
             if let modifier = descriptor.modifier {
                 onToggleModifier(modifier)
             } else {
-                onPressKey(descriptor.id)
+                onPressKey(descriptor)
             }
         }
     }
