@@ -1,6 +1,5 @@
-import FilesystemSupport
 import XCTest
-@testable import FuzzyFinderSupport
+@testable import EdexDomainSupport
 
 final class NativeFuzzyFinderTests: XCTestCase {
     func testSearchExcludesShowDisksAndGoUpRows() {

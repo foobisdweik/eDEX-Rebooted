@@ -1,5 +1,7 @@
 # Phase 8.2 Keyboard View Implementation Plan
 
+> **Status:** Completed and merged in PR #32. This file is retained as historical implementation evidence. Do not use its `Package.swift` "4 places" recipe as the default pattern for new Swift work; current anti-churn direction is documented in `Ultrareview.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:test-driven-development. Steps use checkbox (`- [ ]`) tracking.
 
 **Goal:** Replace the `keyboard(...)` key-stub placeholder in `ContentView` with a faithful native render of the on-screen keyboard, driven by the Phase 8.1 `NativeKeyboardLayout`: real rows from the loaded layout, per-key roles/sizes, the five legacy label tiers, modifier-driven label emphasis (shift/caps/fn), caps/fn key highlight, password-mode dimming, active/blink press animation, and theme color.

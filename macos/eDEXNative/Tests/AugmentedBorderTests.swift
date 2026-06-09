@@ -1,5 +1,5 @@
 import XCTest
-@testable import BorderSupport
+@testable import EdexRenderingSupport
 
 final class AugmentedBorderTests: XCTestCase {
     func testMainShellBorderMatchesLegacyClipAndOpacityMetrics() {

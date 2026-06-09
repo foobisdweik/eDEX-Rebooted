@@ -1,21 +1,7 @@
-import BootSupport
-import BorderSupport
-import ClockSupport
-import CpuinfoSupport
-import FilesystemSupport
-import HardwareSupport
-import KeyboardSupport
-import KeyboardViewSupport
-import LayoutSupport
-import ModalSupport
-import RamwatcherSupport
-import SettingsEditorSupport
-import ShortcutsSupport
+import EdexCoreBridge
+import EdexDomainSupport
+import EdexRenderingSupport
 import SwiftUI
-import SysinfoSupport
-import TextEditorSupport
-import ThemeSupport
-import ToplistSupport
 
 struct ContentView: View {
     @Bindable var state: ShellState
@@ -161,151 +147,18 @@ struct ContentView: View {
     }
 
     private func keyboard(_ metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
-        Group {
-            if let layout = state.keyboardLayout {
-                keyboardBand(layout: layout, metrics: metrics, vh: vh)
-            } else {
-                keyboardStubBand(metrics: metrics, vh: vh)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .augmentedSurface(
-            style: .panel(vh: vh),
-            fill: state.theme.panelBackground.opacity(0.42),
-            stroke: state.theme.accent
-        )
-        .opacity(
-            KeyboardViewModel.bandOpacity(
-                modifiers: state.keyboardModifiers,
-                isDetached: state.modalManager.isKeyboardDetached
-            )
+        EdexKeyboardPanel(
+            layout: state.keyboardLayout,
+            modifiers: state.keyboardModifiers,
+            pressedKeyIDs: state.pressedKeyIDs,
+            isDetached: state.modalManager.isKeyboardDetached,
+            theme: state.theme,
+            metrics: metrics,
+            vh: vh,
+            onToggleModifier: state.toggleKeyboardModifier,
+            onPressKey: { state.pressKeyVisual(id: $0) }
         )
         .positioned(in: metrics.frame)
-    }
-
-    // The real on-screen keyboard, rendered from the Phase 8.1 layout model.
-    private func keyboardBand(layout: NativeKeyboardLayout, metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
-        let rows = KeyboardViewModel.descriptors(for: layout)
-        return VStack(spacing: CGFloat(metrics.rowGap)) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 6) {
-                    ForEach(row) { descriptor in
-                        keyView(descriptor, metrics: metrics, vh: vh)
-                    }
-                }
-                .frame(height: CGFloat(metrics.rowHeight))
-            }
-        }
-    }
-
-    private func keyView(_ descriptor: KeyboardKeyDescriptor, metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
-        let modifiers = state.keyboardModifiers
-        let isPressed = state.pressedKeyIDs.contains(descriptor.id)
-        let isHighlighted = descriptor.isHighlighted(modifiers: modifiers)
-        let isFilled = isPressed || isHighlighted
-        let accent = state.theme.accent
-        let isEmphasizedEdge: Bool
-        switch descriptor.role {
-        case .spacebar, .enter, .enterContinuation:
-            isEmphasizedEdge = true
-        default:
-            isEmphasizedEdge = false
-        }
-
-        return ZStack {
-            AugmentedBorderShape(style: .settingsButton(vh: vh))
-                .fill(isFilled ? accent : accent.opacity(0.06))
-            AugmentedBorderShape(style: .settingsButton(vh: vh))
-                .stroke(accent.opacity(isEmphasizedEdge ? 0.6 : 0.45), lineWidth: 1)
-            keyContent(descriptor, modifiers: modifiers, filled: isFilled)
-        }
-        .frame(width: CGFloat(keyboardKeyWidth(for: descriptor, metrics: metrics, vh: vh)))
-        .frame(maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .animation(.easeOut(duration: 0.12), value: isFilled)
-        .onTapGesture {
-            if let modifier = descriptor.modifier {
-                state.toggleKeyboardModifier(modifier)
-            } else {
-                state.pressKeyVisual(id: descriptor.id)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func keyContent(_ descriptor: KeyboardKeyDescriptor, modifiers: KeyboardModifierState, filled: Bool) -> some View {
-        let textColor = filled ? state.theme.panelBackground : state.theme.accent
-        if let icon = descriptor.iconName {
-            Image(systemName: keyboardIconSymbol(icon))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(textColor)
-        } else {
-            let primary = descriptor.prominentLabel(modifiers: modifiers)
-            ZStack {
-                Text(primary)
-                    .font(.custom(state.theme.fonts.main, size: 13))
-                    .foregroundStyle(textColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // Corner label tiers (h2 shift / h5 alt-shift / h3 alt), dimmed,
-                // hidden when they would duplicate the prominent label.
-                keyCornerLabel(descriptor.shiftLabel, primary: primary, color: textColor, alignment: .topLeading)
-                keyCornerLabel(descriptor.altShiftLabel, primary: primary, color: textColor, alignment: .topTrailing)
-                keyCornerLabel(descriptor.altLabel, primary: primary, color: textColor, alignment: .bottomTrailing)
-            }
-            .padding(2)
-        }
-    }
-
-    @ViewBuilder
-    private func keyCornerLabel(_ label: String?, primary: String, color: Color, alignment: Alignment) -> some View {
-        if let label, !label.isEmpty, label != primary {
-            Text(label)
-                .font(.custom(state.theme.fonts.terminal, size: 8))
-                .foregroundStyle(color.opacity(0.55))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
-        }
-    }
-
-    private func keyboardIconSymbol(_ name: String) -> String {
-        switch name {
-        case "ARROW_UP": return "arrow.up"
-        case "ARROW_DOWN": return "arrow.down"
-        case "ARROW_LEFT": return "arrow.left"
-        case "ARROW_RIGHT": return "arrow.right"
-        default: return "questionmark.square.dashed"
-        }
-    }
-
-    private func keyboardKeyWidth(for descriptor: KeyboardKeyDescriptor, metrics: KeyboardLayoutMetrics, vh: Double) -> Double {
-        switch descriptor.role {
-        case .spacebar:
-            return metrics.spacebarWidth
-        case .enter:
-            return max(metrics.keySide * 1.8, 9.72 * vh)
-        case .enterContinuation:
-            return max(metrics.keySide * 1.4, 7.78 * vh)
-        case .wide:
-            return metrics.keySide * 1.7
-        case .standard, .icon:
-            return metrics.keySide
-        }
-    }
-
-    // Pre-layout placeholder grid, shown only until the configured layout loads.
-    private func keyboardStubBand(metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
-        VStack(spacing: CGFloat(metrics.rowGap)) {
-            ForEach(0..<5, id: \.self) { row in
-                HStack(spacing: 6) {
-                    ForEach(0..<keyboardKeyCount(for: row), id: \.self) { index in
-                        keyStub(width: keyboardKeyWidth(row: row, index: index, metrics: metrics), vh: vh)
-                    }
-                }
-                .frame(height: CGFloat(metrics.rowHeight))
-            }
-        }
     }
 
     private func modalLayer(size: CGSize, vh: Double) -> some View {
@@ -770,16 +623,6 @@ struct ContentView: View {
         .foregroundStyle(state.theme.accent.opacity(0.86))
     }
 
-    private func keyStub(width: Double, vh: Double) -> some View {
-        AugmentedBorderShape(style: .settingsButton(vh: vh))
-            .stroke(state.theme.accent.opacity(0.45), lineWidth: 1)
-            .background(
-                AugmentedBorderShape(style: .settingsButton(vh: vh))
-                    .fill(state.theme.accent.opacity(0.06))
-            )
-            .frame(width: CGFloat(width), height: 28)
-    }
-
     private func statusRibbon(vh: Double) -> some View {
         return HStack(spacing: 14) {
             Text("⚙ eDEX NATIVE")
@@ -803,22 +646,6 @@ struct ContentView: View {
         .help("Open settings")
         .position(x: 132, y: 23)
     }
-
-    private func keyboardKeyCount(for row: Int) -> Int {
-        let counts = [13, 13, 12, 11, 6]
-        guard counts.indices.contains(row) else { return 0 }
-        return counts[row]
-    }
-
-    private func keyboardKeyWidth(row: Int, index: Int, metrics: KeyboardLayoutMetrics) -> Double {
-        if row == 4 && index == 2 {
-            return metrics.spacebarWidth
-        }
-        if index == 0 || index == keyboardKeyCount(for: row) - 1 {
-            return metrics.keySide * 1.7
-        }
-        return metrics.keySide
-    }
 }
 
 private extension EdexLayout {
@@ -827,7 +654,7 @@ private extension EdexLayout {
     }
 }
 
-private struct AugmentedBorderShape: Shape {
+struct AugmentedBorderShape: Shape {
     let style: AugmentedBorderStyle
 
     func path(in rect: CGRect) -> Path {
@@ -847,7 +674,7 @@ private struct AugmentedBorderShape: Shape {
     }
 }
 
-private struct AugmentedTickShape: Shape {
+struct AugmentedTickShape: Shape {
     let style: AugmentedBorderStyle
 
     func path(in rect: CGRect) -> Path {
@@ -2014,7 +1841,7 @@ private struct EdexFilesystemPanel: View {
     }
 }
 
-private extension View {
+extension View {
     func positioned(in rect: LayoutRect) -> some View {
         frame(width: CGFloat(rect.width), height: CGFloat(rect.height))
             .position(

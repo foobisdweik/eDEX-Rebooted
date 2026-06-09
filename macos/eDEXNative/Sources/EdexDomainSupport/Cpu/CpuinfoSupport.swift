@@ -3,7 +3,7 @@ import Foundation
 /// Pure logic for the native cpuinfo panel — CPU name, the lower/upper core
 /// split, rolling averages, and footer cell formatting — mirroring
 /// `src/classes/cpuinfo.class.js`. FFI-free so it unit-tests without the Rust
-/// dylib, like `SysinfoSupport`. The live-graph rendering lives in the view.
+/// dylib, like `EdexDomainSupport`. The live-graph rendering lives in the view.
 public struct EdexCpuinfoFormatter: Sendable {
     public init() {}
 

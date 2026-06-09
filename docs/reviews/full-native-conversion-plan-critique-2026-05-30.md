@@ -1,5 +1,7 @@
 # Critique — Full Native Swift+Rust Conversion Plan (2026-05-30)
 
+> **Status:** Historical review. The core ordering issues were resolved during execution: PTY observer shape landed in Phase 1, the FFI throughput decision is recorded in `docs/plans/ffi-throughput-decision-2026-05-30.md`, the Phase-2 interim-slot decision resolved to skip after the Swift shell proved viable, and Phase 8.2 is now complete. The remaining live concern is Swift-side coordination churn before Phase 8.3, now tracked by `Ultrareview.md`.
+
 **Scope:** plan-of-record `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` vs. source export `prompt-exports/oracle-plan-2026-05-30-020037-…md`. The export holds **two** oracle responses with *different* phase orderings; the plan adopted the first (core-before-slots). Five targeted concerns only.
 
 ---

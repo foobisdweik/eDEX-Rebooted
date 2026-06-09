@@ -1,6 +1,6 @@
-import BootSupport
+import EdexDomainSupport
 import SwiftUI
-import ThemeSupport
+import EdexRenderingSupport
 
 // MARK: - BootView
 

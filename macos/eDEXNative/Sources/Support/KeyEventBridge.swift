@@ -1,12 +1,12 @@
 import AppKit
-import ShortcutsSupport
+import EdexDomainSupport
 
-// Maps NSEvent key-down events to the ShortcutsSupport KeyCombo model so the
+// Maps NSEvent key-down events to the EdexDomainSupport KeyCombo model so the
 // ShellState monitor can match events against shortcuts.json entries without
-// importing AppKit inside the pure ShortcutsSupport module.
+// importing AppKit inside the pure EdexDomainSupport module.
 
 extension NSEvent {
-    /// ShortcutsSupport modifier flags extracted from the event's modifierFlags,
+    /// EdexDomainSupport modifier flags extracted from the event's modifierFlags,
     /// ignoring capsLock, numericPad, function, and help bits.
     var shortcutModifiers: ShortcutModifiers {
         var mods: ShortcutModifiers = []
@@ -17,7 +17,7 @@ extension NSEvent {
         return mods
     }
 
-    /// ShortcutsSupport key derived from keyCode, falling back to
+    /// EdexDomainSupport key derived from keyCode, falling back to
     /// charactersIgnoringModifiers for printable characters.
     var shortcutKey: ShortcutKey? {
         switch keyCode {

@@ -1,5 +1,5 @@
 import XCTest
-@testable import ShortcutsSupport
+@testable import EdexDomainSupport
 
 final class NativeShortcutsTests: XCTestCase {
 

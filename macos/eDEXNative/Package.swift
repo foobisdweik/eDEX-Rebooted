@@ -23,120 +23,10 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "LayoutSupport",
-            path: "Sources/LayoutSupport"
-        ),
-        .target(
-            name: "BorderSupport",
-            path: "Sources/BorderSupport"
-        ),
-        .target(
-            name: "ClockSupport",
-            path: "Sources/ClockSupport"
-        ),
-        .target(
-            name: "SysinfoSupport",
-            path: "Sources/SysinfoSupport"
-        ),
-        .target(
-            name: "HardwareSupport",
-            path: "Sources/HardwareSupport"
-        ),
-        .target(
-            name: "KeyboardSupport",
-            path: "Sources/KeyboardSupport"
-        ),
-        .target(
-            name: "KeyboardViewSupport",
-            dependencies: ["KeyboardSupport"],
-            path: "Sources/KeyboardViewSupport"
-        ),
-        .target(
-            name: "CpuinfoSupport",
-            path: "Sources/CpuinfoSupport"
-        ),
-        .target(
-            name: "RamwatcherSupport",
-            path: "Sources/RamwatcherSupport"
-        ),
-        .target(
-            name: "ToplistSupport",
-            path: "Sources/ToplistSupport"
-        ),
-        .target(
-            name: "SettingsEditorSupport",
-            path: "Sources/SettingsEditorSupport"
-        ),
-        .target(
-            name: "ShortcutsSupport",
-            path: "Sources/ShortcutsSupport"
-        ),
-        .target(
-            name: "BootSupport",
-            path: "Sources/BootSupport"
-        ),
-        .target(
-            name: "FilesystemSupport",
-            path: "Sources/FilesystemSupport"
-        ),
-        .target(
-            name: "FuzzyFinderSupport",
-            dependencies: ["FilesystemSupport"],
-            path: "Sources/FuzzyFinderSupport"
-        ),
-        .target(
-            name: "TextEditorSupport",
-            dependencies: ["FilesystemSupport"],
-            path: "Sources/TextEditorSupport"
-        ),
-        .target(
-            name: "AudioSupport",
-            path: "Sources/AudioSupport"
-        ),
-        .target(
-            name: "ModalSupport",
-            dependencies: ["AudioSupport"],
-            path: "Sources/ModalSupport"
-        ),
-        .target(
-            name: "ThemeSupport",
-            path: "Sources/ThemeSupport"
-        ),
-        .executableTarget(
-            name: "eDEXNative",
-            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "FuzzyFinderSupport", "HardwareSupport", "KeyboardSupport", "KeyboardViewSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
-            path: ".",
-            exclude: [
-                "README.md",
-                "Scripts",
-                "Sources/AudioSupport",
-                "Sources/BootSupport",
-                "Sources/BorderSupport",
-                "Sources/ClockSupport",
-                "Sources/CpuinfoSupport",
-                "Sources/FilesystemSupport",
-                "Sources/FuzzyFinderSupport",
-                "Sources/HardwareSupport",
-                "Sources/KeyboardSupport",
-                "Sources/KeyboardViewSupport",
-                "Sources/LayoutSupport",
-                "Sources/ModalSupport",
-                "Sources/RamwatcherSupport",
-                "Sources/SettingsEditorSupport",
-                "Sources/ShortcutsSupport",
-                "Sources/SysinfoSupport",
-                "Sources/TextEditorSupport",
-                "Sources/ThemeSupport",
-                "Sources/ToplistSupport",
-                "Tests"
-            ],
+            name: "EdexCoreBridge",
+            path: "Generated",
             sources: [
-                "Sources/App",
-                "Sources/Services",
-                "Sources/Stores",
-                "Sources/Support",
-                "Sources/Views",
-                "Generated/edex_ffi.swift"
+                "edex_ffi.swift"
             ],
             swiftSettings: [
                 .unsafeFlags([
@@ -153,9 +43,51 @@ let package = Package(
                 ])
             ]
         ),
+        .target(
+            name: "EdexDomainSupport",
+            path: "Sources/EdexDomainSupport"
+        ),
+        .target(
+            name: "EdexRenderingSupport",
+            path: "Sources/EdexRenderingSupport"
+        ),
+        .executableTarget(
+            name: "eDEXNative",
+            dependencies: [
+                "EdexCoreBridge",
+                "EdexDomainSupport",
+                "EdexRenderingSupport"
+            ],
+            path: ".",
+            exclude: [
+                "AGENTS.md",
+                "README.md",
+                "Scripts",
+                "Generated",
+                "Sources/EdexDomainSupport",
+                "Sources/EdexRenderingSupport",
+                "Tests"
+            ],
+            sources: [
+                "Sources/App",
+                "Sources/Services",
+                "Sources/Stores",
+                "Sources/Support",
+                "Sources/Views"
+            ],
+            swiftSettings: [
+                .unsafeFlags([
+                    "-I", generatedDirectory,
+                    "-Xcc", "-fmodule-map-file=\(generatedDirectory)/edex_ffiFFI.modulemap"
+                ])
+            ]
+        ),
         .testTarget(
             name: "eDEXNativeTests",
-            dependencies: ["AudioSupport", "BootSupport", "BorderSupport", "ClockSupport", "CpuinfoSupport", "FilesystemSupport", "FuzzyFinderSupport", "HardwareSupport", "KeyboardSupport", "KeyboardViewSupport", "LayoutSupport", "ModalSupport", "RamwatcherSupport", "SettingsEditorSupport", "ShortcutsSupport", "SysinfoSupport", "TextEditorSupport", "ThemeSupport", "ToplistSupport"],
+            dependencies: [
+                "EdexDomainSupport",
+                "EdexRenderingSupport"
+            ],
             path: "Tests"
         )
     ],

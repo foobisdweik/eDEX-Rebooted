@@ -3,7 +3,7 @@ import Foundation
 /// Formats the three hardware-inspector cells (manufacturer / model / chassis)
 /// to match the legacy `src/classes/hardwareInspector.class.js` exactly,
 /// including its `_trimDataString` word-filtering. Pure and FFI-free so it can
-/// be unit-tested without the Rust dylib, mirroring `SysinfoSupport`.
+/// be unit-tested without the Rust dylib, mirroring `EdexDomainSupport`.
 public struct EdexHardwareFormatter: Sendable {
     public init() {}
 

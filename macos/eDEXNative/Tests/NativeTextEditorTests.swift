@@ -1,5 +1,5 @@
 import XCTest
-@testable import TextEditorSupport
+@testable import EdexDomainSupport
 
 final class NativeTextEditorTests: XCTestCase {
 

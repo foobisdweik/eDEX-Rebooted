@@ -1,5 +1,4 @@
 import Foundation
-import KeyboardSupport
 
 /// The visual shape a key takes in the on-screen keyboard band. Drives sizing
 /// in `EdexKeyboardPanel`; independent of the key's modifier identity.

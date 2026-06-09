@@ -1,5 +1,5 @@
 import XCTest
-@testable import SysinfoSupport
+@testable import EdexDomainSupport
 
 final class NativeSysinfoTests: XCTestCase {
     private let utc = TimeZone(secondsFromGMT: 0)!

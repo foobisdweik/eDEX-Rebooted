@@ -4,13 +4,16 @@
 
 Drive eDEX-UI from its current **Tauri 2 + Rust backend / WKWebView (JS/CSS/HTML) frontend** state (as merged in PR #11) to an end-state where **virtually all web-dev code is replaced by native Swift + Rust**, on `aarch64-apple-darwin` / macOS Tahoe — improving functionality and UX while reproducing the original UI's look and behavior with extreme fidelity.
 
-> **Execution status (2026-05-30):** Phase 1 (Rust core extraction, items 1.1–1.5) is **COMPLETE and validated** — `crates/edex-core` (tauri-free) + `crates/edex-ffi` (UniFFI) created; Tauri commands are thin adapters; PTY observer re-wraps into the existing `Channel<Vec<u8>>` (frontend untouched); Swift bindings generate; 1.5 decision recorded in `docs/plans/ffi-throughput-decision-2026-05-30.md` (UniFFI control-plane now, C-ABI reserved for terminal streaming). Parallel wave in progress: Phase 3.1/3.2 (Swift shell) + Phase 2.1/2.3 (slot stabilization).
+> **Current execution status (2026-06-09):** Phase 8.2 is complete and validated. The active branch is `anti-churning-strategem`, which consolidates documentation, SwiftPM/package taxonomy, and the first terminal/action/state/view boundaries before Phase 8.3 resumes. The detailed completion log lives near the end of this document.
 
 ## Background
 
 > Distilled from five parallel explore scouts (native infra, web-dev inventory, Rust backend surface, prior-art/PR#11, external architecture). Load-bearing refs only.
 
-### Current architecture (post PR #11)
+### Historical baseline architecture (post PR #11)
+
+This background section records the starting point used to design the migration. It is intentionally historical; see the execution-status log for the current native-app state.
+
 - **Stack:** Tauri 2 + Rust backend, WKWebView frontend. macOS-only (`aarch64-apple-darwin`). No bundler; `ui.html` loads script tags in order; `renderer.js` is the boot IIFE.
 - **Trust/IPC boundary is `invoke()`, in-process.** No socket, no sidecar.
 - **There is NO Swift in the codebase yet** — "native" today means Rust calling AppKit via `objc`/`cocoa`. Introducing Swift is itself a net-new step.
@@ -48,7 +51,7 @@ Drive eDEX-UI from its current **Tauri 2 + Rust backend / WKWebView (JS/CSS/HTML
 - **Phase 3:** `toplist` last — needs a content-bearing native modal; **no OS-pid kill exists** (`pty_kill` only closes internal PTY handles).
 - `CONVERSION_WORKFLOW.md` broad slice map: S1 pilots (clock/modal/audiofx) · S2 telemetry panels · S3 filesystem/keyboard/fuzzyFinder · S4 terminal renderer · S5 web-runtime decommission.
 - **v0.2 backlog (not present):** `locationGlobe`, `conninfo`, `docReader`, `updateChecker`; `si_network_connections` is a stub.
-- `Ultrareview.md` (PR #10 hardening): renderer IPC is powerful → DOM injection = host RCE; fewer web surfaces = smaller attack surface (a conversion benefit).
+- Historical PR #10 hardening showed why fewer web surfaces shrink the attack surface: renderer IPC is powerful, so DOM injection can escalate to host command/file access. `Ultrareview.md` now tracks the pre-8.3 anti-churn architecture addendum.
 
 ### End-state architecture options (external research — the strategic fork)
 The phrase "Swift+Rust" implies introducing Swift, which the codebase does not yet have. Three documented shapes:
@@ -160,7 +163,7 @@ Size scale: **S** 1–3 days · **M** 3–7 days · **L** 1–3 weeks · **XL** 
 - **`injectCSS` breakage** is an accepted, release-noted regression for custom CSS-heavy themes.
 - **Data compatibility:** keep the `~/Library/Application Support/eDEX-UI/` path and JSON shapes; new native fields must be additive; the Tauri build keeps working until 11.2.
 - **AppKit threading:** Rust callbacks may arrive off-main-thread → update model queues there, mutate UI only on `MainActor`.
-- **Security (a conversion win):** removing WKWebView eliminates the DOM-XSS→IPC escalation class from `Ultrareview.md`. Do not reintroduce localhost terminal sockets, webview command channels, or unscoped network APIs.
+- **Security (a conversion win):** removing WKWebView eliminates the DOM-XSS→IPC escalation class found during the earlier security hardening. Do not reintroduce localhost terminal sockets, webview command channels, or unscoped network APIs.
 
 ## Deletion gate — what must be true before WKWebView is removed
 This is the authoritative dependency closure for Phases 5–10 (other sections reference it, not restate it): native app owns the window lifecycle · built-in theme loading works · boot screen (or accepted `nointro` path) works · terminal supports real daily use (9.5 green) · terminal tabs match current behavior · filesystem follows active-tab CWD · keyboard + shortcuts route input correctly · settings editor reads/writes current settings · modals cover info/warning/error/custom · process-list modal exists · audio cues work · media viewer works.
@@ -174,7 +177,7 @@ These are the genuinely-unresolved decisions (order-changing ones have been fold
 ## References
 - FFI-throughput decision (feeds Phase 9): `docs/plans/ffi-throughput-decision-2026-05-30.md`
 - Plan critique: `docs/reviews/full-native-conversion-plan-critique-2026-05-30.md`
-- Security context: `Ultrareview.md`
+- Anti-churn architecture addendum: `Ultrareview.md`
 - Native app: `macos/eDEXNative/` (SwiftPM) · Rust core: `crates/edex-core` + `crates/edex-ffi`
 - The interim Approach-A slot design + per-panel research specs and the early gpui slice map were removed once superseded; legacy panel behavior is read from `src/classes/*.class.js`.
 - PR #11 merge: `7a81b0d` (commits `3e9100d`, `91ff30f`, `df5ed19`)
@@ -184,7 +187,7 @@ These are the genuinely-unresolved decisions (order-changing ones have been fold
 
 ---
 
-## Execution status (orchestrated run, 2026-06-01)
+## Execution status (through 2026-06-09)
 
 - **Phase 1 (Rust core) — DONE & validated.** `crates/edex-core` (tauri-free) + `crates/edex-ffi` (UniFFI 0.31.1) extracted. 1.3 PTY observer (`on_output/on_exit/on_metadata`) implemented; Tauri adapter re-wraps into the existing `Channel<Vec<u8>>` (JS terminal untouched). UniFFI Swift bindgen smoke-tested. Validation: edex-core/edex-ffi/Tauri all build; `cargo test`, `--test sysinfo_contract` (15/15), `cargo fmt --check`, `cargo clippy -D warnings` green. 1.5 throughput decision recorded by the gate agent.
 - **Phase 2.1 + 2.3 — DONE & validated.** Native sysinfo/hwInspector slots hardened (re-ship rects on resize/fullscreen/animation/viewport/theme; seq latest-wins; zero-rect hide; listener cleanup; non-finite/negative rect + DPR sanitize; `flip_y` clamps + unit tests; async panel updates seq-guarded). `native_mount.rs` clock pilot **retired/frozen** (DOM clock unconditional; `nativeMount.activate()` removed from `renderer.js`). Tests: bridge 23/23, cargo suite + clippy/fmt green, `node --check` clean.
@@ -204,43 +207,13 @@ These are the genuinely-unresolved decisions (order-changing ones have been fold
 - **Phase 6.3 — DONE & validated.** Native settings editor replacing the `renderer.js` settings modal, taking the **design-(b) pivot** (a clean native form covering the same settings, not a 1:1 layout clone). New pure `SettingsEditorSupport` module: a `JSONValue` model + `EdexSettingsDocument` that parses settings.json, exposes typed accessors with canonical defaults (mirroring `default_settings`), normalizes edits (audioVolume clamp 0–1, termFontSize ≥ 1, clockHours ∈ {12,24}), preserves editor-unknown keys (`forceFullscreen`/`port`/`experimental*`) on save — an improvement over legacy's wholesale rebuild — and computes restart-required reboot-key diffs. A data-driven `EdexSettingsField.all` schema (21 fields) drives a generic SwiftUI form (text/integer/decimal/toggle/choice). New FFI: `write_settings_json` (validate-then-write), `list_themes`, `list_keyboards`; bindings regenerated. `ShellState` opens the editor as a custom modal (reusing 6.2's manager), saves off the MainActor, applies live-settable changes (theme reload, clock format, audio, geometry, toplist collapse) immediately, and surfaces restart-required notices; the status ribbon (⚙) opens it. Validation: `swift test` (98/98, 13 new), smoke-window, `cargo test`/`fmt --check`/`clippy -D warnings` all green.
 - **Phases 6.4 → 8.1 — DONE & merged** (tracked in git history + `memory.md`): 6.4 shortcuts (PR #26), 6.5 boot screen (PR #27), 7.1 filesystem panel (PR #28), 7.3 text editor (PR #29), 7.2 fuzzy finder (PR #30), 8.1 keyboard layout loader (PR #31).
 - **Phase 8.2 — DONE & validated.** Native on-screen keyboard view replacing `keyboard.class.js` *rendering*. New pure `KeyboardViewSupport` module turns a Phase-8.1 `NativeKeyboardLayout` into per-row `KeyboardKeyDescriptor`s — visual role (standard / wide edge / split enter / enterContinuation / spacebar / icon), the five legacy label tiers, and modifier identity — plus the display logic (`prominentLabel` Fn/Shift/Caps emphasis, `bandOpacity` password=0.5/detached=0.18). `ContentView.keyboard(...)` now renders real rows from `state.keyboardLayout` (role→width sizing, theme-accent fills/strokes, SF-Symbol arrow glyphs, caps/fn highlight, active/blink tap feedback), falling back to the old stub grid only until the layout loads; `ShellState` gained visual-only `keyboardModifiers` + `pressedKeyIDs` and toggle/press-flash helpers. **Input routing, command emission, diacritics, and physical-key handling stay in Phase 8.3.** Also fixed a latent edex-core bug surfaced by the gate: `mem_stats_from_system` clamped `available` against the raw `sys.free_memory()` instead of the stored `free_strict = total-used`, so the `available>=free` invariant (used by ramwatcher + asserted by `mem_snapshot_reports_consistent_totals`) could break on macOS. Validation: `swift test` (221/221, 9 new), smoke-window, `cargo test` (17/17) / `fmt --check` / `clippy -D warnings` all green.
-- **Next:** Phase 8.3 (input router — physical + on-screen input → terminal/active modal, app + shell shortcuts; depends on the 3.3 terminal seam). Then Phase 9 (native terminal core/renderer, the schedule-dominating critical path).
+- **Anti-churn branch (`anti-churning-strategem`) — in PR prep.** Documentation was consolidated around `Ultrareview.md`; SwiftPM support targets were collapsed into `EdexCoreBridge`, `EdexDomainSupport`, `EdexRenderingSupport`, and `eDEXNative`; and the first architecture seams landed (`TerminalSessionProviding`, action handling, `KeyboardStore`, `EdexKeyboardPanel`). Phase 8.3 resumes after this PR.
 
 ---
 
-## HANDOFF for claude-code (2026-06-01, paused on usage limit)
+## Current Workflow Notes
 
-**Where we stopped:** PR #20 (Phase 5.5 ramwatcher) is **MERGED** into `post-web-runtime` (all 4 automated review comments were resolved first); the `codex/native-ramwatcher-panel` branch is deleted. Phases 5.1–5.5 are done. **Start 6.1 on a fresh branch off the latest `origin/post-web-runtime`** (`git fetch --prune` first). Paused here purely on usage limit — nothing is blocking.
-
-**Immediate next task: Phase 6.1 — native audio manager** (replaces `src/classes/audiofx.class.js` + `src/bridge/audio.js`).
-- Legacy contract (read `audiofx.class.js`): 13 WAV cues in `src/assets/audio/` — `stdout, stdin, folder, granted` (these 4 are the "feedback" cues, gated off by `disableFeedbackAudio`), plus `keyboard, theme, expand, panels, scan, denied, info, alarm, error`. `stdout`/`stdin` play at volume 0.4; the rest at 1.0. Global volume = `settings.audioVolume`; if `settings.audio === false`, everything is muted (volume 0). Missing cues no-op.
-- Settings flags already in `settings.json` defaults (`crates/edex-core/src/settings.rs`): `audio: true`, `audioVolume: 1.0`, `disableFeedbackAudio: false` — decode these into `SettingsSummary` (extend `SettingsFile`/`SettingsSummary` like `clockHours` was).
-- Native approach (suggested): a SwiftUI-side `EdexAudio` service using AVFoundation `AVAudioPlayer` (one preloaded player per cue, or a small pool for overlap) — NOT Rust; audio is a pure client concern. WAVs are bundled assets. Expose `play(.stdout)` etc. via an enum. There is **no per-panel spec doc** for audio (none in `docs/native-migration/`), so the legacy class IS the spec.
-- Note: the plan lists 6.1 Deps as 3.3 (input interface), but cue *playback* itself doesn't need 3.3 — the trigger wiring (which events fire which cue) can be stubbed/partial now and completed as the triggering surfaces (terminal/keyboard/modal) land. Scope 6.1 as "the audio engine + settings + a play API," not "every trigger wired."
-- After 6.1: **6.2 modal manager** (`modal.class.js` + `native_modal.rs`) — needed to unblock 5.6. Then **5.6 toplist** (panel + process modal in one pass). Note: there is NO OS-pid kill anywhere; `pty_kill` only closes internal PTYs, so toplist's "kill process" needs a new core capability or stays display-only — decide at 5.6.
-
-**The proven per-panel recipe (followed for 5.2–5.5 — replicate it):**
-1. New branch off `origin/post-web-runtime`: `git checkout -b codex/native-<panel>-panel origin/post-web-runtime`.
-2. Read the legacy `src/classes/<panel>.class.js` for the exact data contract (the legacy class IS the spec).
-3. TDD a **pure, FFI-free** `Sources/<Panel>Support/` module (like `ClockSupport`/`SysinfoSupport`): write failing tests in `Tests/Native<Panel>Tests.swift`, watch them fail, implement. Register the new target in `Package.swift` in **4 places** (target list, executable `dependencies`, executable `exclude`, test-target `dependencies`).
-4. If new backend data is needed, add a typed `Ffi…` record + an `EdexCore` method in `crates/edex-ffi/src/lib.rs` (with a `cargo test`), then **regenerate bindings**:
-   `cd crates/edex-ffi && cargo build --release && cargo run --bin uniffi-bindgen -- generate --library target/release/libedex_ffi.dylib --language swift --out-dir ../../macos/eDEXNative/Generated`
-5. Wire: thin accessor in `EdexCoreClient`, observable state + an **offloaded** `refresh…()` in `ShellState`, and the panel view in `ContentView` (add a branch in `column(...)`'s placeholder switch).
-6. Update plan-doc status + `memory.md` resume notes + tick the progress tally; ship with `scripts/native-phase pr …`; then work the post-PR review/CI loop.
-
-**Native phase workflow helper — debloated, front-light/back-heavy (verification moved to PR checks):**
-- `scripts/native-phase start <phase> <slug>` — fetch/prune, fast-forward `post-web-runtime`, create `codex/native-<slug>`, print first-read files.
-- `scripts/native-phase pr "<commit>" "<PR title>" "<summary>"` — the **only** ship command. Runs the compile **floor** (`precheck`) itself, then stages (excluding `memory.md`), commits, pushes, and opens the PR against `post-web-runtime`. **Do not run the full gate by hand first.**
-- After submit (~5 min): address **gemini-code-assist** review + the **Native CI** check (review/validate/respond/resolve). **Ignore Cursor BugBot.** A human merges and raises CI issues with you.
-- `precheck` (compile floor, the only required pre-PR check, scope-aware), `verify [--full]` (CI-safe full gate; **Native CI runs `verify --full`** so local-full == CI), and `smoke` (local-only `--smoke-window`) are the granular commands. Use `--dry-run` when branch state is uncertain. Validated by `bash scripts/test-native-phase.sh`.
-
-**Conventions / gotchas already learned (don't relearn the hard way):**
-- **Offload FFI off the MainActor.** `ShellState` is `@MainActor @Observable`; every `refresh…()` does `await Task.detached(priority: .background){ client.… }.value` then assigns. (PR #17 review made us do this; do it from the start.)
-- **Guard every `Double → Int` cast** against non-finite/out-of-range — the reviewer (and reality) crash on it. `RamwatcherSupport.safeInt` and `CpuinfoSupport` show the pattern. Write a crash-safety test (it will abort the suite on the unfixed path = your RED).
-- **Live graphs:** SwiftUI `Canvas` + `TimelineView(.animation)` (scrolls at OS refresh / ProMotion). The spec's CALayer recs are stale (pre-SwiftUI-pivot). Guard Canvas `size` finite+positive.
-- **Run `cargo fmt`** after editing Rust (CI gate is `cargo fmt --check`); rerun the bindgen after any FFI change.
-- **Verification (debloated):** pre-PR you run only the compile **floor** (`scripts/native-phase pr` runs it for you). The full gate — `swift build --build-tests` + `swift test` + `crates/edex-ffi` `cargo test`/`fmt --check`/`clippy -- -D warnings` — runs as **Native CI** (`scripts/native-phase verify --full`) on the PR, not on your critical path. Run `native-phase verify` / `smoke` locally only for extra confidence.
-- SourceKit "No such module 'BorderSupport'" diagnostics in-editor are **noise** (the SwiftPM CLI build is the source of truth) — ignore them.
-- **Toolchain:** needs a current stable Rust + Swift 6.x; `swift` is at `~/.swiftly/bin/swift`.
-
-**State/topology pointers:** `memory.md` (repo root) is the human's local resume scratch file (NOT committed — keep it out of feature commits) and holds the live progress tally + branch topology. Auto-memory at `~/.claude/projects/-Users-iphoobis-Projects-eDEX-UI-security-patched/memory/` has the branch-topology and cpuinfo-rendering decisions. `master` is frozen at PR #12; `post-web-runtime` is the rolling integration branch and the base for every phase PR.
+- `scripts/native-phase start <phase> <slug>` is still the normal phase-branch entry point. This anti-churn branch was intentionally named `anti-churning-strategem` for a broader cleanup.
+- `scripts/native-phase pr "<commit>" "<PR title>" "<summary>"` remains the shipping command for normal phase work. For this branch, use the same PR base (`post-web-runtime`) and keep `memory.md` out of commits.
+- `precheck` is the pre-PR compile floor. `verify [--full]` is the CI-safe full gate and is required locally when package taxonomy or architecture cleanup could break module wiring.
+- Historical per-panel recipes are kept as completion evidence. Future Swift work should follow `Ultrareview.md` instead of adding one SwiftPM target per feature.

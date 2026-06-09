@@ -1,5 +1,5 @@
 import XCTest
-@testable import RamwatcherSupport
+@testable import EdexDomainSupport
 
 final class NativeRamwatcherTests: XCTestCase {
     private let formatter = EdexRamwatcherFormatter()
