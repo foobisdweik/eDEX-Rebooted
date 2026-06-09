@@ -27,15 +27,16 @@ The debloated per-phase loop:
      (review / validate / respond / resolve). IGNORE Cursor BugBot. Human merges.
 
 Commands:
-  precheck  Fast, scope-aware COMPILE floor (the only required pre-PR check).
-            swift build --build-tests (if macos/ changed) + cargo check --tests
-            (if crates/ changed). Seconds; runs nothing.
+  precheck  Scope-aware COMPILE floor (the only required pre-PR check). Sees both
+            committed and uncommitted changes. swift build --build-tests (if
+            macos/ changed; builds the release FFI dylib first) + cargo check
+            --tests (if crates/ changed). Fast when the dylib is warm.
   verify    The CI-safe full gate (build + swift test + cargo test/fmt/clippy).
             Scope-aware locally; pass --full (or set NATIVE_PHASE_FULL=1) to run
             everything. CI runs `bash scripts/native-phase verify --full`, so the
             local full gate and CI cannot drift. Does NOT run the smoke-window.
   smoke     The local-only `swift run eDEXNative --smoke-window` (needs a window
-            session; not run in CI). Run ad-hoc when touching FFI/bootstrap.
+            session; not in CI). Builds the release FFI dylib first.
   pr        precheck -> stage (excluding memory.md) -> commit -> push -> open PR.
 
 Notes:
@@ -85,17 +86,40 @@ swift_bin() {
   printf '%s' "${SWIFT_BIN:-$HOME/.swiftly/bin/swift}"
 }
 
+# The swift executable passed to run_in. Real runs MUST use an expanded,
+# absolute path — bash does not perform tilde expansion on a quoted argument,
+# so a literal "~/.swiftly/bin/swift" would fail with "command not found".
+# Only dry-run prints the pretty tilde form.
 swift_display() {
-  printf '%s' "${SWIFT_DISPLAY:-~/.swiftly/bin/swift}"
+  if [[ "$dry_run" == "1" ]]; then
+    printf '%s' "${SWIFT_DISPLAY:-~/.swiftly/bin/swift}"
+  else
+    swift_bin
+  fi
 }
 
-# Files changed on this branch vs the base. Empty (treat as "all") if the base
-# ref or merge-base can't be resolved (fresh clone, detached state, CI).
+# Build the release FFI dylib the Swift app links against (-ledex_ffi from
+# crates/edex-ffi/target/release). cargo is incremental so this is cheap when
+# warm; required on a clean checkout or after an FFI change before any swift
+# build/test/run.
+build_ffi_dylib() {
+  local root
+  root="$(repo_root)"
+  run_in "$root/crates/edex-ffi" cargo build --release
+}
+
+# Files changed on this branch vs the base, INCLUDING uncommitted work. The
+# floor in `pr` runs before `git commit`, so committed-only diffing would miss
+# fresh edits and no-op. Returns non-zero (treat as "all") if the base ref or
+# merge-base can't be resolved (fresh clone, detached state, CI).
 changed_paths() {
   local base
   base="$(git merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
   [[ -n "$base" ]] || return 1
-  git diff --name-only "$base"...HEAD 2>/dev/null
+  {
+    git diff --name-only "$base"...HEAD 2>/dev/null
+    git status --porcelain 2>/dev/null | cut -c4-
+  } | sed '/^$/d'
 }
 
 # Echo "swift" and/or "rust" for the areas this branch touches. In dry-run or
@@ -126,11 +150,12 @@ cmd_precheck() {
     printf 'native-phase: no compilable changes (docs/scripts only) — floor is a no-op.\n'
     return 0
   fi
-  if grep -qw swift <<<"$areas"; then
-    run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests
-  fi
   if grep -qw rust <<<"$areas"; then
     run_in "$root/crates/edex-ffi" cargo check --tests
+  fi
+  if grep -qw swift <<<"$areas"; then
+    build_ffi_dylib
+    run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests
   fi
 }
 
@@ -141,21 +166,24 @@ cmd_verify() {
   root="$(repo_root)"
   areas="$(scope "$force_full")"
 
+  if [[ -z "$areas" ]]; then
+    printf 'native-phase: no compilable changes (docs/scripts only) — verify is a no-op.\n'
+    return 0
+  fi
   if grep -qw rust <<<"$areas"; then
     run_in "$root/crates/edex-ffi" cargo test
     run_in "$root/crates/edex-ffi" cargo fmt --check
     run_in "$root/crates/edex-ffi" cargo clippy -- -D warnings
   fi
   if grep -qw swift <<<"$areas"; then
-    # swift links -ledex_ffi from crates/edex-ffi/target/release, so the dylib
-    # must exist before swift build/test.
-    run_in "$root/crates/edex-ffi" cargo build --release
+    build_ffi_dylib
     run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests
     run_in "$root/macos/eDEXNative" "$(swift_display)" test
   fi
 }
 
 cmd_smoke() {
+  build_ffi_dylib
   local root
   root="$(repo_root)"
   run_in "$root/macos/eDEXNative" "$(swift_display)" run eDEXNative --smoke-window
@@ -229,7 +257,8 @@ cmd_pr() {
     [[ "$branch" == codex/native-* ]] || die "expected a codex/native-* phase branch, got $branch"
   fi
 
-  # Compile floor: do not open a PR that does not compile.
+  # Compile floor: do not open a PR that does not compile. Runs before staging,
+  # but scope sees uncommitted work, so fresh edits are covered.
   printf '== compile floor (precheck) ==\n'
   cmd_precheck
 

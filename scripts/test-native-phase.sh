@@ -20,6 +20,7 @@ grep -q "src/classes/modal.class.js" <<<"$start_output" || fail "start dry-run d
 grep -q "src-tauri/src/native_modal.rs" <<<"$start_output" || fail "start dry-run does not print native_modal reference"
 
 precheck_output="$("$script" --dry-run precheck)"
+grep -q "cargo build --release" <<<"$precheck_output" || fail "precheck dry-run does not build the release FFI dylib"
 grep -q "swift build --build-tests" <<<"$precheck_output" || fail "precheck dry-run does not include swift build --build-tests"
 grep -q "cargo check --tests" <<<"$precheck_output" || fail "precheck dry-run does not include cargo check --tests"
 
