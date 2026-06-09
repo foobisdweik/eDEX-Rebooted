@@ -102,35 +102,27 @@ struct ContentView: View {
             sectionTitle("TERMINAL", "MAIN SHELL")
             HStack(spacing: 0) {
                 ForEach(1...5, id: \.self) { index in
-                    Text("SHELL \(index)")
-                        .font(.custom(state.theme.fonts.main, size: 11))
-                        .frame(maxWidth: .infinity, minHeight: 30)
-                        .background(index == 1 ? state.theme.accent : state.theme.panelBackground)
-                        .foregroundStyle(index == 1 ? state.theme.panelBackground : state.theme.accent)
-                        .augmentedSurface(
-                            style: .settingsButton(vh: vh),
-                            fill: index == 1 ? state.theme.accent.opacity(0.2) : state.theme.panelBackground.opacity(0.25),
-                            stroke: state.theme.accent
-                        )
+                    let selected = index - 1 == state.terminal.activeTab
+                    Button {
+                        state.handle(.switchTerminal(index - 1))
+                    } label: {
+                        Text("SHELL \(index)")
+                            .font(.custom(state.theme.fonts.main, size: 11))
+                            .frame(maxWidth: .infinity, minHeight: 30)
+                            .background(selected ? state.theme.accent : state.theme.panelBackground)
+                            .foregroundStyle(selected ? state.theme.panelBackground : state.theme.accent)
+                            .augmentedSurface(
+                                style: .settingsButton(vh: vh),
+                                fill: selected ? state.theme.accent.opacity(0.2) : state.theme.panelBackground.opacity(0.25),
+                                stroke: state.theme.accent
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("$ edex-native --theme \(state.theme.name)")
-                Text(state.statusText)
-                    .foregroundStyle(state.theme.accent.opacity(0.68))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-                Text(state.paths?.userData ?? "userdata pending")
-                    .foregroundStyle(state.theme.accent.opacity(0.58))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .font(.custom(state.theme.fonts.terminal, size: 13))
-            .padding(14)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(state.theme.terminalBackground.opacity(0.92))
-            .foregroundStyle(state.theme.terminalForeground)
+            EdexTerminalSurface(terminalView: state.terminal.terminalView, theme: state.theme)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(state.theme.terminalBackground.opacity(0.92))
         }
         .padding(8)
         .augmentedSurface(

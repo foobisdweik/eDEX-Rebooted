@@ -21,6 +21,9 @@ let package = Package(
     products: [
         .executable(name: "eDEXNative", targets: ["eDEXNative"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.0")
+    ],
     targets: [
         .target(
             name: "EdexCoreBridge",
@@ -56,7 +59,8 @@ let package = Package(
             dependencies: [
                 "EdexCoreBridge",
                 "EdexDomainSupport",
-                "EdexRenderingSupport"
+                "EdexRenderingSupport",
+                .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
             path: ".",
             exclude: [

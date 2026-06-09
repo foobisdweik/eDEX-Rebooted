@@ -10,7 +10,11 @@ struct BootstrapSnapshot: Sendable {
 }
 
 struct EdexCoreClient {
-    private let core = EdexCore()
+    private let core: EdexCore
+
+    init(core: EdexCore = EdexCore()) {
+        self.core = core
+    }
 
     func bootstrap() throws -> BootstrapSnapshot {
         try core.ensureUserdata()
