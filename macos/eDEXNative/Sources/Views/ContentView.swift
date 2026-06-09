@@ -1621,6 +1621,14 @@ private struct EdexFilesystemPanel: View {
             stroke: theme.accent
         )
         .task { await state.loadInitialFilesystemIfNeeded() }
+        .task {
+            // Follow the active terminal tab's cwd. terminal.class.js polled
+            // pty_metadata at 1s; match that cadence.
+            while !Task.isCancelled {
+                await state.refreshTerminalMetadata()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
     }
 
     // MARK: Header

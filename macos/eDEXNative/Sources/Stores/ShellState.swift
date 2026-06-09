@@ -48,8 +48,9 @@ final class ShellState: EdexActionHandler {
     var bootDisplayLines: [String] = []
 
     // Phase 7.1 filesystem panel state.
-    /// Current directory being displayed. Starts at the user's home; tab-CWD
-    /// tracking is deferred to Phase 9 (PTY seam).
+    /// Current directory being displayed. Starts at the user's home; Phase 9.5
+    /// wires the panel to follow the active terminal tab's CWD (see
+    /// `refreshTerminalMetadata`).
     var fsPath: String = NSHomeDirectory()
     /// The displayed rows (directory listing or "Show disks" view).
     var fsItems: [FilesystemItem] = []
@@ -63,6 +64,10 @@ final class ShellState: EdexActionHandler {
     /// Set when the current directory could not be read.
     var fsFailed = false
     @ObservationIgnored private var fsReading = false
+    /// The terminal cwd the filesystem panel last auto-followed. Compared against
+    /// each metadata poll so manual browsing isn't yanked back — only a real `cd`
+    /// (which changes the shell cwd) re-navigates the panel (Phase 9.5).
+    @ObservationIgnored private var lastFollowedCwd: String?
 
     // Phase 7.2 fuzzy finder state.
     var fuzzyQuery = ""
@@ -154,6 +159,7 @@ final class ShellState: EdexActionHandler {
             openFuzzyFinder()
         case let .switchTerminal(index):
             terminal.switchTab(index)
+            followActiveTabSoon()
         case .closeModal:
             guard let top = modalManager.modals.max(by: { $0.zIndex < $1.zIndex }) else { return }
             closeModal(top.id)
@@ -617,6 +623,31 @@ final class ShellState: EdexActionHandler {
         )
     }
 
+    /// Polls the active terminal tab's metadata (1 Hz, matching the legacy
+    /// terminal.class.js cadence) and follows its working directory in the
+    /// filesystem panel. Mirrors the legacy `followTab`: a real `cd` re-navigates
+    /// the panel, but manual browsing is left alone (see `TerminalCwdFollow`).
+    func refreshTerminalMetadata() async {
+        await terminal.refreshActiveMetadata()
+        switch TerminalCwdFollow.decide(
+            newCwd: terminal.activeCwd,
+            lastFollowedCwd: lastFollowedCwd,
+            isDiskView: fsIsDiskView
+        ) {
+        case let .navigate(path):
+            lastFollowedCwd = path
+            await navigateFS(to: path)
+        case .ignore:
+            break
+        }
+    }
+
+    /// Re-follows the active tab's cwd immediately after a tab switch instead of
+    /// waiting up to a full poll interval (legacy `resendCWD`).
+    private func followActiveTabSoon() {
+        Task { await refreshTerminalMetadata() }
+    }
+
     /// First load when the panel appears. Re-entrant-safe; no-op once populated.
     func loadInitialFilesystemIfNeeded() async {
         guard fsItems.isEmpty, !fsFailed, !fsReading else { return }
@@ -1015,8 +1046,10 @@ final class ShellState: EdexActionHandler {
             terminal.pasteClipboard()
         case .nextTab:
             terminal.selectNextTab()
+            followActiveTabSoon()
         case .previousTab:
             terminal.selectPreviousTab()
+            followActiveTabSoon()
         case .devDebug, .devReload:
             break
         }

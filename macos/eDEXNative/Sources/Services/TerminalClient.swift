@@ -6,7 +6,7 @@ import EdexDomainSupport
 ///
 /// `PtyManager` state lives on whichever `EdexCore` spawned the session. Slice 9.2
 /// will inject the app's shared `EdexCore` here so terminal I/O uses one core.
-struct TerminalClient {
+struct TerminalClient: Sendable {
     private let core: EdexCore
 
     init(core: EdexCore = EdexCore()) {

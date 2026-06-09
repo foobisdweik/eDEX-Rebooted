@@ -11,6 +11,10 @@ import SwiftTerm
     let outputBox: PtyOutputBufferBox
     var ptyId: UInt32?
     var exited = false
+    /// Last-observed working directory and foreground process of this tab's
+    /// shell (Phase 9.5). Updated by metadata polls; nil until first read.
+    var cwd: String?
+    var process: String?
 
     init(index: Int) {
         self.index = index
@@ -29,9 +33,12 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
 
     var terminalView: TerminalView { sessions[tabs.active].view }
 
-    var activeCwd: String {
-        sessions[tabs.active].outputBox.cwd ?? NSHomeDirectory()
-    }
+    /// The active tab's working directory and foreground process, mirrored into
+    /// observable storage so SwiftUI (and the filesystem-panel follow logic)
+    /// re-evaluate when a metadata poll or tab switch changes them. Defaults to
+    /// home until the first successful poll.
+    private(set) var activeCwd: String = NSHomeDirectory()
+    private(set) var activeProcess: String?
 
     var activeTab: Int { tabs.active }
 
@@ -105,16 +112,50 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     func switchTab(_ index: Int) {
         tabs.select(index)
         spawnIfNeeded(sessions[tabs.active])
+        syncActiveMetadata()
     }
 
     func selectNextTab() {
         tabs.selectNext()
         spawnIfNeeded(sessions[tabs.active])
+        syncActiveMetadata()
     }
 
     func selectPreviousTab() {
         tabs.selectPrevious()
         spawnIfNeeded(sessions[tabs.active])
+        syncActiveMetadata()
+    }
+
+    /// Polls the active session's live PTY metadata (the shell's current working
+    /// directory tracks `cd`; the foreground process is the newest PID in the
+    /// shell's process group). The FFI read hits libproc, so it is offloaded off
+    /// the MainActor per the project's FFI rule. Drives the filesystem-panel cwd
+    /// follow (see `ShellState.refreshTerminalMetadata`).
+    func refreshActiveMetadata() async {
+        let active = sessions[tabs.active]
+        guard let id = active.ptyId, !active.exited else { return }
+        let client = terminalClient
+        let metadata = await Task.detached(priority: .background) {
+            try? client.ptyMetadata(id: id)
+        }.value
+        guard let metadata else { return }
+        active.cwd = metadata.cwd
+        active.process = metadata.process
+        // The user may have switched tabs while the read was in flight; only
+        // publish if this is still the active session.
+        if sessions[tabs.active] === active {
+            syncActiveMetadata()
+        }
+    }
+
+    /// Republishes the active session's last-known metadata into the observable
+    /// `activeCwd`/`activeProcess`. Called on tab switch (so the panel follows
+    /// the newly-active tab) and after each successful poll.
+    private func syncActiveMetadata() {
+        let active = sessions[tabs.active]
+        activeCwd = active.cwd ?? NSHomeDirectory()
+        activeProcess = active.process
     }
 
     func copySelection() {
