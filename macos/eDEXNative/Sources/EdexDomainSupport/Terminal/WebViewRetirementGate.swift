@@ -63,8 +63,8 @@ public struct WebViewRetirementGate: Equatable, Sendable {
 
     /// Records a scenario skipped because a local tool was unavailable during burn-in.
     public mutating func recordBurnInSkipped(_ scenario: TerminalBurnInScenario) {
-        skippedBurnIn.insert(scenario)
         passedBurnIn.remove(scenario)
+        skippedBurnIn.insert(scenario)
     }
 
     public mutating func recordSurface(_ surface: NativeSurfaceReadiness, passed: Bool) {

@@ -20,6 +20,21 @@ final class NativeWebViewRetirementGateTests: XCTestCase {
         XCTAssertTrue(gate.missingBurnIn.isEmpty)
     }
 
+    func testBurnInCompleteWhenUnavailableScenariosAreSkipped() {
+        var gate = WebViewRetirementGate()
+        for scenario in TerminalBurnInScenario.allCases {
+            if scenario == .htop || scenario == .tmux {
+                gate.recordBurnInSkipped(scenario)
+            } else {
+                gate.recordBurnIn(scenario, passed: true)
+            }
+        }
+
+        XCTAssertTrue(gate.isBurnInComplete)
+        XCTAssertEqual(gate.skippedBurnIn, [.htop, .tmux])
+        XCTAssertTrue(gate.missingBurnIn.isEmpty)
+    }
+
     func testSurfaceGateTreatsWaivedSurfacesAsSatisfied() {
         var gate = WebViewRetirementGate()
         for surface in WebViewRetirementGate.requiredSurfaces {
@@ -73,5 +88,14 @@ final class NativeWebViewRetirementGateTests: XCTestCase {
             EdexBundledAssets.audioDirectory(from: #filePath).lastPathComponent,
             "audio"
         )
+    }
+
+    func testRepositoryRootFallbackHandlesNativeSourceDepth() {
+        let syntheticRoot = URL(fileURLWithPath: "/tmp/edex-synthetic-root")
+        let sourcePath = syntheticRoot
+            .appendingPathComponent("macos/eDEXNative/Sources/EdexDomainSupport/EdexBundledAssets.swift")
+            .path
+
+        XCTAssertEqual(EdexBundledAssets.repositoryRoot(from: sourcePath).path, syntheticRoot.path)
     }
 }

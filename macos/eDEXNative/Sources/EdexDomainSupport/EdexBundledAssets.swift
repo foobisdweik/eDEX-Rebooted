@@ -9,6 +9,9 @@ public enum EdexBundledAssets {
             if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("assets").path) {
                 return candidate
             }
+            if candidate.lastPathComponent == "macos" {
+                return candidate.deletingLastPathComponent()
+            }
             let parent = candidate.deletingLastPathComponent()
             if parent.path == candidate.path { break }
             candidate = parent
