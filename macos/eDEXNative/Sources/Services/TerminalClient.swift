@@ -47,6 +47,11 @@ final class PtyOutputBufferBox: @unchecked Sendable {
     /// notifications are safe because `drain()` atomically returns all pending bytes.
     var onDataAvailable: (@MainActor () -> Void)?
 
+    /// Called on MainActor after pending output has been drained.
+    var onExit: (@MainActor () -> Void)?
+
+    private var exitScheduled = false
+
     /// Coalesce drain notifications to at most one pending MainActor hop.
     func scheduleNotify() {
         lock.lock()
@@ -64,6 +69,28 @@ final class PtyOutputBufferBox: @unchecked Sendable {
         lock.lock()
         notifyScheduled = false
         callback = onDataAvailable
+        lock.unlock()
+        callback?()
+    }
+
+    /// Schedules a single MainActor exit callback. Call after `scheduleNotify()`
+    /// so any buffered bytes drain before `onExit` fires.
+    func scheduleExit() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard onExit != nil, !exitScheduled else { return }
+        exitScheduled = true
+        Task { @MainActor in
+            self.fireExit()
+        }
+    }
+
+    @MainActor
+    private func fireExit() {
+        let callback: (@MainActor () -> Void)?
+        lock.lock()
+        exitScheduled = false
+        callback = onExit
         lock.unlock()
         callback?()
     }
@@ -142,6 +169,8 @@ private final class PtyOutputSinkAdapter: PtyOutputSink, @unchecked Sendable {
 
     func onExit(id: UInt32, status: Int32?) {
         box.markExited(status: status)
+        box.scheduleNotify()
+        box.scheduleExit()
     }
 
     func onMetadata(id: UInt32, cwd: String?, process: String?) {

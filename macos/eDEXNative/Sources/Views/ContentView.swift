@@ -121,6 +121,7 @@ struct ContentView: View {
                 }
             }
             EdexTerminalSurface(terminalView: state.terminal.terminalView, theme: state.theme)
+                .id(state.terminal.activeTab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(state.theme.terminalBackground.opacity(0.92))
         }
