@@ -18,6 +18,7 @@ public enum EdexBundledAssets {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     public static func themesDirectory(from filePath: String = #filePath) -> URL {

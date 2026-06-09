@@ -47,16 +47,24 @@ public struct WebViewRetirementGate: Equatable, Sendable {
     )
 
     public private(set) var passedBurnIn: Set<TerminalBurnInScenario> = []
+    public private(set) var skippedBurnIn: Set<TerminalBurnInScenario> = []
     public private(set) var passedSurfaces: Set<NativeSurfaceReadiness> = []
 
     public init() {}
 
     public mutating func recordBurnIn(_ scenario: TerminalBurnInScenario, passed: Bool) {
+        skippedBurnIn.remove(scenario)
         if passed {
             passedBurnIn.insert(scenario)
         } else {
             passedBurnIn.remove(scenario)
         }
+    }
+
+    /// Records a scenario skipped because a local tool was unavailable during burn-in.
+    public mutating func recordBurnInSkipped(_ scenario: TerminalBurnInScenario) {
+        skippedBurnIn.insert(scenario)
+        passedBurnIn.remove(scenario)
     }
 
     public mutating func recordSurface(_ surface: NativeSurfaceReadiness, passed: Bool) {
@@ -68,7 +76,9 @@ public struct WebViewRetirementGate: Equatable, Sendable {
     }
 
     public var missingBurnIn: [TerminalBurnInScenario] {
-        TerminalBurnInScenario.allCases.filter { !passedBurnIn.contains($0) }
+        TerminalBurnInScenario.allCases.filter {
+            !passedBurnIn.contains($0) && !skippedBurnIn.contains($0)
+        }
     }
 
     public var missingSurfaces: [NativeSurfaceReadiness] {
