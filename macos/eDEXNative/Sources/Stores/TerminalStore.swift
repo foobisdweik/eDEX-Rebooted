@@ -187,6 +187,7 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     func closeTab(_ index: Int) {
         guard sessions.indices.contains(index) else { return }
         let s = sessions[index]
+        drain(s)
         if let id = s.ptyId { try? terminalClient.killPty(id: id) }
         s.ptyId = nil
         s.exited = true
@@ -236,8 +237,8 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     }
 
     private func handleExit(_ s: TerminalSession) {
-        guard !s.exited else { return }
         drain(s)
+        guard !s.exited else { return }
         s.exited = true
         aliveTabs.remove(s.index)
         if let id = s.ptyId {
