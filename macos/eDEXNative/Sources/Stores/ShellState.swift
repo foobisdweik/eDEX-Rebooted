@@ -502,8 +502,13 @@ final class ShellState: EdexActionHandler {
             shortcuts: shortcuts
         )
 
-        // Consume any armed dead key; the .armDeadKey case below re-arms it.
-        keyboard.armedDeadKey = nil
+        // Consume armed dead key when used; preserve it across shortcut interception
+        // (legacy keyboard.class.js returns before dead-key handling when a shortcut fires).
+        if case .shortcut = outcome {
+            // leave keyboard.armedDeadKey unchanged
+        } else {
+            keyboard.armedDeadKey = nil
+        }
 
         var isEnter = false
         switch outcome {
