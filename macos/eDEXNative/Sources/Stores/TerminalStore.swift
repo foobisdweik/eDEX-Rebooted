@@ -167,6 +167,9 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     private func respawn(_ s: TerminalSession) {
         s.exited = false
         spawnIfNeeded(s)
+        if s.ptyId == nil {
+            s.exited = true
+        }
     }
 
     private func clampedDimension(_ value: Int, default defaultValue: UInt16) -> UInt16 {
