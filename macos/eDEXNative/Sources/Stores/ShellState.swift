@@ -487,10 +487,114 @@ final class ShellState: EdexActionHandler {
         keyboard.toggleModifier(modifier)
     }
 
-    /// Flash a key's active/blink press animation (visual only — no command is
-    /// emitted; routing to the terminal/modals is Phase 8.3).
-    func pressKeyVisual(id: String) {
-        keyboard.pressVisual(id: id)
+    /// Handle an on-screen (non-modifier) key tap: flash it, resolve the command
+    /// against the current modifier/dead-key state and loaded shortcuts, then
+    /// apply the outcome (fire a shortcut, emit text, arm a dead key, or toggle
+    /// Caps/Fn). Modifier keys (Shift/Ctrl/Alt/Caps/Fn) arrive via
+    /// `toggleKeyboardModifier` instead.
+    func pressKey(_ descriptor: KeyboardKeyDescriptor) {
+        keyboard.pressVisual(id: descriptor.id)
+
+        let outcome = KeyboardCommandResolver.resolve(
+            key: descriptor.key,
+            modifiers: keyboard.modifiers,
+            armedDeadKey: keyboard.armedDeadKey,
+            shortcuts: shortcuts
+        )
+
+        // Consume armed dead key when used; preserve it only across app shortcut
+        // interception (legacy returns early only when `shortcutsTriggered`).
+        if !outcome.preservesArmedDeadKey {
+            keyboard.armedDeadKey = nil
+        }
+
+        var isEnter = false
+        switch outcome {
+        case let .shortcut(match):
+            dispatchShortcutMatch(match)
+        case let .emit(text):
+            isEnter = (text == "\r" || text == "\n")
+            routeEmit(text)
+        case let .armDeadKey(deadKey):
+            keyboard.armedDeadKey = deadKey
+        case let .setCapsLock(on):
+            keyboard.modifiers.capsLock = on
+        case let .setFn(on):
+            keyboard.modifiers.fn = on
+        case .none:
+            break
+        }
+
+        // Audio: enter plays the granted cue, every other press plays stdin —
+        // both silenced in password mode (legacy `passwordMode == "false"`).
+        if !keyboard.modifiers.passwordMode {
+            playAudio(isEnter ? .granted : .stdin)
+        }
+
+        // On-screen taps can't press-and-hold, so transient modifiers act as
+        // one-shot: applied to this key, then released. Caps/Fn stay latched.
+        keyboard.modifiers.shift = false
+        keyboard.modifiers.ctrl = false
+        keyboard.modifiers.alt = false
+    }
+
+    /// Fires a matched shortcut from the on-screen keyboard. App actions dispatch
+    /// through the existing handler; shell actions write their command text to the
+    /// active sink (legacy on-screen `term.write(cut.action)`).
+    private func dispatchShortcutMatch(_ match: ShortcutMatch) {
+        switch match {
+        case let .app(action, tabIndex):
+            dispatchAppShortcut(action, tabIndex: tabIndex)
+        case let .shell(action, linebreak):
+            // Shell shortcuts always target the terminal (legacy on-screen
+            // `term.write(cut.action)`), even while a modal holds the keyboard —
+            // they bypass detached-field routing.
+            handle(.keyboardInput(linebreak ? action + "\r" : action))
+        }
+    }
+
+    /// Routes an emitted string to the active sink: a detached native text field
+    /// when a keyboard-owning modal is open, otherwise the terminal. While
+    /// detached with no text target (e.g. the shortcuts list), input is swallowed
+    /// rather than leaking to the hidden terminal (legacy `linkedToTerm == false`).
+    private func routeEmit(_ text: String) {
+        guard modalManager.isKeyboardDetached else {
+            handle(.keyboardInput(text))
+            return
+        }
+        guard let field = activeDetachedField else { return }
+        switch KeyboardDetachedEditor.apply(command: text, to: field.text) {
+        case let .replace(newText): field.setText(newText)
+        case .submit: field.submit()
+        case .ignore: break
+        }
+    }
+
+    /// The focused text field while the keyboard is detached, or nil when the
+    /// open modal has no text input. The fuzzy finder submits its selection on
+    /// Enter; the text editor inserts a newline instead.
+    private var activeDetachedField: DetachedField? {
+        if let id = fuzzyFinderModalID, modalManager.modal(id: id) != nil {
+            return DetachedField(
+                text: fuzzyQuery,
+                setText: { [weak self] in self?.setFuzzyQuery($0) },
+                submit: { [weak self] in self?.submitFuzzySelection() }
+            )
+        }
+        if let id = textEditorModalID, modalManager.modal(id: id) != nil {
+            return DetachedField(
+                text: textEditorText,
+                setText: { [weak self] in self?.setTextEditorText($0) },
+                submit: { [weak self] in self?.setTextEditorText((self?.textEditorText ?? "") + "\n") }
+            )
+        }
+        return nil
+    }
+
+    private struct DetachedField {
+        let text: String
+        let setText: (String) -> Void
+        let submit: () -> Void
     }
 
     // MARK: Filesystem panel (Phase 7.1)
@@ -864,33 +968,18 @@ final class ShellState: EdexActionHandler {
     /// the event (shortcut fired), or the event itself to pass it through.
     private func handleShortcutKeyEvent(_ event: NSEvent) -> NSEvent? {
         guard let doc = shortcuts, let eventCombo = event.keyCombo else { return event }
+        guard let match = doc.match(eventCombo) else { return event }
 
-        // Regular (non-TAB_X) app + shell shortcuts
-        for entry in doc.enabledEntries() {
-            guard entry.action != AppShortcutAction.tabTemplate.rawValue else { continue }
-            guard let combo = entry.combo, combo == eventCombo else { continue }
-            switch entry.type {
-            case .app:
-                if let action = AppShortcutAction(rawValue: entry.action) {
-                    dispatchAppShortcut(action, tabIndex: nil)
-                }
-            case .shell:
-                // Shell shortcuts write a command to the active terminal.
-                // Terminal tab management is Phase 9; these are parsed and
-                // stored now but execution is deferred until the PTY seam exists.
-                break
-            }
-            return nil
+        switch match {
+        case let .app(action, tabIndex):
+            dispatchAppShortcut(action, tabIndex: tabIndex)
+        case .shell:
+            // Shell shortcuts write a command to the active terminal. Physical
+            // shortcuts consume the event now; execution is deferred until the
+            // Phase 9 PTY seam exists (the on-screen path emits immediately).
+            break
         }
-
-        // TAB_X expansion: Ctrl+1 … Ctrl+5
-        for (combo, tabIndex) in doc.expandedTabCombos() {
-            guard combo == eventCombo else { continue }
-            dispatchAppShortcut(.tabTemplate, tabIndex: tabIndex)
-            return nil
-        }
-
-        return event
+        return nil
     }
 
     /// Dispatches a recognised app shortcut action to the appropriate handler.
@@ -910,11 +999,15 @@ final class ShellState: EdexActionHandler {
             if let tabIndex {
                 handle(.switchTerminal(tabIndex))
             }
+        case .kbPassmode:
+            // Toggle on-screen keyboard password mode (legacy togglePasswordMode):
+            // dims the band and silences key audio.
+            keyboard.modifiers.passwordMode.toggle()
         case .copy, .paste, .nextTab, .previousTab,
-             .kbPassmode, .devDebug, .devReload:
+             .devDebug, .devReload:
             // These actions are dispatched by this handler but their targets
-            // (terminal, keyboard) are built in later phases. Stubs prevent
-            // crashes when shortcuts fire before the feature exists.
+            // (terminal) are built in later phases. Stubs prevent crashes when
+            // shortcuts fire before the feature exists.
             break
         }
     }

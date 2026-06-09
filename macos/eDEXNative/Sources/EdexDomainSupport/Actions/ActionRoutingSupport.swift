@@ -87,17 +87,22 @@ public final class KeyboardStore {
     public var status: String
     public var modifiers: KeyboardModifierState
     public var pressedKeyIDs: Set<String>
+    /// The dead key armed by the last diacritic press; the next key composes
+    /// against it (Phase 8.3). nil when no diacritic is pending.
+    public var armedDeadKey: DeadKey?
 
     public init(
         layout: NativeKeyboardLayout? = nil,
         status: String = "keyboard layout not loaded",
         modifiers: KeyboardModifierState = KeyboardModifierState(),
-        pressedKeyIDs: Set<String> = []
+        pressedKeyIDs: Set<String> = [],
+        armedDeadKey: DeadKey? = nil
     ) {
         self.layout = layout
         self.status = status
         self.modifiers = modifiers
         self.pressedKeyIDs = pressedKeyIDs
+        self.armedDeadKey = armedDeadKey
     }
 
     public func toggleModifier(_ modifier: KeyboardModifier) {
