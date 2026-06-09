@@ -46,7 +46,7 @@ CI: `.github/workflows/native-ci.yml` is authoritative for the native tree; `ci.
 
 ## Project knowledge (where to look)
 
-- `Ultrareview.md` — binding anti-churn architecture addendum for the pre-8.3 cleanup.
+- `Ultrareview.md` — binding anti-churn architecture addendum (taxonomy, store split, compositor pattern); still applies through Phase 9.
 - `docs/plans/anti-churn-strategem-2026-06-09.md` — staged branch plan for docs, SwiftPM taxonomy, architecture cleanup, and PR.
 - `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — authoritative roadmap, gates, and completion log. Historical per-panel recipes remain there for context, not as the default shape for new Swift code.
 - `docs/plans/ffi-throughput-decision-2026-05-30.md` — FFI-throughput decision feeding Phase 9.

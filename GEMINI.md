@@ -30,7 +30,7 @@ scripts/native-phase pr "feat(native): ..." "feat(native): ..." "<summary>"
 
 Post-PR (~5 min): address **gemini-code-assist** review + **Native CI** (review/validate/respond/resolve). **Ignore Cursor BugBot.** A human merges. The Swift toolchain is `~/.swiftly/bin/swift`; regenerate UniFFI bindings + `cargo fmt` after any `crates/edex-ffi` change.
 
-Before Phase 8.3, treat `Ultrareview.md` as binding anti-churn direction: use the consolidated SwiftPM taxonomy, route through the terminal/action seam, continue splitting `ShellState`, and keep `ContentView` as a compositor.
+Past Phase 8.3 (keyboard input routing). Treat `Ultrareview.md` as binding direction through Phase 9: use the consolidated SwiftPM taxonomy, route through the terminal/action seam, continue splitting `ShellState`, and keep `ContentView` as a compositor.
 
 ## Conventions
 

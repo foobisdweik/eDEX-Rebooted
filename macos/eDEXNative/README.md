@@ -4,9 +4,9 @@ SwiftPM native macOS app for the `post-web-runtime` migration. It links the Rust
 
 ## Current Status
 
-The original Phase 3 shell spike proved the app can launch a native eDEX window, control AppKit window chrome, and call the Rust core through UniFFI. The app has since advanced through Phase 8.2: telemetry panels, audio, modals, settings, shortcuts, boot screen, filesystem, fuzzy finder, text editor, keyboard layout loading, and keyboard rendering are native.
+The original Phase 3 shell spike proved the app can launch a native eDEX window, control AppKit window chrome, and call the Rust core through UniFFI. The app has since advanced through Phase 8.3: telemetry panels, audio, modals, settings, shortcuts, boot screen, filesystem, fuzzy finder, text editor, keyboard layout loading, keyboard rendering, and on-screen keyboard input routing are native.
 
-Before Phase 8.3 input routing, follow `Ultrareview.md`: the SwiftPM taxonomy now groups support code into domain and rendering targets, terminal/action seams are in place, and new work should continue splitting `ShellState` ownership while keeping `ContentView` as a compositor.
+**Phase 9** (real PTY terminal) is next. Follow `Ultrareview.md`: the SwiftPM taxonomy groups support code into domain and rendering targets, terminal/action seams are in place, and new work should continue splitting `ShellState` ownership while keeping `ContentView` as a compositor.
 
 ## Build And Run
 

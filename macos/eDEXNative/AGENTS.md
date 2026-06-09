@@ -8,12 +8,14 @@ root file for edits under macos/eDEXNative/.
 
 ## Current Direction
 
-The native app is past Phase 8.2. Before Phase 8.3 input routing, follow the anti-churn cleanup in `Ultrareview.md`:
+The native app is past **Phase 8.3** (on-screen keyboard input routing, merged PR #36). **Phase 9** (real PTY terminal) is next.
 
-- consolidate the SwiftPM/package taxonomy;
-- introduce `TerminalSessionProviding`;
-- introduce `EdexAction` / action handling;
-- split feature ownership out of `ShellState`;
+Continue the anti-churn patterns from `Ultrareview.md`:
+
+- use the consolidated four-target SwiftPM taxonomy (`EdexCoreBridge`, `EdexDomainSupport`, `EdexRenderingSupport`, `eDEXNative`);
+- route terminal I/O through `TerminalSessionProviding` (replace `StubTerminalStore` in Phase 9);
+- route commands through `EdexAction` / `EdexActionHandler`;
+- split feature ownership out of `ShellState` into focused stores;
 - keep `ContentView` as a compositor.
 
 ## Swift Rules

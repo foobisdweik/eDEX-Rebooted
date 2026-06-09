@@ -24,7 +24,10 @@ src/assets/fonts/
 src/assets/vendor/
 
 # Non-runtime repository content
-docs/
+# Keep docs/plans/ readable: agents (incl. cursor-agent/Composer) need the
+# authoritative conversion roadmap + decision docs. Drop the rest of docs/.
+docs/*
+!docs/plans/
 file-icons/
 src/assets/misc/file-icons-match.js
 LICENSE
