@@ -16,6 +16,13 @@ public enum KeyboardOutcome: Equatable, Sendable {
     case setFn(Bool)
     /// Nothing to do (e.g. an unrecognised escaped command).
     case none
+
+    /// Legacy `pressKey` returns before dead-key handling only when an app shortcut
+    /// sets `shortcutsTriggered`; shell shortcuts continue and consume the dead key.
+    public var preservesArmedDeadKey: Bool {
+        if case .shortcut(.app(_, _)) = self { return true }
+        return false
+    }
 }
 
 /// Resolves an on-screen key press into a `KeyboardOutcome`, mirroring the

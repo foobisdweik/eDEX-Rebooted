@@ -178,6 +178,14 @@ final class NativeKeyboardInputTests: XCTestCase {
         XCTAssertEqual(outcome, .shortcut(.shell(action: "git status", linebreak: true)))
     }
 
+    func testAppShortcutPreservesArmedDeadKeyShellShortcutClearsIt() throws {
+        let doc = try shortcutsDoc()
+        let app = resolve(key("s"), mods(shift: true, ctrl: true), armed: .circumflex, shortcuts: doc)
+        let shell = resolve(key("g"), mods(ctrl: true), armed: .circumflex, shortcuts: doc)
+        XCTAssertTrue(app.preservesArmedDeadKey)
+        XCTAssertFalse(shell.preservesArmedDeadKey)
+    }
+
     func testDisabledShortcutDoesNotFire() throws {
         let doc = try shortcutsDoc()
         // FUZZY_SEARCH (Ctrl+P) is disabled → should emit the char, not fire.

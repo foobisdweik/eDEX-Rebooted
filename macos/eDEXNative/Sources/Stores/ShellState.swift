@@ -502,11 +502,9 @@ final class ShellState: EdexActionHandler {
             shortcuts: shortcuts
         )
 
-        // Consume armed dead key when used; preserve it across shortcut interception
-        // (legacy keyboard.class.js returns before dead-key handling when a shortcut fires).
-        if case .shortcut = outcome {
-            // leave keyboard.armedDeadKey unchanged
-        } else {
+        // Consume armed dead key when used; preserve it only across app shortcut
+        // interception (legacy returns early only when `shortcutsTriggered`).
+        if !outcome.preservesArmedDeadKey {
             keyboard.armedDeadKey = nil
         }
 
