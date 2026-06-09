@@ -10,11 +10,12 @@ import SwiftUI
 @Observable
 @MainActor
 final class ShellState: EdexActionHandler {
-    private let client = EdexCoreClient()
+    @ObservationIgnored private let core: EdexCore
+    private let client: EdexCoreClient
     private let audio = EdexAudioService()
 
     let modalManager = EdexModalManager()
-    let terminal = StubTerminalStore()
+    let terminal: TerminalStore
     let keyboard = KeyboardStore()
     var statusText = "booting"
     var paths: FfiPaths?
@@ -97,6 +98,13 @@ final class ShellState: EdexActionHandler {
     /// scatter across the grid instead of filling left-to-right.
     let ramGridRanks: [Int] = Array(0..<EdexRamwatcherFormatter.gridCellCount).shuffled()
 
+    init() {
+        let core = EdexCore()
+        self.core = core
+        self.client = EdexCoreClient(core: core)
+        self.terminal = TerminalStore(core: core)
+    }
+
     /// Bridges the FFI battery record into the FFI-free `EdexDomainSupport` input.
     /// Falls back to a wired/no-battery state (POWER → "ON") before the first poll.
     var powerState: EdexPowerState {
@@ -166,6 +174,7 @@ final class ShellState: EdexActionHandler {
             statusText = "ok — EdexCore.paths(), ensureUserdata(), loadSettingsJson(), loadThemeJson() returned"
             print("eDEXNative FFI OK userData=\(snapshot.paths.userData) settingsBytes=\(snapshot.settings.byteCount ?? 0) theme=\(snapshot.settings.theme) keepGeometry=\(snapshot.settings.keepGeometry)")
             await loadShortcuts()
+            terminal.start(settings: settingsSummary, theme: theme)
             terminateIfSmokeWindow()
         } catch {
             statusText = "error — \(error.localizedDescription)"

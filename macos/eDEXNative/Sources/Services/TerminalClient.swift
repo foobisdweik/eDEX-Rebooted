@@ -36,10 +36,15 @@ struct TerminalClient {
     }
 }
 
-// 9.2 will add a MainActor "data available" notification hook so the SwiftTerm renderer knows when to drain.
+/// Thread-safe PTY output accumulator. Append stays synchronous on the reader
+/// thread for byte ordering; only the optional drain notification hops to MainActor.
 final class PtyOutputBufferBox: @unchecked Sendable {
     private let lock = NSLock()
     private var buffer = PtyOutputBuffer()
+
+    /// Called on MainActor after each synchronous append. Multiple coalesced
+    /// notifications are safe because `drain()` atomically returns all pending bytes.
+    var onDataAvailable: (@MainActor () -> Void)?
 
     func append(_ bytes: [UInt8]) {
         lock.lock()
@@ -109,6 +114,10 @@ private final class PtyOutputSinkAdapter: PtyOutputSink, @unchecked Sendable {
         // Synchronous append: Rust's single reader thread calls onOutput in strict order;
         // unstructured Tasks onto MainActor are not resumed in creation order under load.
         box.append(Array(bytes))
+        // Only the drain notification hops to main; append ordering is preserved above.
+        Task { @MainActor in
+            box.onDataAvailable?()
+        }
     }
 
     func onExit(id: UInt32, status: Int32?) {
