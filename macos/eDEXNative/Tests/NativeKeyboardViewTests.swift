@@ -109,4 +109,25 @@ final class NativeKeyboardViewTests: XCTestCase {
         state.toggle(.capsLock)
         XCTAssertFalse(state.capsLock)
     }
+
+    func testRowMetricsFitInsideKeyboardFrame() throws {
+        let rows = try descriptors()
+        let metrics = KeyboardRowLayoutMetrics.fit(
+            rows: rows,
+            availableWidth: 360,
+            availableHeight: 150,
+            preferredKeySide: 40,
+            preferredSpacebarWidth: 220,
+            preferredRowHeight: 36,
+            preferredRowGap: 9,
+            preferredKeyGap: 6
+        )
+
+        for row in rows {
+            let width = metrics.rowWidth(for: row)
+            XCTAssertLessThanOrEqual(width, 360.001)
+            XCTAssertGreaterThan(metrics.keyWidth(for: row[0]), 0)
+        }
+        XCTAssertLessThanOrEqual(metrics.totalHeight(rowCount: rows.count), 150.001)
+    }
 }

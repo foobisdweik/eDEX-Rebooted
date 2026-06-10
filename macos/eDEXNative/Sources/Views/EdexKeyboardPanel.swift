@@ -32,19 +32,33 @@ struct EdexKeyboardPanel: View {
 
     private func keyboardBand(layout: NativeKeyboardLayout) -> some View {
         let rows = KeyboardViewModel.descriptors(for: layout)
-        return VStack(spacing: CGFloat(metrics.rowGap)) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 6) {
-                    ForEach(row) { descriptor in
-                        keyView(descriptor)
+        return GeometryReader { proxy in
+            let fitted = KeyboardRowLayoutMetrics.fit(
+                rows: rows,
+                availableWidth: Double(proxy.size.width),
+                availableHeight: Double(proxy.size.height),
+                preferredKeySide: metrics.keySide,
+                preferredSpacebarWidth: metrics.spacebarWidth,
+                preferredRowHeight: metrics.rowHeight,
+                preferredRowGap: metrics.rowGap,
+                preferredKeyGap: 6
+            )
+            VStack(spacing: CGFloat(fitted.rowGap)) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: CGFloat(fitted.keyGap)) {
+                        ForEach(row) { descriptor in
+                            keyView(descriptor, metrics: fitted)
+                        }
                     }
+                    .frame(height: CGFloat(fitted.rowHeight))
                 }
-                .frame(height: CGFloat(metrics.rowHeight))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .clipped()
         }
     }
 
-    private func keyView(_ descriptor: KeyboardKeyDescriptor) -> some View {
+    private func keyView(_ descriptor: KeyboardKeyDescriptor, metrics: KeyboardRowLayoutMetrics) -> some View {
         let isPressed = pressedKeyIDs.contains(descriptor.id)
         let isHighlighted = descriptor.isHighlighted(modifiers: modifiers)
         let isFilled = isPressed || isHighlighted
@@ -57,24 +71,27 @@ struct EdexKeyboardPanel: View {
             isEmphasizedEdge = false
         }
 
-        return ZStack {
-            AugmentedBorderShape(style: .settingsButton(vh: vh))
-                .fill(isFilled ? accent : accent.opacity(0.06))
-            AugmentedBorderShape(style: .settingsButton(vh: vh))
-                .stroke(accent.opacity(isEmphasizedEdge ? 0.6 : 0.45), lineWidth: 1)
-            keyContent(descriptor, filled: isFilled)
-        }
-        .frame(width: CGFloat(keyboardKeyWidth(for: descriptor)))
-        .frame(maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .animation(.easeOut(duration: 0.12), value: isFilled)
-        .onTapGesture {
+        let repeatEnabled = descriptor.modifier == nil
+            && descriptor.role != .enter
+            && descriptor.role != .enterContinuation
+        return EdexKeyboardKeyButton(repeatEnabled: repeatEnabled) {
             if let modifier = descriptor.modifier {
                 onToggleModifier(modifier)
             } else {
                 onPressKey(descriptor)
             }
+        } label: {
+            ZStack {
+                AugmentedBorderShape(style: .settingsButton(vh: vh))
+                    .fill(isFilled ? accent : accent.opacity(0.06))
+                AugmentedBorderShape(style: .settingsButton(vh: vh))
+                    .stroke(accent.opacity(isEmphasizedEdge ? 0.6 : 0.45), lineWidth: 1)
+                keyContent(descriptor, filled: isFilled)
+            }
         }
+        .frame(width: CGFloat(metrics.keyWidth(for: descriptor)))
+        .frame(maxHeight: .infinity)
+        .animation(.easeOut(duration: 0.12), value: isFilled)
     }
 
     @ViewBuilder
@@ -122,42 +139,35 @@ struct EdexKeyboardPanel: View {
         }
     }
 
-    private func keyboardKeyWidth(for descriptor: KeyboardKeyDescriptor) -> Double {
-        switch descriptor.role {
-        case .spacebar:
-            return metrics.spacebarWidth
-        case .enter:
-            return max(metrics.keySide * 1.8, 9.72 * vh)
-        case .enterContinuation:
-            return max(metrics.keySide * 1.4, 7.78 * vh)
-        case .wide:
-            return metrics.keySide * 1.7
-        case .standard, .icon:
-            return metrics.keySide
-        }
-    }
-
     private var keyboardStubBand: some View {
-        VStack(spacing: CGFloat(metrics.rowGap)) {
-            ForEach(0..<5, id: \.self) { row in
-                HStack(spacing: 6) {
-                    ForEach(0..<keyboardKeyCount(for: row), id: \.self) { index in
-                        keyStub(width: keyboardKeyWidth(row: row, index: index))
+        GeometryReader { proxy in
+            let scale = keyboardStubScale(size: proxy.size)
+            let rowGap = metrics.rowGap * scale
+            let rowHeight = metrics.rowHeight * scale
+            let keyGap = 6 * scale
+            VStack(spacing: CGFloat(rowGap)) {
+                ForEach(0..<5, id: \.self) { row in
+                    HStack(spacing: CGFloat(keyGap)) {
+                        ForEach(0..<keyboardKeyCount(for: row), id: \.self) { index in
+                            keyStub(width: keyboardKeyWidth(row: row, index: index, scale: scale), height: rowHeight)
+                        }
                     }
+                    .frame(height: CGFloat(rowHeight))
                 }
-                .frame(height: CGFloat(metrics.rowHeight))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .clipped()
         }
     }
 
-    private func keyStub(width: Double) -> some View {
+    private func keyStub(width: Double, height: Double) -> some View {
         AugmentedBorderShape(style: .settingsButton(vh: vh))
             .stroke(theme.accent.opacity(0.45), lineWidth: 1)
             .background(
                 AugmentedBorderShape(style: .settingsButton(vh: vh))
                     .fill(theme.accent.opacity(0.06))
             )
-            .frame(width: CGFloat(width), height: 28)
+            .frame(width: CGFloat(width), height: CGFloat(height))
     }
 
     private func keyboardKeyCount(for row: Int) -> Int {
@@ -166,13 +176,66 @@ struct EdexKeyboardPanel: View {
         return counts[row]
     }
 
-    private func keyboardKeyWidth(row: Int, index: Int) -> Double {
+    private func keyboardKeyWidth(row: Int, index: Int, scale: Double) -> Double {
         if row == 4 && index == 2 {
-            return metrics.spacebarWidth
+            return metrics.spacebarWidth * scale
         }
         if index == 0 || index == keyboardKeyCount(for: row) - 1 {
-            return metrics.keySide * 1.7
+            return metrics.keySide * 1.7 * scale
         }
-        return metrics.keySide
+        return metrics.keySide * scale
+    }
+
+    private func keyboardStubScale(size: CGSize) -> Double {
+        let rowWidths = (0..<5).map { row in
+            let keyCount = keyboardKeyCount(for: row)
+            let width = (0..<keyCount).reduce(0) { $0 + keyboardKeyWidth(row: row, index: $1, scale: 1) }
+            return width + (Double(max(0, keyCount - 1)) * 6)
+        }
+        let maxWidth = rowWidths.max() ?? 0
+        let totalHeight = (5 * metrics.rowHeight) + (4 * metrics.rowGap)
+        let widthScale = maxWidth > 0 ? Double(size.width) / maxWidth : 1
+        let heightScale = totalHeight > 0 ? Double(size.height) / totalHeight : 1
+        return min(1, max(0, widthScale), max(0, heightScale))
+    }
+}
+
+private struct EdexKeyboardKeyButton<Label: View>: View {
+    let repeatEnabled: Bool
+    let action: @MainActor () -> Void
+    @ViewBuilder let label: () -> Label
+
+    @State private var isPressing = false
+    @State private var repeatTask: Task<Void, Never>?
+
+    var body: some View {
+        label()
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in beginPress() }
+                    .onEnded { _ in endPress() }
+            )
+            .onDisappear { endPress() }
+    }
+
+    private func beginPress() {
+        guard !isPressing else { return }
+        isPressing = true
+        action()
+        guard repeatEnabled else { return }
+        repeatTask = Task {
+            try? await Task.sleep(nanoseconds: 420_000_000)
+            while !Task.isCancelled {
+                await MainActor.run { action() }
+                try? await Task.sleep(nanoseconds: 70_000_000)
+            }
+        }
+    }
+
+    private func endPress() {
+        isPressing = false
+        repeatTask?.cancel()
+        repeatTask = nil
     }
 }

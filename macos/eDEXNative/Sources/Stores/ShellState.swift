@@ -81,6 +81,7 @@ final class ShellState: EdexActionHandler {
     var fuzzyStatus = ""
     @ObservationIgnored var pendingTerminalInput: String?
     @ObservationIgnored private var fuzzyFinderModalID: EdexModalID?
+    var fuzzyCaret = 0
 
     // Phase 7.3 text editor state.
     /// The document open in the editor modal, or nil when closed.
@@ -88,6 +89,7 @@ final class ShellState: EdexActionHandler {
     /// Status line under the editor (metrics, save success/failure).
     var textEditorStatus = ""
     @ObservationIgnored private var textEditorModalID: EdexModalID?
+    var textEditorCaret = 0
 
     // Phase 10.1 media viewer state.
     var mediaViewerPath: String?
@@ -603,8 +605,8 @@ final class ShellState: EdexActionHandler {
             return
         }
         guard let field = activeDetachedField else { return }
-        switch KeyboardDetachedEditor.apply(command: text, to: field.text) {
-        case let .replace(newText): field.setText(newText)
+        switch KeyboardDetachedEditor.apply(command: text, to: field.state) {
+        case let .replace(newState): field.setState(newState)
         case .submit: field.submit()
         case .ignore: break
         }
@@ -616,24 +618,32 @@ final class ShellState: EdexActionHandler {
     private var activeDetachedField: DetachedField? {
         if let id = fuzzyFinderModalID, modalManager.modal(id: id) != nil {
             return DetachedField(
-                text: fuzzyQuery,
-                setText: { [weak self] in self?.setFuzzyQuery($0) },
+                state: KeyboardDetachedEditor.State(text: fuzzyQuery, caret: fuzzyCaret),
+                setState: { [weak self] in self?.setFuzzyState($0) },
                 submit: { [weak self] in self?.submitFuzzySelection() }
             )
         }
         if let id = textEditorModalID, modalManager.modal(id: id) != nil {
             return DetachedField(
-                text: textEditorText,
-                setText: { [weak self] in self?.setTextEditorText($0) },
-                submit: { [weak self] in self?.setTextEditorText((self?.textEditorText ?? "") + "\n") }
+                state: KeyboardDetachedEditor.State(text: textEditorText, caret: textEditorCaret),
+                setState: { [weak self] in self?.setTextEditorState($0) },
+                submit: { [weak self] in
+                    guard let self else { return }
+                    let state = KeyboardDetachedEditor.State(text: textEditorText, caret: textEditorCaret)
+                    var text = state.text
+                    let insertIndex = text.index(atUTF16Offset: state.caret)
+                    text.insert("\n", at: insertIndex)
+                    let newCaret = text.utf16Offset(of: text.index(after: insertIndex))
+                    setTextEditorState(KeyboardDetachedEditor.State(text: text, caret: newCaret))
+                }
             )
         }
         return nil
     }
 
     private struct DetachedField {
-        let text: String
-        let setText: (String) -> Void
+        let state: KeyboardDetachedEditor.State
+        let setState: (KeyboardDetachedEditor.State) -> Void
         let submit: () -> Void
     }
 
@@ -847,6 +857,7 @@ final class ShellState: EdexActionHandler {
         }
 
         fuzzyQuery = ""
+        fuzzyCaret = 0
         fuzzyResults = FuzzyMatcher.search(fuzzySearchItems, query: fuzzyQuery)
         fuzzySelection = 0
         fuzzyStatus = fuzzyResults.isEmpty ? "No results in current directory." : "Searching \(fsPath)"
@@ -862,6 +873,7 @@ final class ShellState: EdexActionHandler {
                     guard self?.fuzzyFinderModalID == closedID else { return }
                     self?.fuzzyFinderModalID = nil
                     self?.fuzzyQuery = ""
+                    self?.fuzzyCaret = 0
                     self?.fuzzyResults = []
                     self?.fuzzySelection = 0
                     self?.fuzzyStatus = ""
@@ -873,9 +885,22 @@ final class ShellState: EdexActionHandler {
 
     func setFuzzyQuery(_ value: String) {
         fuzzyQuery = value
+        fuzzyCaret = value.utf16.count
         fuzzyResults = FuzzyMatcher.search(fuzzySearchItems, query: value)
         fuzzySelection = 0
         fuzzyStatus = fuzzyResults.isEmpty ? "No results." : "\(fuzzyResults.count) match\(fuzzyResults.count == 1 ? "" : "es")"
+    }
+
+    private func setFuzzyState(_ state: KeyboardDetachedEditor.State) {
+        fuzzyQuery = state.text
+        fuzzyCaret = state.caret
+        fuzzyResults = FuzzyMatcher.search(fuzzySearchItems, query: state.text)
+        fuzzySelection = 0
+        fuzzyStatus = fuzzyResults.isEmpty ? "No results." : "\(fuzzyResults.count) match\(fuzzyResults.count == 1 ? "" : "es")"
+    }
+
+    func setFuzzyCaret(_ value: Int) {
+        fuzzyCaret = min(max(0, value), fuzzyQuery.utf16.count)
     }
 
     func moveFuzzySelection(_ delta: Int) {
@@ -942,6 +967,7 @@ final class ShellState: EdexActionHandler {
 
             let document = EdexTextDocument(path: path, text: text)
             textDocument = document
+            textEditorCaret = text.utf16.count
             textEditorStatus = document.statusLine
             let openedID = presentModal(
                 type: "custom",
@@ -954,6 +980,7 @@ final class ShellState: EdexActionHandler {
                         guard self?.textEditorModalID == closedID else { return }
                         self?.textEditorModalID = nil
                         self?.textDocument = nil
+                        self?.textEditorCaret = 0
                         self?.textEditorStatus = ""
                     }
                 }
@@ -1081,9 +1108,23 @@ final class ShellState: EdexActionHandler {
     func setTextEditorText(_ value: String) {
         guard textDocument != nil else { return }
         textDocument?.text = value
+        textEditorCaret = value.utf16.count
         if let document = textDocument {
             textEditorStatus = document.statusLine
         }
+    }
+
+    private func setTextEditorState(_ state: KeyboardDetachedEditor.State) {
+        guard textDocument != nil else { return }
+        textDocument?.text = state.text
+        textEditorCaret = state.caret
+        if let document = textDocument {
+            textEditorStatus = document.statusLine
+        }
+    }
+
+    func setTextEditorCaret(_ value: Int) {
+        textEditorCaret = min(max(0, value), textEditorText.utf16.count)
     }
 
     /// Writes the buffer to disk off the MainActor, rebaselines the dirty state,

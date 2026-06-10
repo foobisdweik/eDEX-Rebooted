@@ -996,13 +996,13 @@ private struct EdexTextEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextEditor(text: Binding(
+            EdexDetachedTextView(text: Binding(
                 get: { state.textEditorText },
                 set: { state.setTextEditorText($0) }
-            ))
-            .font(.custom(theme.fonts.terminal, size: 12))
-            .foregroundStyle(theme.terminalForeground)
-            .scrollContentBackground(.hidden)
+            ), caret: Binding(
+                get: { state.textEditorCaret },
+                set: { state.setTextEditorCaret($0) }
+            ), theme: theme)
             .background(theme.terminalBackground.opacity(0.72))
             .frame(minHeight: 280, maxHeight: .infinity)
             .overlay(
@@ -1044,23 +1044,21 @@ private struct EdexFuzzyFinderView: View {
     @Bindable var state: ShellState
     let theme: NativeTheme
 
-    @FocusState private var searchFocused: Bool
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Search file in cwd...", text: Binding(
+            EdexDetachedSearchField(text: Binding(
                 get: { state.fuzzyQuery },
                 set: { state.setFuzzyQuery($0) }
-            ))
-            .textFieldStyle(.plain)
-            .font(.custom(theme.fonts.terminal, size: 13))
-            .foregroundStyle(theme.terminalForeground)
+            ), caret: Binding(
+                get: { state.fuzzyCaret },
+                set: { state.setFuzzyCaret($0) }
+            ), placeholder: "Search file in cwd...", theme: theme) {
+                state.submitFuzzySelection()
+            }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(theme.terminalBackground.opacity(0.72))
             .overlay(Rectangle().strokeBorder(theme.accent.opacity(0.44), lineWidth: 1))
-            .focused($searchFocused)
-            .onSubmit { state.submitFuzzySelection() }
 
             VStack(spacing: 0) {
                 if state.fuzzyResults.isEmpty {
@@ -1113,9 +1111,6 @@ private struct EdexFuzzyFinderView: View {
             fill: theme.terminalBackground.opacity(0.7),
             stroke: theme.accent
         )
-        .task {
-            searchFocused = true
-        }
         .onKeyPress(.upArrow) {
             state.moveFuzzySelection(-1)
             return .handled
