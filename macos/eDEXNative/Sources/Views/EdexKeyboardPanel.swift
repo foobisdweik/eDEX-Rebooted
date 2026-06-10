@@ -71,7 +71,15 @@ struct EdexKeyboardPanel: View {
             isEmphasizedEdge = false
         }
 
-        return EdexKeyboardKeyButton(repeatEnabled: descriptor.modifier == nil) {
+        let repeatEnabled: Bool
+        switch descriptor.role {
+        case .enter, .enterContinuation:
+            repeatEnabled = false
+        default:
+            repeatEnabled = descriptor.modifier == nil
+        }
+
+        return EdexKeyboardKeyButton(repeatEnabled: repeatEnabled) {
             if let modifier = descriptor.modifier {
                 onToggleModifier(modifier)
             } else {
