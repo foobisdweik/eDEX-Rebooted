@@ -92,7 +92,9 @@ struct CpuPanel: View {
     private func cpuGraph(chart: Int, divide: Int, cores: Int) -> some View {
         TimelineView(.periodic(from: .now, by: Self.cpuGraphFrameInterval)) { context in
             Canvas { ctx, size in
-                guard cores > 0 else { return }
+                guard size.width.isFinite, size.width > 0,
+                      size.height.isFinite, size.height > 0,
+                      cores > 0 else { return }
                 // millisPerPixel = 50 in the legacy → 20px per 1s sample.
                 let dx = 1000.0 / 50.0
                 // Fraction (0...1) of the way to the next sample, for smooth scroll.

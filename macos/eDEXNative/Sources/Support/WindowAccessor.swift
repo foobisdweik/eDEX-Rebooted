@@ -29,6 +29,15 @@ struct WindowAccessor: NSViewRepresentable {
     }
 
     private func configureIfNeeded(_ view: NSView, _ coordinator: Coordinator) {
+        // Synchronous fast path: `updateNSView` runs on the main thread, so when
+        // the window is already attached and nothing changed we can bail without
+        // scheduling a main-queue closure on every SwiftUI update. The async
+        // branch remains for the case where the window isn't resolved yet.
+        if let window = view.window,
+           coordinator.lastWindow === window,
+           coordinator.lastKeepGeometry == keepGeometry {
+            return
+        }
         let keepGeometry = self.keepGeometry
         let onConfigure = self.onConfigure
         DispatchQueue.main.async { [weak view] in

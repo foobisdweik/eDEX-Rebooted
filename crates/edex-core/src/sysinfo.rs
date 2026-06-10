@@ -241,8 +241,14 @@ impl SysinfoService {
             .lock()
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
         let now = Instant::now();
-        state.sys.refresh_memory();
         state.refresh_processes_if_stale(now, dedup_ttl);
+        // MEM% is `process_memory / total_memory`, and with lazy `System::new()`
+        // the system total is 0 until something refreshes memory. Seed it once
+        // here (physical RAM never changes) so the first TOPLIST poll doesn't
+        // report 0% for every process before the RAM panel has run.
+        if state.sys.total_memory() == 0 {
+            state.sys.refresh_memory();
+        }
 
         let sys = &state.sys;
         let top_processes = top_rows_from_sys(sys, collapse_threads_by_name, top_limit);
@@ -576,7 +582,13 @@ impl<T: Listable> LazyList<T> {
         if self.listed {
             self.inner.refresh_data();
         } else {
+            // First access lists AND fetches data, matching the original
+            // `new_with_refreshed_list()` + `.refresh()` two-step. `refresh_list`
+            // alone only enumerates resources (and is a no-op for `Components`
+            // on macOS), so without the data refresh the first poll would read
+            // zero/stale metrics — and for temperature that zero gets cached.
             self.inner.refresh_list();
+            self.inner.refresh_data();
             self.listed = true;
         }
         &mut self.inner
@@ -1232,6 +1244,22 @@ mod tests {
             .unwrap();
         assert!(full.process_list.is_some());
         assert!(!full.process_list.unwrap().list.is_empty());
+    }
+
+    // Regression (BugBot): with lazy `System::new()`, the system memory total is
+    // 0 until refreshed, so MEM% was 0 for every process on the first TOPLIST
+    // poll. The seed in `toplist_snapshot` must populate it before ranking.
+    #[test]
+    fn toplist_snapshot_reports_nonzero_memory_on_fresh_service() {
+        let service = SysinfoService::new();
+        let snap = service
+            .toplist_snapshot(false, 5, false, Duration::ZERO)
+            .unwrap();
+        assert!(
+            snap.top_processes.iter().any(|row| row.mem > 0.0),
+            "MEM% must be nonzero once the memory total is seeded (got {:?})",
+            snap.top_processes.iter().map(|r| r.mem).collect::<Vec<_>>()
+        );
     }
 
     #[test]
