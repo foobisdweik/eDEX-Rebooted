@@ -13,23 +13,39 @@ use sysinfo::{Components, Disks, Networks, System};
 
 pub struct SysinfoService {
     sys_state: Mutex<SystemState>,
-    disks: Mutex<Disks>,
-    networks: Mutex<Networks>,
-    components: Mutex<Components>,
+    temp_cache: Mutex<SnapshotCache<TempStats>>,
+    disks: Mutex<LazyList<Disks>>,
+    networks: Mutex<LazyList<Networks>>,
+    components: Mutex<LazyList<Components>>,
 }
 
 impl SysinfoService {
+    /// Minimal, lazy construction (Finding #1).
+    ///
+    /// Previously this eagerly did `System::new_with_specifics(everything())`
+    /// then `refresh_all()` (a full process-table scan — ~100 ms on launch) and
+    /// list-refreshed all three resource handles. Now the `System` starts empty
+    /// and every resource is list-populated on first use, so the app reaches an
+    /// interactive state before full telemetry collection runs. The TTL-cached
+    /// accessors below take care of the first real refresh on demand.
     pub fn new() -> Self {
-        use sysinfo::RefreshKind;
-
-        let mut sys = System::new_with_specifics(RefreshKind::everything());
-        sys.refresh_all();
         Self {
-            sys_state: Mutex::new(SystemState::new(sys)),
-            disks: Mutex::new(Disks::new_with_refreshed_list()),
-            networks: Mutex::new(Networks::new_with_refreshed_list()),
-            components: Mutex::new(Components::new_with_refreshed_list()),
+            sys_state: Mutex::new(SystemState::new(System::new())),
+            temp_cache: Mutex::new(SnapshotCache::default()),
+            disks: Mutex::new(LazyList::new(Disks::new())),
+            networks: Mutex::new(LazyList::new(Networks::new())),
+            components: Mutex::new(LazyList::new(Components::new())),
         }
+    }
+
+    /// Total number of OS process-table refreshes performed since construction.
+    /// Real instrumentation (not a test hook): used to verify the CPU panel
+    /// never rebuilds the process table on its hot path (Findings #2/#3).
+    pub fn process_refresh_count(&self) -> u64 {
+        self.sys_state
+            .lock()
+            .map(|state| state.process_refresh_count)
+            .unwrap_or(0)
     }
 
     pub fn cpu(&self) -> Result<CpuStats, String> {
@@ -65,8 +81,37 @@ impl SysinfoService {
             .components
             .lock()
             .map_err(|_| "components lock poisoned".to_string())?;
-        comps.refresh();
-        Ok(temp_stats_from_components(&comps))
+        Ok(temp_stats_from_components(comps.refreshed()))
+    }
+
+    /// CPU temperature read through a short TTL cache (Finding #2 "optional
+    /// cached path"). The CPU panel polls 1 Hz but SMC/thermal sensors move
+    /// slowly, so we hit the components handle at most once per
+    /// `TEMP_SNAPSHOT_TTL` and reuse the cached reading in between.
+    fn cpu_temperature_cached(&self) -> Result<TempStats, String> {
+        let now = Instant::now();
+        {
+            let cache = self
+                .temp_cache
+                .lock()
+                .map_err(|_| "temp cache lock poisoned".to_string())?;
+            if let Some(temp) = cache.read_fresh(now, TEMP_SNAPSHOT_TTL) {
+                return Ok(temp);
+            }
+        }
+        let temp = {
+            let mut comps = self
+                .components
+                .lock()
+                .map_err(|_| "components lock poisoned".to_string())?;
+            temp_stats_from_components(comps.refreshed())
+        };
+        let mut cache = self
+            .temp_cache
+            .lock()
+            .map_err(|_| "temp cache lock poisoned".to_string())?;
+        cache.store(temp.clone(), now);
+        Ok(temp)
     }
 
     pub fn processes(&self) -> Result<ProcessList, String> {
@@ -94,101 +139,120 @@ impl SysinfoService {
             .inspect(|processes| state.processes.store(processes.clone(), now))
     }
 
+    /// Combined snapshot retained for the (Swift-unused) `sysinfo_snapshot_json`
+    /// FFI surface. The live native panels use the lighter `cpu_snapshot` /
+    /// `toplist_snapshot` / `mem` paths below instead.
     pub fn panel_snapshot(
         &self,
         collapse_threads_by_name: bool,
         top_limit: usize,
         include_process_list: bool,
     ) -> Result<PanelSnapshot, String> {
-        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
+        let (cpu, current_load, mem, process_count, top_processes, process_list) = {
+            let mut state = self
+                .sys_state
+                .lock()
+                .map_err(|_| "sysinfo lock poisoned".to_string())?;
+            state.sys.refresh_cpu_all();
+            state.sys.refresh_memory();
+            let now = Instant::now();
+            state.refresh_processes_if_stale(now, Duration::ZERO);
 
-        let mut state = self
-            .sys_state
-            .lock()
-            .map_err(|_| "sysinfo lock poisoned".to_string())?;
-        let sys = &mut state.sys;
-        sys.refresh_cpu_all();
-        sys.refresh_memory();
-        sys.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::everything(),
-        );
-
-        let mem = mem_stats_from_system(sys);
-        let cpu = cpu_stats_from_sys(sys);
-
-        let current_load = load_stats_from_sys(sys);
-
-        let process_count = sys.processes().len();
-        let total_mem = sys.total_memory() as f64;
-        let mut top_candidates: Vec<ProcessTopRow> = if collapse_threads_by_name {
-            let rows = sys
-                .processes()
-                .iter()
-                .map(|(pid, p)| ProcessTopRow {
-                    pid: pid.as_u32(),
-                    name: p.name().to_string_lossy().to_string(),
-                    cpu: p.cpu_usage() as f64,
-                    mem: if total_mem > 0.0 {
-                        (p.memory() as f64) * 100.0 / total_mem
-                    } else {
-                        0.0
-                    },
-                })
-                .collect();
-            collapse_top_rows_by_name(rows)
-        } else {
-            sys.processes()
-                .iter()
-                .map(|(pid, p)| ProcessTopRow {
-                    pid: pid.as_u32(),
-                    name: p.name().to_string_lossy().to_string(),
-                    cpu: p.cpu_usage() as f64,
-                    mem: if total_mem > 0.0 {
-                        (p.memory() as f64) * 100.0 / total_mem
-                    } else {
-                        0.0
-                    },
-                })
-                .collect()
+            let sys = &state.sys;
+            let mem = mem_stats_from_system(sys);
+            let cpu = cpu_stats_from_sys(sys);
+            let current_load = load_stats_from_sys(sys);
+            let process_count = state.process_count;
+            let top_processes = top_rows_from_sys(sys, collapse_threads_by_name, top_limit);
+            let process_list = if include_process_list {
+                Some(process_list_payload(sys, collapse_threads_by_name))
+            } else {
+                None
+            };
+            (
+                cpu,
+                current_load,
+                mem,
+                process_count,
+                top_processes,
+                process_list,
+            )
         };
 
-        top_candidates.sort_by(|a, b| {
-            let score_a = a.cpu * 100.0 + a.mem;
-            let score_b = b.cpu * 100.0 + b.mem;
-            score_b
-                .partial_cmp(&score_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        top_candidates.truncate(top_limit.max(1));
-
-        let process_list = if include_process_list {
-            let mut rows = collect_process_rows(sys);
-            if collapse_threads_by_name {
-                rows = collapse_process_rows_by_name(rows);
-            }
-            Some(process_list_from_rows(rows))
-        } else {
-            None
-        };
-
-        drop(state);
-
-        let mut comps = self
-            .components
-            .lock()
-            .map_err(|_| "components lock poisoned".to_string())?;
-        comps.refresh();
-        let cpu_temperature = temp_stats_from_components(&comps);
+        let cpu_temperature = self.cpu_temperature_cached()?;
 
         Ok(PanelSnapshot {
             cpu,
             current_load,
             cpu_temperature,
             process_count,
-            top_processes: top_candidates,
+            top_processes,
             mem,
+            process_list,
+        })
+    }
+
+    /// CPU-only snapshot for the cpuinfo panel (Findings #2/#3).
+    ///
+    /// Refreshes CPU + per-core load and reads temperature through the TTL
+    /// cache. It deliberately does **not** rebuild the process table: the only
+    /// process work is a one-time seed of the TASKS count so the footer isn't
+    /// zero before the first TOPLIST poll. After that the count is whatever the
+    /// shared process producer (TOPLIST / modal) last published.
+    pub fn cpu_snapshot(&self) -> Result<CpuPanelSnapshot, String> {
+        let (cpu, current_load, process_count) = {
+            let mut state = self
+                .sys_state
+                .lock()
+                .map_err(|_| "sysinfo lock poisoned".to_string())?;
+            state.sys.refresh_cpu_all();
+            if state.processes_refreshed_at.is_none() {
+                let now = Instant::now();
+                state.refresh_processes_if_stale(now, Duration::ZERO);
+            }
+            let cpu = cpu_stats_from_sys(&state.sys);
+            let current_load = load_stats_from_sys(&state.sys);
+            (cpu, current_load, state.process_count)
+        };
+
+        let cpu_temperature = self.cpu_temperature_cached()?;
+
+        Ok(CpuPanelSnapshot {
+            cpu,
+            current_load,
+            cpu_temperature,
+            process_count,
+        })
+    }
+
+    /// TOPLIST snapshot — the single producer of process-table data
+    /// (Finding #3). `dedup_ttl` collapses overlapping polls (the 5 s compact
+    /// panel and the 1 s modal) onto one refresh; pass `Duration::ZERO` to force
+    /// a refresh every call.
+    pub fn toplist_snapshot(
+        &self,
+        collapse_threads_by_name: bool,
+        top_limit: usize,
+        include_process_list: bool,
+        dedup_ttl: Duration,
+    ) -> Result<ToplistData, String> {
+        let mut state = self
+            .sys_state
+            .lock()
+            .map_err(|_| "sysinfo lock poisoned".to_string())?;
+        let now = Instant::now();
+        state.refresh_processes_if_stale(now, dedup_ttl);
+
+        let sys = &state.sys;
+        let top_processes = top_rows_from_sys(sys, collapse_threads_by_name, top_limit);
+        let process_list = if include_process_list {
+            Some(process_list_payload(sys, collapse_threads_by_name))
+        } else {
+            None
+        };
+
+        Ok(ToplistData {
+            top_processes,
             process_list,
         })
     }
@@ -249,7 +313,7 @@ impl SysinfoService {
             .networks
             .lock()
             .map_err(|_| "networks lock poisoned".to_string())?;
-        nets.refresh();
+        let nets = nets.refreshed();
         let mut list = Vec::new();
 
         for (name, data) in nets.iter() {
@@ -301,7 +365,7 @@ impl SysinfoService {
             .networks
             .lock()
             .map_err(|_| "networks lock poisoned".to_string())?;
-        nets.refresh();
+        let nets = nets.refreshed();
         let mut out = Vec::new();
 
         for (name, data) in nets.iter() {
@@ -338,8 +402,8 @@ impl SysinfoService {
             .disks
             .lock()
             .map_err(|_| "disks lock poisoned".to_string())?;
-        disks.refresh();
         let list: Vec<DiskInfo> = disks
+            .refreshed()
             .iter()
             .map(|d| {
                 let total = d.total_space();
@@ -369,8 +433,8 @@ impl SysinfoService {
             .disks
             .lock()
             .map_err(|_| "disks lock poisoned".to_string())?;
-        disks.refresh();
         let list: Vec<BlockDevice> = disks
+            .refreshed()
             .iter()
             .map(|d| {
                 let removable = d.is_removable();
@@ -430,6 +494,15 @@ const CPU_SNAPSHOT_TTL: Duration = Duration::from_secs(30);
 const LOAD_SNAPSHOT_TTL: Duration = Duration::from_millis(350);
 const MEM_SNAPSHOT_TTL: Duration = Duration::from_millis(1000);
 const PROCESS_SNAPSHOT_TTL: Duration = Duration::from_millis(1000);
+/// CPU temperature read cache window (Finding #2).
+///
+/// `Components::refresh()` is the single most expensive telemetry call in the
+/// app: ~110 ms per read on Apple Silicon (an SMC/IOKit enumeration), and it
+/// returns no usable sensor on this hardware to begin with. The old code paid
+/// that on every 1 Hz CPU poll and every TOPLIST poll. Thermal values move on a
+/// seconds-to-minutes scale, so we read at most once per 15 s and reuse the
+/// cached value — cutting ~60 reads/min to ~4 while keeping the gauge live.
+const TEMP_SNAPSHOT_TTL: Duration = Duration::from_millis(15_000);
 
 struct SystemState {
     sys: System,
@@ -437,6 +510,12 @@ struct SystemState {
     load: SnapshotCache<LoadStats>,
     mem: SnapshotCache<MemStats>,
     processes: SnapshotCache<ProcessList>,
+    /// Shared process-table producer state (Finding #3). When the table was
+    /// last rebuilt, the last published process count, and a lifetime counter
+    /// of actual OS refreshes (for instrumentation/tests).
+    processes_refreshed_at: Option<Instant>,
+    process_count: usize,
+    process_refresh_count: u64,
 }
 
 impl SystemState {
@@ -447,9 +526,84 @@ impl SystemState {
             load: SnapshotCache::default(),
             mem: SnapshotCache::default(),
             processes: SnapshotCache::default(),
+            processes_refreshed_at: None,
+            process_count: 0,
+            process_refresh_count: 0,
         }
     }
+
+    /// Rebuild the OS process table at most once per `ttl`. Returns whether a
+    /// refresh actually ran. This is the single producer: TOPLIST/modal drive
+    /// it; the CPU panel only triggers the one-time seed.
+    fn refresh_processes_if_stale(&mut self, now: Instant, ttl: Duration) -> bool {
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate};
+        if let Some(at) = self.processes_refreshed_at {
+            if now.duration_since(at) <= ttl {
+                return false;
+            }
+        }
+        self.sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            // sysinfo 0.32 names this flag remove_dead_processes.
+            true,
+            ProcessRefreshKind::everything(),
+        );
+        self.process_count = self.sys.processes().len();
+        self.processes_refreshed_at = Some(now);
+        self.process_refresh_count += 1;
+        true
+    }
 }
+
+/// A `sysinfo` resource handle (`Disks` / `Networks` / `Components`) whose list
+/// is populated lazily on first use (Finding #1). Construction is free; the
+/// first `refreshed()` enumerates the list, and later calls only refresh data.
+struct LazyList<T: Listable> {
+    inner: T,
+    listed: bool,
+}
+
+impl<T: Listable> LazyList<T> {
+    fn new(inner: T) -> Self {
+        Self {
+            inner,
+            listed: false,
+        }
+    }
+
+    fn refreshed(&mut self) -> &mut T {
+        if self.listed {
+            self.inner.refresh_data();
+        } else {
+            self.inner.refresh_list();
+            self.listed = true;
+        }
+        &mut self.inner
+    }
+}
+
+/// List/data refresh seam for the lazily-populated resource handles.
+trait Listable {
+    fn refresh_list(&mut self);
+    fn refresh_data(&mut self);
+}
+
+macro_rules! impl_listable {
+    ($t:ty) => {
+        impl Listable for $t {
+            fn refresh_list(&mut self) {
+                <$t>::refresh_list(self)
+            }
+            fn refresh_data(&mut self) {
+                <$t>::refresh(self)
+            }
+        }
+    };
+}
+
+impl_listable!(Disks);
+impl_listable!(Networks);
+impl_listable!(Components);
 
 struct SnapshotCache<T> {
     data: Option<T>,
@@ -562,6 +716,26 @@ pub struct PanelSnapshot {
     pub top_processes: Vec<ProcessTopRow>,
     pub mem: MemStats,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_list: Option<ProcessList>,
+}
+
+/// CPU-only snapshot consumed by `EdexCore::cpu_snapshot` (Findings #2/#3).
+/// Carries everything the cpuinfo panel reads without any process-table work
+/// beyond the cached `process_count`.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuPanelSnapshot {
+    pub cpu: CpuStats,
+    pub current_load: LoadStats,
+    pub cpu_temperature: TempStats,
+    pub process_count: usize,
+}
+
+/// TOPLIST payload produced from the shared process snapshot (Finding #3).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToplistData {
+    pub top_processes: Vec<ProcessTopRow>,
     pub process_list: Option<ProcessList>,
 }
 
@@ -839,6 +1013,52 @@ fn collect_process_rows(sys: &System) -> Vec<ProcessRow> {
         .collect()
 }
 
+/// Build the ranked compact top-process rows from the last-refreshed process
+/// table. Shared by `panel_snapshot` and `toplist_snapshot` (Finding #3) so the
+/// ranking math lives in one place.
+fn top_rows_from_sys(
+    sys: &System,
+    collapse_threads_by_name: bool,
+    top_limit: usize,
+) -> Vec<ProcessTopRow> {
+    let total_mem = sys.total_memory() as f64;
+    let rows = sys.processes().iter().map(|(pid, p)| ProcessTopRow {
+        pid: pid.as_u32(),
+        name: p.name().to_string_lossy().to_string(),
+        cpu: p.cpu_usage() as f64,
+        mem: if total_mem > 0.0 {
+            (p.memory() as f64) * 100.0 / total_mem
+        } else {
+            0.0
+        },
+    });
+    let mut top_candidates: Vec<ProcessTopRow> = if collapse_threads_by_name {
+        collapse_top_rows_by_name(rows.collect())
+    } else {
+        rows.collect()
+    };
+
+    top_candidates.sort_by(|a, b| {
+        let score_a = a.cpu * 100.0 + a.mem;
+        let score_b = b.cpu * 100.0 + b.mem;
+        score_b
+            .partial_cmp(&score_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    top_candidates.truncate(top_limit.max(1));
+    top_candidates
+}
+
+/// Build the full process-list payload (expanded modal) from the last-refreshed
+/// process table. Shared by `panel_snapshot` and `toplist_snapshot`.
+fn process_list_payload(sys: &System, collapse_threads_by_name: bool) -> ProcessList {
+    let mut rows = collect_process_rows(sys);
+    if collapse_threads_by_name {
+        rows = collapse_process_rows_by_name(rows);
+    }
+    process_list_from_rows(rows)
+}
+
 fn process_list_from_rows(list: Vec<ProcessRow>) -> ProcessList {
     let n = list.len();
     ProcessList {
@@ -939,6 +1159,79 @@ fn days_to_date(days_from_epoch: i64) -> (i32, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Finding #1: constructing the service must not eagerly scan the process
+    // table (the heavy startup cost). A fresh service has refreshed zero times.
+    #[test]
+    fn new_does_not_eagerly_refresh_processes() {
+        let service = SysinfoService::new();
+        assert_eq!(service.process_refresh_count(), 0);
+    }
+
+    // Finding #2/#3: the CPU panel polls 1 Hz but must NOT rebuild the process
+    // table every tick. It seeds the process count exactly once (so the TASKS
+    // footer isn't zero at launch), then never refreshes processes again.
+    #[test]
+    fn cpu_snapshot_seeds_process_count_once_then_never_refreshes() {
+        let service = SysinfoService::new();
+        for _ in 0..6 {
+            let snap = service.cpu_snapshot().expect("cpu snapshot");
+            assert!(!snap.current_load.cpus.is_empty(), "per-core loads present");
+            assert!(snap.process_count > 0, "TASKS count seeded, not zero");
+        }
+        assert_eq!(
+            service.process_refresh_count(),
+            1,
+            "CPU path refreshes the process table exactly once (the seed)"
+        );
+    }
+
+    // Finding #3: overlapping TOPLIST polls (panel + open modal) within the
+    // dedup window reuse one process refresh instead of rebuilding twice.
+    #[test]
+    fn toplist_snapshot_dedups_within_ttl() {
+        let service = SysinfoService::new();
+        let ttl = Duration::from_secs(10);
+        let _ = service.toplist_snapshot(false, 5, false, ttl).unwrap();
+        let _ = service.toplist_snapshot(false, 5, false, ttl).unwrap();
+        assert_eq!(
+            service.process_refresh_count(),
+            1,
+            "second call within TTL reuses the cached process table"
+        );
+    }
+
+    // Finding #3: with no dedup window, each TOPLIST poll refreshes (the modal's
+    // high-frequency path). Proves the TTL guard, not a permanent freeze.
+    #[test]
+    fn toplist_snapshot_refreshes_each_call_with_zero_ttl() {
+        let service = SysinfoService::new();
+        let _ = service
+            .toplist_snapshot(false, 5, false, Duration::ZERO)
+            .unwrap();
+        let _ = service
+            .toplist_snapshot(false, 5, false, Duration::ZERO)
+            .unwrap();
+        assert_eq!(service.process_refresh_count(), 2);
+    }
+
+    // Finding #3: TOPLIST still produces the compact top rows and (on demand)
+    // the full process list from the shared snapshot.
+    #[test]
+    fn toplist_snapshot_yields_top_rows_and_optional_list() {
+        let service = SysinfoService::new();
+        let compact = service
+            .toplist_snapshot(false, 5, false, Duration::ZERO)
+            .unwrap();
+        assert!(compact.top_processes.len() <= 5);
+        assert!(compact.process_list.is_none());
+
+        let full = service
+            .toplist_snapshot(false, 5, true, Duration::ZERO)
+            .unwrap();
+        assert!(full.process_list.is_some());
+        assert!(!full.process_list.unwrap().list.is_empty());
+    }
 
     #[test]
     fn collapse_top_rows_by_name_sums_once_and_keeps_lowest_pid() {

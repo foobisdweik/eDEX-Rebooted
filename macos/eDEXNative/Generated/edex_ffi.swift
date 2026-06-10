@@ -618,7 +618,9 @@ public protocol EdexCoreProtocol: AnyObject, Sendable {
     
     /**
      * Live CPU snapshot for the cpuinfo panel: identity, clock, temperature,
-     * task count, and per-core load. Always a fresh refresh (panel polls 1 Hz).
+     * task count, and per-core load. CPU-only — it does not rebuild the process
+     * table on its 1 Hz poll (Findings #2/#3); `process_count` comes from the
+     * shared process producer that the TOPLIST panel drives.
      */
     func cpuSnapshot() throws  -> FfiCpuSnapshot
     
@@ -814,7 +816,9 @@ open func blockDevices()throws  -> [FfiBlockDevice]  {
     
     /**
      * Live CPU snapshot for the cpuinfo panel: identity, clock, temperature,
-     * task count, and per-core load. Always a fresh refresh (panel polls 1 Hz).
+     * task count, and per-core load. CPU-only — it does not rebuild the process
+     * table on its 1 Hz poll (Findings #2/#3); `process_count` comes from the
+     * shared process producer that the TOPLIST panel drives.
      */
 open func cpuSnapshot()throws  -> FfiCpuSnapshot  {
     return try  FfiConverterTypeFfiCpuSnapshot_lift(try rustCallWithError(FfiConverterTypeEdexError_lift) {
@@ -2669,7 +2673,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_edex_ffi_checksum_method_edexcore_block_devices() != 44727) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_edex_ffi_checksum_method_edexcore_cpu_snapshot() != 19571) {
+    if (uniffi_edex_ffi_checksum_method_edexcore_cpu_snapshot() != 448) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_edex_ffi_checksum_method_edexcore_ensure_userdata() != 25364) {
