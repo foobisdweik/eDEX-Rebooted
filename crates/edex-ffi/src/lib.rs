@@ -3,8 +3,15 @@ use edex_core::sysinfo::SysinfoService;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 uniffi::setup_scaffolding!();
+
+/// Dedup window for the shared process producer (Finding #3). Overlapping
+/// TOPLIST polls — the 5 s compact panel and the 1 s process modal — collapse
+/// onto a single OS process-table refresh when they land inside this window.
+/// Kept just under the modal's 1 s cadence so the modal stays live.
+const PROCESS_DEDUP_TTL: Duration = Duration::from_millis(900);
 
 /// Sorted `.json` file stems in a directory (theme/keyboard listings). A missing
 /// or unreadable directory yields an empty list rather than an error.
@@ -464,9 +471,11 @@ impl EdexCore {
     }
 
     /// Live CPU snapshot for the cpuinfo panel: identity, clock, temperature,
-    /// task count, and per-core load. Always a fresh refresh (panel polls 1 Hz).
+    /// task count, and per-core load. CPU-only — it does not rebuild the process
+    /// table on its 1 Hz poll (Findings #2/#3); `process_count` comes from the
+    /// shared process producer that the TOPLIST panel drives.
     pub fn cpu_snapshot(&self) -> Result<FfiCpuSnapshot, EdexError> {
-        let snapshot = self.sysinfo.panel_snapshot(false, 5, false)?;
+        let snapshot = self.sysinfo.cpu_snapshot()?;
         Ok(FfiCpuSnapshot {
             manufacturer: snapshot.cpu.manufacturer,
             brand: snapshot.cpu.brand,
@@ -500,9 +509,12 @@ impl EdexCore {
         collapse_threads_by_name: bool,
         include_process_list: bool,
     ) -> Result<FfiToplistSnapshot, EdexError> {
-        let snapshot =
-            self.sysinfo
-                .panel_snapshot(collapse_threads_by_name, 5, include_process_list)?;
+        let snapshot = self.sysinfo.toplist_snapshot(
+            collapse_threads_by_name,
+            5,
+            include_process_list,
+            PROCESS_DEDUP_TTL,
+        )?;
         Ok(FfiToplistSnapshot {
             top_processes: snapshot
                 .top_processes

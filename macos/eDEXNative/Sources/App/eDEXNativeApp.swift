@@ -9,8 +9,8 @@ struct EDEXNativeApp: App {
         WindowGroup("eDEX Native") {
             ContentView(state: shellState)
                 .frame(minWidth: 960, minHeight: 600)
-                .background(WindowAccessor { window in
-                    WindowChrome.configure(window, keepGeometry: shellState.keepGeometry)
+                .background(WindowAccessor(keepGeometry: shellState.keepGeometry) { window, keepGeometry in
+                    WindowChrome.configure(window, keepGeometry: keepGeometry)
                     appDelegate.registerMainWindow(window)
                 })
                 .task {

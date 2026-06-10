@@ -65,7 +65,8 @@ cd crates/edex-ffi && cargo build --release && \
 
 - **Offload FFI off the MainActor.** `ShellState` is `@MainActor`; every `refresh…()` does `await Task.detached(priority: .background){ client.… }.value` then assigns.
 - **Guard every `Double → Int` cast** against non-finite/out-of-range (the reviewer and reality crash on it) — see `RamwatcherSupport.safeInt`.
-- **Live graphs:** SwiftUI `Canvas` + `TimelineView(.animation)` (scrolls at ProMotion refresh). Guard `Canvas` size finite+positive.
+- **Live graphs:** SwiftUI `Canvas` + `TimelineView(.periodic(by: 1/30))` — a bounded 30 Hz scroll cadence (was `.animation`, which redrew at the display rate up to 120 Hz; see the telemetry-perf pass). Guard `Canvas` size finite+positive.
+- **Telemetry refresh discipline:** the CPU panel poll (`cpu_snapshot`) is CPU-only and must not rebuild the process table; `SysinfoService::toplist_snapshot` is the single process-table producer (TTL-deduped). CPU temperature is read at most once per `TEMP_SNAPSHOT_TTL` (the `Components`/SMC read is ~110 ms and empty on Apple Silicon). Keep `SysinfoService::new()` lazy — no `refresh_all()` at construction.
 - **Regenerate bindings** after any `crates/edex-ffi` signature change (command above); run `cargo fmt` after editing Rust.
 - **SourceKit "No such module 'X'" diagnostics in-editor are noise** — the SwiftPM CLI build is the source of truth.
 - **macOS-only.** Don't reintroduce `process.platform === "win32"` branches; cross-platform logic, if it returns, belongs in Rust.
