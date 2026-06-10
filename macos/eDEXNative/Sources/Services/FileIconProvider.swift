@@ -32,26 +32,31 @@ final class FileIconProvider {
         guard isReady else { return nil }
 
         let fill = theme.palette.accent.hexRGB
-        let secondaryFill = secondaryFillHex(for: theme)
+        let secondaryFill = theme.legacyLightBlack.hexRGB
         let fillKey = "\(fill)|\(secondaryFill)"
         if fillKey != cachedFillKey {
             imageCache.removeAll(keepingCapacity: true)
             cachedFillKey = fillKey
         }
 
-        let resolution = FileIconResolver.resolve(name: name, role: role, matcher: matcher)
+        // The cache key must name the glyph actually drawn, not the matched
+        // icon id: when a matched id has no renderable catalog entry, the
+        // fallback differs by role (`dir` vs `file`), so keying on the
+        // matched id would pin one role's fallback for the other.
         let cacheKey: String
         let document: String?
-        switch resolution {
+        switch FileIconResolver.resolve(name: name, role: role, matcher: matcher) {
         case .catalog(let iconName):
-            // Mirror the legacy fallback chain: matched icon → role icon →
-            // `other`; the caller's SF Symbol remains the last resort.
-            if let catalogDocument = catalog?.svgDocument(named: iconName, fill: fill) {
+            if let matchedDocument = catalog?.svgDocument(named: iconName, fill: fill) {
                 cacheKey = "c:\(iconName)"
-                document = catalogDocument
+                document = matchedDocument
             } else {
-                cacheKey = "c:\(iconName)|\(roleFallbackIconName(for: role))"
-                document = fallbackDocument(for: role, fill: fill)
+                // Legacy fallback chain: matched icon → role icon → `other`;
+                // the caller's SF Symbol remains the last resort.
+                let fallbackName = Self.roleFallbackIconName(for: role)
+                cacheKey = "c:\(fallbackName)"
+                document = catalog?.svgDocument(named: fallbackName, fill: fill)
+                    ?? catalog?.svgDocument(named: "other", fill: fill)
             }
         case .edex(let icon):
             cacheKey = "e:\(icon.rawValue)"
@@ -69,35 +74,39 @@ final class FileIconProvider {
         guard !loadStarted else { return }
         loadStarted = true
         Task.detached(priority: .utility) {
-            let catalog = try? FileIconCatalog.load(from: EdexBundledAssets.fileIconsCatalogURL())
-            let matcher = try? FileIconMatcher.load(from: EdexBundledAssets.fileIconsMatchRulesURL())
-            await MainActor.run { [weak self] in
+            // Catalog and matcher degrade independently — the legacy renderer
+            // did the same (`window.__FILE_ICONS_MATCHER__ || (() => "file")`):
+            // a missing matcher still leaves role/edex glyphs working, and a
+            // missing catalog falls back to SF Symbols. Surface either failure
+            // loudly so the degraded mode is at least visible in logs.
+            var catalog: FileIconCatalog?
+            do {
+                catalog = try FileIconCatalog.load(from: EdexBundledAssets.fileIconsCatalogURL())
+            } catch {
+                print("eDEXNative file-icons catalog failed to load: \(error)")
+            }
+            var matcher: FileIconMatcher?
+            do {
+                matcher = try FileIconMatcher.load(from: EdexBundledAssets.fileIconsMatchRulesURL())
+                if let failures = matcher?.compilationFailures, !failures.isEmpty {
+                    print("eDEXNative file-icons matcher skipped \(failures.count) uncompilable rules")
+                }
+            } catch {
+                print("eDEXNative file-icons matcher failed to load: \(error)")
+            }
+            await MainActor.run { [weak self, catalog, matcher] in
                 guard let self else { return }
                 self.catalog = catalog
                 self.matcher = matcher
-                self.isReady = catalog != nil && matcher != nil
+                self.isReady = catalog != nil
             }
         }
     }
 
-    private func roleFallbackIconName(for role: FilesystemRole) -> String {
+    private static func roleFallbackIconName(for role: FilesystemRole) -> String {
         switch role {
         case .directory, .themesDir, .keyboardsDir: return "dir"
         default: return "file"
         }
-    }
-
-    private func fallbackDocument(for role: FilesystemRole, fill: String) -> String? {
-        guard let catalog else { return nil }
-        let roleIcon = roleFallbackIconName(for: role)
-        return catalog.svgDocument(named: roleIcon, fill: fill)
-            ?? catalog.svgDocument(named: "other", fill: fill)
-    }
-
-    private func secondaryFillHex(for theme: NativeTheme) -> String {
-        let swatch = theme.palette.swatches["lightBlack"]
-            ?? theme.palette.swatches["light_black"]
-            ?? theme.palette.swatches["black"]
-        return (swatch ?? theme.palette.panelBackground).hexRGB
     }
 }

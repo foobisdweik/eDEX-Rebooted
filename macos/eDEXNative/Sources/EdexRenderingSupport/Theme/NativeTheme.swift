@@ -13,6 +13,17 @@ public struct NativeTheme: Sendable {
     public var terminalBackground: Color { palette.terminalBackground.color }
     public var terminalForeground: Color { palette.terminalForeground.color }
 
+    /// The legacy `theme.colors.light_black` secondary fill (used e.g. by the
+    /// two-tone fsDisp folder glyphs). Themes spell the swatch `lightBlack`,
+    /// `light_black`, or only ship `black`; panel background is the terminal
+    /// fallback the palette itself derives from those keys.
+    public var legacyLightBlack: NativeColor {
+        palette.swatches["lightBlack"]
+            ?? palette.swatches["light_black"]
+            ?? palette.swatches["black"]
+            ?? palette.panelBackground
+    }
+
     public static let fallback = NativeTheme(
         name: "fallback",
         source: "fallback tron palette",
