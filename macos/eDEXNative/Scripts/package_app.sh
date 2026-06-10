@@ -85,6 +85,10 @@ linked_lib="$(otool -L "$EXECUTABLE" | awk '/libedex_ffi[.]dylib/{print $1; exit
 if [[ -n "$linked_lib" && "$linked_lib" != "@rpath/libedex_ffi.dylib" ]]; then
   install_name_tool -change "$linked_lib" "@rpath/libedex_ffi.dylib" "$EXECUTABLE"
 fi
+dev_rpath="$(dirname "$RUST_LIB")"
+if otool -l "$EXECUTABLE" | grep -Fq "path ${dev_rpath}"; then
+  install_name_tool -delete_rpath "$dev_rpath" "$EXECUTABLE"
+fi
 if ! otool -l "$EXECUTABLE" | grep -q "@executable_path/../Frameworks"; then
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$EXECUTABLE"
 fi
