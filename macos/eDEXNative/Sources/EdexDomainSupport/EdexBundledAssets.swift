@@ -35,4 +35,12 @@ public enum EdexBundledAssets {
     public static func audioDirectory(from filePath: String = #filePath) -> URL {
         repositoryRoot(from: filePath).appendingPathComponent("assets/audio", isDirectory: true)
     }
+
+    public static func fileIconsCatalogURL(from filePath: String = #filePath) -> URL {
+        repositoryRoot(from: filePath).appendingPathComponent("assets/icons/file-icons.json")
+    }
+
+    public static func fileIconsMatchRulesURL(from filePath: String = #filePath) -> URL {
+        repositoryRoot(from: filePath).appendingPathComponent("assets/misc/file-icons-match.json")
+    }
 }

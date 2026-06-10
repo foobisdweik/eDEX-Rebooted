@@ -1451,9 +1451,7 @@ private struct EdexFilesystemPanel: View {
 
     private func gridCell(_ item: FilesystemItem) -> some View {
         VStack(spacing: 3) {
-            Image(systemName: symbol(item.role))
-                .font(.system(size: 18))
-                .foregroundStyle(theme.accent)
+            entryIcon(item, size: 18)
                 .frame(height: 22)
             Text(item.name)
                 .font(.custom(theme.fonts.terminal, size: 9))
@@ -1479,9 +1477,7 @@ private struct EdexFilesystemPanel: View {
 
     private func listRow(_ item: FilesystemItem) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: symbol(item.role))
-                .font(.system(size: 12))
-                .foregroundStyle(theme.accent)
+            entryIcon(item, size: 12)
                 .frame(width: 18)
             Text(item.name)
                 .foregroundStyle(theme.terminalForeground)
@@ -1546,6 +1542,22 @@ private struct EdexFilesystemPanel: View {
     }
 
     // MARK: Role → presentation
+
+    /// Themed file-icons glyph (the legacy fsDisp SVG set) with the SF Symbol
+    /// as the pre-load / parse-failure fallback.
+    @ViewBuilder
+    private func entryIcon(_ item: FilesystemItem, size: CGFloat) -> some View {
+        if let icon = FileIconProvider.shared.image(forName: item.name, role: item.role, theme: theme) {
+            Image(nsImage: icon)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size + 4, height: size + 4)
+        } else {
+            Image(systemName: symbol(item.role))
+                .font(.system(size: size))
+                .foregroundStyle(theme.accent)
+        }
+    }
 
     private func symbol(_ role: FilesystemRole) -> String {
         switch role {

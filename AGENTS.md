@@ -38,7 +38,7 @@ CI: `.github/workflows/native-ci.yml` is authoritative for the native tree.
 ## Conventions
 
 - **macOS-only.** No `process.platform === "win32"` branches; cross-platform logic belongs in Rust.
-- Offload FFI off the MainActor; guard every `Double → Int` cast; live graphs use `Canvas` + `TimelineView(.animation)`. Regenerate UniFFI bindings + `cargo fmt` after any Rust change.
+- Offload FFI off the MainActor; guard every `Double → Int` cast; live graphs use `Canvas` + `TimelineView(.periodic(by: 1/30))` (bounded cadence — not `.animation`). Regenerate UniFFI bindings + `cargo fmt` after any Rust change.
 - SourceKit "No such module" diagnostics in-editor are noise — the SwiftPM CLI build is the source of truth.
 - Conventional-Commit messages (`feat(native): …`, `fix(native): …`). Keep `memory.md` out of commits.
 - Match surrounding code's style and naming.
