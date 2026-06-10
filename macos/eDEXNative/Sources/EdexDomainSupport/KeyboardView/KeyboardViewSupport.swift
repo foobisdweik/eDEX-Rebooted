@@ -138,6 +138,88 @@ public struct KeyboardKeyDescriptor: Equatable, Sendable, Identifiable {
     }
 }
 
+/// Per-key geometry after fitting a keyboard layout into the current panel.
+public struct KeyboardRowLayoutMetrics: Equatable, Sendable {
+    public let keySide: Double
+    public let spacebarWidth: Double
+    public let rowHeight: Double
+    public let rowGap: Double
+    public let keyGap: Double
+
+    public init(keySide: Double, spacebarWidth: Double, rowHeight: Double, rowGap: Double, keyGap: Double) {
+        self.keySide = keySide.finiteNonNegative
+        self.spacebarWidth = spacebarWidth.finiteNonNegative
+        self.rowHeight = rowHeight.finiteNonNegative
+        self.rowGap = rowGap.finiteNonNegative
+        self.keyGap = keyGap.finiteNonNegative
+    }
+
+    public static func fit(
+        rows: [[KeyboardKeyDescriptor]],
+        availableWidth: Double,
+        availableHeight: Double,
+        preferredKeySide: Double,
+        preferredSpacebarWidth: Double,
+        preferredRowHeight: Double,
+        preferredRowGap: Double,
+        preferredKeyGap: Double
+    ) -> KeyboardRowLayoutMetrics {
+        let preferred = KeyboardRowLayoutMetrics(
+            keySide: preferredKeySide,
+            spacebarWidth: preferredSpacebarWidth,
+            rowHeight: preferredRowHeight,
+            rowGap: preferredRowGap,
+            keyGap: preferredKeyGap
+        )
+        let maxWidth = rows.map { preferred.rowWidth(for: $0) }.max() ?? 0
+        let horizontalScale = scaleToFit(available: availableWidth, desired: maxWidth)
+        let desiredHeight = preferred.totalHeight(rowCount: rows.count)
+        let verticalScale = scaleToFit(available: availableHeight, desired: desiredHeight)
+
+        return KeyboardRowLayoutMetrics(
+            keySide: preferred.keySide * horizontalScale,
+            spacebarWidth: preferred.spacebarWidth * horizontalScale,
+            rowHeight: preferred.rowHeight * verticalScale,
+            rowGap: preferred.rowGap * verticalScale,
+            keyGap: preferred.keyGap * horizontalScale
+        )
+    }
+
+    public func keyWidth(for descriptor: KeyboardKeyDescriptor) -> Double {
+        switch descriptor.role {
+        case .spacebar:
+            return spacebarWidth
+        case .enter:
+            return max(keySide * 1.8, 0)
+        case .enterContinuation:
+            return max(keySide * 1.4, 0)
+        case .wide:
+            return keySide * 1.7
+        case .standard, .icon:
+            return keySide
+        }
+    }
+
+    public func rowWidth(for row: [KeyboardKeyDescriptor]) -> Double {
+        let keysWidth = row.reduce(0) { $0 + keyWidth(for: $1) }
+        let gaps = max(0, row.count - 1)
+        return keysWidth + (Double(gaps) * keyGap)
+    }
+
+    public func totalHeight(rowCount: Int) -> Double {
+        let rows = max(0, rowCount)
+        let gaps = max(0, rows - 1)
+        return (Double(rows) * rowHeight) + (Double(gaps) * rowGap)
+    }
+
+    private static func scaleToFit(available: Double, desired: Double) -> Double {
+        let available = available.finiteNonNegative
+        let desired = desired.finiteNonNegative
+        guard desired > 0 else { return 1 }
+        return min(1, available / desired)
+    }
+}
+
 /// Turns a decoded `NativeKeyboardLayout` into render-ready descriptors and
 /// exposes the band-level display logic. Pure and FFI-free.
 public enum KeyboardViewModel {
@@ -199,5 +281,11 @@ public enum KeyboardViewModel {
         if body.hasPrefix("CAPSLCK") { return .capsLock }
         if body.hasPrefix("FN") { return .fn }
         return nil
+    }
+}
+
+private extension Double {
+    var finiteNonNegative: Double {
+        isFinite ? max(0, self) : 0
     }
 }
