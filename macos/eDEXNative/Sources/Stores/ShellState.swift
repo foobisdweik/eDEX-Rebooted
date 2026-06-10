@@ -996,11 +996,9 @@ final class ShellState: EdexActionHandler {
             content: .mediaViewer,
             detachesKeyboard: true,
             onClose: { [weak self] closedID in
-                Task { @MainActor in
-                    guard self?.mediaViewerModalID == closedID else { return }
-                    self?.mediaViewerModalID = nil
-                    self?.tearDownMediaViewer()
-                }
+                guard self?.mediaViewerModalID == closedID else { return }
+                self?.mediaViewerModalID = nil
+                self?.tearDownMediaViewer()
             }
         )
         mediaViewerModalID = openedID
