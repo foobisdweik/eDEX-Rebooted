@@ -98,4 +98,20 @@ final class NativeWebViewRetirementGateTests: XCTestCase {
 
         XCTAssertEqual(EdexBundledAssets.repositoryRoot(from: sourcePath).path, syntheticRoot.path)
     }
+
+    func testRepositoryRootPrefersBundledAssetsWhenPackaged() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("edex-bundle-assets-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: tempRoot.appendingPathComponent("assets", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        let sourcePath = URL(fileURLWithPath: "/tmp/no-repo/macos/eDEXNative/Sources/EdexDomainSupport/EdexBundledAssets.swift").path
+        XCTAssertEqual(
+            EdexBundledAssets.repositoryRoot(from: sourcePath, bundleResourceURL: tempRoot).path,
+            tempRoot.path
+        )
+    }
 }

@@ -1161,7 +1161,9 @@ final class ShellState: EdexActionHandler {
         guard shortcutMonitor == nil else { return }
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            return MainActor.assumeIsolated { self.handleShortcutKeyEvent(event) }
+            let combo = event.keyCombo
+            let consumed = MainActor.assumeIsolated { self.handleShortcutKeyCombo(combo) }
+            return consumed ? nil : event
         }
     }
 
@@ -1171,11 +1173,11 @@ final class ShellState: EdexActionHandler {
         shortcutMonitor = nil
     }
 
-    /// Matches a keyDown event against loaded shortcuts. Returns nil to consume
-    /// the event (shortcut fired), or the event itself to pass it through.
-    private func handleShortcutKeyEvent(_ event: NSEvent) -> NSEvent? {
-        guard let doc = shortcuts, let eventCombo = event.keyCombo else { return event }
-        guard let match = doc.match(eventCombo) else { return event }
+    /// Matches a keyDown combo against loaded shortcuts. Returns true when the
+    /// event should be consumed because a shortcut fired.
+    private func handleShortcutKeyCombo(_ combo: KeyCombo?) -> Bool {
+        guard let doc = shortcuts, let combo else { return false }
+        guard let match = doc.match(combo) else { return false }
 
         switch match {
         case let .app(action, tabIndex):
@@ -1183,7 +1185,7 @@ final class ShellState: EdexActionHandler {
         case let .shell(action, linebreak):
             handle(.keyboardInput(linebreak ? action + "\r" : action))
         }
-        return nil
+        return true
     }
 
     /// Dispatches a recognised app shortcut action to the appropriate handler.

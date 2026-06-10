@@ -4,7 +4,7 @@ SwiftPM native macOS app for the `post-web-runtime` migration. It links the Rust
 
 ## Current Status
 
-The original Phase 3 shell spike proved the app can launch a native eDEX window, control AppKit window chrome, and call the Rust core through UniFFI. The app has since advanced through Phase 9.7: telemetry panels, audio, modals, settings, shortcuts, boot screen, filesystem, fuzzy finder, text editor, keyboard layout loading/rendering/input routing, and the SwiftTerm-backed PTY terminal are native.
+The original Phase 3 shell spike proved the app can launch a native eDEX window, control AppKit window chrome, and call the Rust core through UniFFI. The app has since completed the Phase 0-11 native-conversion feature scope: telemetry panels, audio, modals, settings, shortcuts, boot screen, filesystem, fuzzy finder, text editor, keyboard layout loading/rendering/input routing, SwiftTerm-backed PTY terminal, native file icons, and the media viewer are native.
 
 Follow `Ultrareview.md`: the SwiftPM taxonomy groups support code into domain and rendering targets, terminal/action seams are in place, and new work should continue splitting `ShellState` ownership while keeping `ContentView` as a compositor. Shared bundled data lives under the repo-level `assets/` directory.
 
@@ -38,6 +38,24 @@ swift run eDEXNative
 
 `Package.swift` links the SwiftPM executable to the release `edex_ffi` dynamic library and adds that directory as an rpath for dev runs. Plain `swift build` assumes the Rust release dylib and generated UniFFI files already exist.
 
+## Package A Local App Bundle
+
+SwiftPM does not produce a macOS `.app` archive by itself. Use the packaging helper to assemble a local bundle under `dist/eDEXNative.app`:
+
+```bash
+macos/eDEXNative/Scripts/package_app.sh
+```
+
+The helper builds the Rust FFI dylib and Swift release executable, copies bundled data into `Contents/Resources/assets`, places `libedex_ffi.dylib` in `Contents/Frameworks`, rewrites the executable linkage to `@rpath/libedex_ffi.dylib`, and ad-hoc signs the bundle by default.
+
+For Developer ID signing, provide a real identity:
+
+```bash
+CODE_SIGN_IDENTITY="Developer ID Application: Example Team (TEAMID)" macos/eDEXNative/Scripts/package_app.sh
+```
+
+Notarization still requires external Apple credentials and should be run on the signed exported artifact. This script validates local bundle structure and signing, but it does not submit to Apple notarization.
+
 ## Architecture Notes
 
 - FFI calls go through `EdexCoreClient` and must stay off the MainActor.
@@ -45,4 +63,4 @@ swift run eDEXNative
 - New input/routing work should target `TerminalSessionProviding` and `EdexActionHandler`, not direct view-to-store cross-calls.
 - `ContentView` should place surfaces; feature rendering belongs in dedicated views.
 
-This is still a dev SwiftPM executable rather than a signed `.app` distribution. Packaging, signing, notarization, and final asset bundling are later phases.
+Distribution hardening remains a release-operations step: verify the final bundle on a clean machine, sign with Developer ID + hardened runtime, notarize, staple, and re-run Gatekeeper validation before publishing binaries.
