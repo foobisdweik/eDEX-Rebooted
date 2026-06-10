@@ -16,7 +16,13 @@ EXECUTABLE="${MACOS_DIR}/eDEXNative"
 SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}"
 
 swift_bin() {
-  printf '%s' "${SWIFT_BIN:-$HOME/.swiftly/bin/swift}"
+  if [[ -n "${SWIFT_BIN:-}" ]]; then
+    printf '%s' "$SWIFT_BIN"
+  elif [[ -x "$HOME/.swiftly/bin/swift" ]]; then
+    printf '%s' "$HOME/.swiftly/bin/swift"
+  else
+    printf 'swift'
+  fi
 }
 
 sign_item() {
@@ -80,15 +86,17 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 PLIST
 
 printf '== rewrite local dylib linkage ==\n'
+chmod +w "$FRAMEWORKS_DIR/libedex_ffi.dylib" "$EXECUTABLE"
 install_name_tool -id "@rpath/libedex_ffi.dylib" "$FRAMEWORKS_DIR/libedex_ffi.dylib"
 linked_lib="$(otool -L "$EXECUTABLE" | awk '/libedex_ffi[.]dylib/{print $1; exit}')"
 if [[ -n "$linked_lib" && "$linked_lib" != "@rpath/libedex_ffi.dylib" ]]; then
   install_name_tool -change "$linked_lib" "@rpath/libedex_ffi.dylib" "$EXECUTABLE"
 fi
-dev_rpath="$(dirname "$RUST_LIB")"
-if otool -l "$EXECUTABLE" | grep -Fq "path ${dev_rpath}"; then
-  install_name_tool -delete_rpath "$dev_rpath" "$EXECUTABLE"
-fi
+while IFS= read -r rpath; do
+  if [[ "$rpath" == "$FFI_DIR/target/release"* ]]; then
+    install_name_tool -delete_rpath "$rpath" "$EXECUTABLE"
+  fi
+done < <(otool -l "$EXECUTABLE" | awk '/cmd LC_RPATH/{in_rpath=1} in_rpath && /path /{print $2; in_rpath=0}')
 if ! otool -l "$EXECUTABLE" | grep -q "@executable_path/../Frameworks"; then
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$EXECUTABLE"
 fi
@@ -101,6 +109,7 @@ sign_item "$APP_BUNDLE"
 printf '== validate app bundle ==\n'
 plutil -lint "$CONTENTS_DIR/Info.plist"
 otool -L "$EXECUTABLE" | grep -q "@rpath/libedex_ffi.dylib"
+! otool -l "$EXECUTABLE" | grep -q "$FFI_DIR/target/release"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
 printf 'Packaged %s\n' "$APP_BUNDLE"
