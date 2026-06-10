@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 portable-pty = "0.8"
+rayon = "1"
 sysinfo = "0.32"
 battery = "0.7"
 tokio = { version = "1", features = ["fs", "rt", "sync"] }

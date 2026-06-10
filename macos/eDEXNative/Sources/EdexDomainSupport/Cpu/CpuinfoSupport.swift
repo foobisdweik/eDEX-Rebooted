@@ -90,3 +90,41 @@ public struct CpuSeriesBuffer: Sendable {
         }
     }
 }
+
+/// Geometry for the offset-animated CPU graphs. The graph canvas is redrawn
+/// once per 1 Hz sample with the newest point on the right edge; the smooth
+/// scroll between samples is a GPU-side linear `.offset` pan of
+/// `scrollDistance` over the sample interval, so no per-frame CPU work — this
+/// replaces the 30 Hz `TimelineView` redraw that re-rendered the whole window.
+public enum CpuGraphScrollGeometry {
+    /// Legacy `millisPerPixel = 50` → 20 px per 1 s sample.
+    public static let pixelsPerSample: Double = 20
+
+    /// How far the canvas pans left before the next sample lands.
+    public static var scrollDistance: Double { pixelsPerSample }
+
+    /// Polyline points for one core's series with the newest sample at the
+    /// right edge (the pre-pan position). Loads are clamped to 0…100 and
+    /// non-finite values draw as 0, so no coordinate is ever non-finite.
+    /// Degenerate sizes or fewer than two samples yield no points.
+    public static func points(samples: [Double], width: Double, height: Double) -> [CGPoint] {
+        guard width.isFinite, width > 0, height.isFinite, height > 0,
+              samples.count >= 2 else { return [] }
+        let count = samples.count
+        return samples.enumerated().map { index, load in
+            let safeLoad = load.isFinite ? min(max(load, 0), 100) : 0
+            return CGPoint(
+                x: width - Double(count - 1 - index) * pixelsPerSample,
+                y: height - (safeLoad / 100.0) * height
+            )
+        }
+    }
+
+    /// Y positions of the graph's top and bottom frame lines, centered for the
+    /// given stroke width (a single shape replaces the old nested overlays).
+    public static func borderLineYs(height: Double, lineWidth: Double) -> [Double] {
+        guard height.isFinite, height > 0, lineWidth.isFinite, lineWidth > 0,
+              height >= lineWidth else { return [] }
+        return [lineWidth / 2, height - lineWidth / 2]
+    }
+}
