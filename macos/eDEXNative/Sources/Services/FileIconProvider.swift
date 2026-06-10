@@ -41,22 +41,23 @@ final class FileIconProvider {
 
         let resolution = FileIconResolver.resolve(name: name, role: role, matcher: matcher)
         let cacheKey: String
-        switch resolution {
-        case .catalog(let iconName): cacheKey = "c:\(iconName)"
-        case .edex(let icon): cacheKey = "e:\(icon.rawValue)"
-        }
-        if let cached = imageCache[cacheKey] { return cached }
-
         let document: String?
         switch resolution {
         case .catalog(let iconName):
             // Mirror the legacy fallback chain: matched icon → role icon →
             // `other`; the caller's SF Symbol remains the last resort.
-            document = catalog?.svgDocument(named: iconName, fill: fill)
-                ?? fallbackDocument(for: role, fill: fill)
+            if let catalogDocument = catalog?.svgDocument(named: iconName, fill: fill) {
+                cacheKey = "c:\(iconName)"
+                document = catalogDocument
+            } else {
+                cacheKey = "c:\(iconName)|\(roleFallbackIconName(for: role))"
+                document = fallbackDocument(for: role, fill: fill)
+            }
         case .edex(let icon):
+            cacheKey = "e:\(icon.rawValue)"
             document = icon.svgDocument(fill: fill, secondaryFill: secondaryFill)
         }
+        if let cached = imageCache[cacheKey] { return cached }
         guard let document,
               let data = document.data(using: .utf8),
               let image = NSImage(data: data) else { return nil }
@@ -74,18 +75,21 @@ final class FileIconProvider {
                 guard let self else { return }
                 self.catalog = catalog
                 self.matcher = matcher
-                self.isReady = catalog != nil
+                self.isReady = catalog != nil && matcher != nil
             }
+        }
+    }
+
+    private func roleFallbackIconName(for role: FilesystemRole) -> String {
+        switch role {
+        case .directory, .themesDir, .keyboardsDir: return "dir"
+        default: return "file"
         }
     }
 
     private func fallbackDocument(for role: FilesystemRole, fill: String) -> String? {
         guard let catalog else { return nil }
-        let roleIcon: String
-        switch role {
-        case .directory, .themesDir, .keyboardsDir: roleIcon = "dir"
-        default: roleIcon = "file"
-        }
+        let roleIcon = roleFallbackIconName(for: role)
         return catalog.svgDocument(named: roleIcon, fill: fill)
             ?? catalog.svgDocument(named: "other", fill: fill)
     }
