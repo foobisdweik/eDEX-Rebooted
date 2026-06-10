@@ -191,8 +191,13 @@ private final class CpuGraphNSView: NSView {
 
     override func layout() {
         super.layout()
+        // Disable implicit actions: a bare frame assignment here would animate
+        // (0.25 s default), letting the line visibly lag the borders on resize.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         lineLayer.frame = bounds
         rebuildPath()
+        CATransaction.commit()
     }
 
     private func rebuildPath() {
