@@ -241,6 +241,7 @@ impl SysinfoService {
             .lock()
             .map_err(|_| "sysinfo lock poisoned".to_string())?;
         let now = Instant::now();
+        state.sys.refresh_memory();
         state.refresh_processes_if_stale(now, dedup_ttl);
 
         let sys = &state.sys;
