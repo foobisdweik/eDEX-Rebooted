@@ -269,23 +269,38 @@ final class NativeKeyboardInputTests: XCTestCase {
     }
 
     func testDetachedInsertUsesCaretPosition() {
-        let state = KeyboardDetachedEditor.State(text: "foo", caret: 1)
+        let state = KeyboardDetachedEditor.State(text: "🇺🇸foo", caret: 4)
 
-        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "x", to: state), .replace(.init(text: "fxoo", caret: 2)))
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "x", to: state),
+            .replace(.init(text: "🇺🇸xfoo", caret: 5))
+        )
     }
 
     func testDetachedArrowsMoveCaretWithoutChangingText() {
-        let state = KeyboardDetachedEditor.State(text: "foo", caret: 1)
+        let state = KeyboardDetachedEditor.State(text: "🇺🇸foo", caret: 4)
 
-        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\u{001B}OD", to: state), .replace(.init(text: "foo", caret: 0)))
-        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\u{001B}OC", to: state), .replace(.init(text: "foo", caret: 2)))
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{001B}OD", to: state),
+            .replace(.init(text: "🇺🇸foo", caret: 0))
+        )
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{001B}OC", to: state),
+            .replace(.init(text: "🇺🇸foo", caret: 5))
+        )
     }
 
     func testDetachedBackspaceAndDeleteRespectCaret() {
-        let state = KeyboardDetachedEditor.State(text: "foo", caret: 1)
+        let state = KeyboardDetachedEditor.State(text: "🇺🇸foo", caret: 4)
 
-        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\u{8}", to: state), .replace(.init(text: "oo", caret: 0)))
-        XCTAssertEqual(KeyboardDetachedEditor.apply(command: "\u{7f}", to: state), .replace(.init(text: "fo", caret: 1)))
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{8}", to: state),
+            .replace(.init(text: "foo", caret: 0))
+        )
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{7f}", to: state),
+            .replace(.init(text: "🇺🇸oo", caret: 4))
+        )
     }
 
     /// An enabled entry whose action is unrecognised must not abort matching; a

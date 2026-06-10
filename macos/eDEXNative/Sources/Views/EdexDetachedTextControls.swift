@@ -39,13 +39,19 @@ struct EdexDetachedSearchField: NSViewRepresentable {
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
         field.textColor = nsColor(theme.palette.terminalForeground)
 
+        let isFocused = field.window != nil && field.window?.firstResponder === field.currentEditor()
+        let currentCaret = field.currentEditor()?.selectedRange.location
+        if isFocused, currentCaret == caret, field.stringValue == text {
+            return
+        }
+
         DispatchQueue.main.async {
             if field.window?.firstResponder !== field.currentEditor() {
                 field.window?.makeFirstResponder(field)
             }
             if let editor = field.currentEditor() {
                 (editor as? NSTextView)?.insertionPointColor = nsColor(theme.palette.terminalForeground)
-                let location = utf16Location(in: field.stringValue, characterOffset: caret)
+                let location = min(max(0, caret), field.stringValue.utf16.count)
                 editor.selectedRange = NSRange(location: location, length: 0)
             }
         }
@@ -65,8 +71,7 @@ struct EdexDetachedSearchField: NSViewRepresentable {
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
             text.wrappedValue = field.stringValue
-            let utf16Location = field.currentEditor()?.selectedRange.location ?? field.stringValue.utf16.count
-            caret.wrappedValue = characterOffset(in: field.stringValue, utf16Location: utf16Location)
+            caret.wrappedValue = field.currentEditor()?.selectedRange.location ?? field.stringValue.utf16.count
         }
 
         func control(
@@ -79,10 +84,7 @@ struct EdexDetachedSearchField: NSViewRepresentable {
                 return true
             }
             DispatchQueue.main.async {
-                self.caret.wrappedValue = characterOffset(
-                    in: textView.string,
-                    utf16Location: textView.selectedRange.location
-                )
+                self.caret.wrappedValue = textView.selectedRange.location
             }
             return false
         }
@@ -137,11 +139,17 @@ struct EdexDetachedTextView: NSViewRepresentable {
             .backgroundColor: nsColor(theme.palette.terminalSelection)
         ]
 
+        let isFocused = textView.window != nil && textView.window?.firstResponder === textView
+        let currentCaret = textView.selectedRange.location
+        if isFocused, currentCaret == caret, textView.string == text {
+            return
+        }
+
         DispatchQueue.main.async {
             if textView.window?.firstResponder !== textView {
                 textView.window?.makeFirstResponder(textView)
             }
-            let location = utf16Location(in: textView.string, characterOffset: caret)
+            let location = min(max(0, caret), textView.string.utf16.count)
             textView.setSelectedRange(NSRange(location: location, length: 0))
             textView.scrollRangeToVisible(NSRange(location: location, length: 0))
         }
@@ -159,38 +167,16 @@ struct EdexDetachedTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
-            caret.wrappedValue = characterOffset(
-                in: textView.string,
-                utf16Location: textView.selectedRange.location
-            )
+            caret.wrappedValue = textView.selectedRange.location
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            caret.wrappedValue = characterOffset(
-                in: textView.string,
-                utf16Location: textView.selectedRange.location
-            )
+            caret.wrappedValue = textView.selectedRange.location
         }
     }
 }
 
 private func nsColor(_ color: NativeColor) -> NSColor {
     NSColor(red: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
-}
-
-private func characterOffset(in string: String, utf16Location: Int) -> Int {
-    let clamped = min(max(0, utf16Location), string.utf16.count)
-    guard clamped > 0 else { return 0 }
-    let utf16Index = string.utf16.index(string.utf16.startIndex, offsetBy: clamped)
-    guard let stringIndex = String.Index(utf16Index, within: string) else {
-        return string.count
-    }
-    return string.distance(from: string.startIndex, to: stringIndex)
-}
-
-private func utf16Location(in string: String, characterOffset: Int) -> Int {
-    let clamped = min(max(0, characterOffset), string.count)
-    let stringIndex = string.index(string.startIndex, offsetBy: clamped)
-    return string.utf16Offset(in: stringIndex)
 }

@@ -631,8 +631,10 @@ final class ShellState: EdexActionHandler {
                     guard let self else { return }
                     let state = KeyboardDetachedEditor.State(text: textEditorText, caret: textEditorCaret)
                     var text = state.text
-                    text.insert("\n", at: text.index(text.startIndex, offsetBy: state.caret))
-                    setTextEditorState(KeyboardDetachedEditor.State(text: text, caret: state.caret + 1))
+                    let insertIndex = text.index(atUTF16Offset: state.caret)
+                    text.insert("\n", at: insertIndex)
+                    let newCaret = text.utf16Offset(of: text.index(after: insertIndex))
+                    setTextEditorState(KeyboardDetachedEditor.State(text: text, caret: newCaret))
                 }
             )
         }
@@ -883,7 +885,7 @@ final class ShellState: EdexActionHandler {
 
     func setFuzzyQuery(_ value: String) {
         fuzzyQuery = value
-        fuzzyCaret = value.count
+        fuzzyCaret = value.utf16.count
         fuzzyResults = FuzzyMatcher.search(fuzzySearchItems, query: value)
         fuzzySelection = 0
         fuzzyStatus = fuzzyResults.isEmpty ? "No results." : "\(fuzzyResults.count) match\(fuzzyResults.count == 1 ? "" : "es")"
@@ -898,7 +900,7 @@ final class ShellState: EdexActionHandler {
     }
 
     func setFuzzyCaret(_ value: Int) {
-        fuzzyCaret = min(max(0, value), fuzzyQuery.count)
+        fuzzyCaret = min(max(0, value), fuzzyQuery.utf16.count)
     }
 
     func moveFuzzySelection(_ delta: Int) {
@@ -965,7 +967,7 @@ final class ShellState: EdexActionHandler {
 
             let document = EdexTextDocument(path: path, text: text)
             textDocument = document
-            textEditorCaret = text.count
+            textEditorCaret = text.utf16.count
             textEditorStatus = document.statusLine
             let openedID = presentModal(
                 type: "custom",
@@ -1106,7 +1108,7 @@ final class ShellState: EdexActionHandler {
     func setTextEditorText(_ value: String) {
         guard textDocument != nil else { return }
         textDocument?.text = value
-        textEditorCaret = value.count
+        textEditorCaret = value.utf16.count
         if let document = textDocument {
             textEditorStatus = document.statusLine
         }
@@ -1122,7 +1124,7 @@ final class ShellState: EdexActionHandler {
     }
 
     func setTextEditorCaret(_ value: Int) {
-        textEditorCaret = min(max(0, value), textEditorText.count)
+        textEditorCaret = min(max(0, value), textEditorText.utf16.count)
     }
 
     /// Writes the buffer to disk off the MainActor, rebaselines the dirty state,
