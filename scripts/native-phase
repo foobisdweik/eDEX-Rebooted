@@ -7,7 +7,7 @@ if [[ "${1:-}" == "--dry-run" ]]; then
   shift
 fi
 
-BASE_BRANCH="post-web-runtime"
+BASE_BRANCH="${NATIVE_PHASE_BASE:-master}"
 BASE_REF="origin/${BASE_BRANCH}"
 
 usage() {

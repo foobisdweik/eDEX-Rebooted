@@ -8,7 +8,7 @@ eDEX-UI **v3.0.0**, `aarch64-apple-darwin` (Apple-Silicon macOS) **only**.
 
 The repo now holds the active native app plus shared data assets:
 
-1. **The active native app** (`macos/eDEXNative/` SwiftPM + `crates/edex-core` + `crates/edex-ffi`) — a standalone SwiftUI app linking the Rust core via UniFFI. **All new work lands here**, on the `post-web-runtime` integration branch.
+1. **The active native app** (`macos/eDEXNative/` SwiftPM + `crates/edex-core` + `crates/edex-ffi`) — a standalone SwiftUI app linking the Rust core via UniFFI. **All new work lands here**, branched off `master` (the `post-web-runtime` integration branch was merged into `master` and deleted after the Phase 0–11 scope completed).
 2. **Bundled data assets** (`assets/`) — themes, keyboard layouts, fonts, audio cues, icons (incl. the frozen file-icons JSON pair), and boot/log data shared by Swift and Rust.
 
 The legacy Tauri 2 / WKWebView frontend (`src-tauri/` + `src/`) and earlier Approach-A per-panel `NSView` slots were retired in Phase 9.7; the remaining JS/Node footprint (file-icons generator/matcher, `package.json`/lockfiles/`tsconfig.json`, the `file-icons/*` submodules) was retired in Phase 11.2. **The repo contains zero JS/TS/CSS** — do not reintroduce a WebView runtime path or a Node toolchain. File icons are frozen data (`assets/icons/file-icons.json` + `assets/misc/file-icons-match.json`) consumed by `FileIconSupport` (domain) and `FileIconProvider` (app target).
@@ -19,9 +19,9 @@ Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, h
 
 Verification is **front-light, back-heavy**: a fast compile check before the PR, with the real gate running *as PR checks* afterward. `scripts/native-phase` is the single source of truth.
 
-1. **`scripts/native-phase start <phase> <slug>`** — fast-forwards `post-web-runtime`, cuts `codex/native-<slug>`, prints first-read files.
+1. **`scripts/native-phase start <phase> <slug>`** — fast-forwards `master` (override with `NATIVE_PHASE_BASE`), cuts `codex/native-<slug>`, prints first-read files.
 2. **Write code, TDD.** Pure domain/display logic still gets tests first, but **do not create another one-feature SwiftPM target by default**. The old per-panel target recipe is now migration history; new cross-cutting work should use the consolidated taxonomy (`EdexDomainSupport`, `EdexRenderingSupport`, or the app target). New backend data → typed `Ffi…` record + `EdexCore` method in `crates/edex-ffi`, then regenerate bindings (below).
-3. **`scripts/native-phase pr "<commit>" "<title>" "<summary>"`** — this is the *only* command you run to ship. It runs the **compile floor** (`precheck`) itself, then stages (excluding `memory.md`), commits, pushes, and opens the PR against `post-web-runtime`. Do **not** run the full local gate by hand first — that's CI's job now.
+3. **`scripts/native-phase pr "<commit>" "<title>" "<summary>"`** — this is the *only* command you run to ship. It runs the **compile floor** (`precheck`) itself, then stages (excluding `memory.md`), commits, pushes, and opens the PR against `master`. Do **not** run the full local gate by hand first — that's CI's job now.
 4. **Work the post-PR loop (~5 min after submit):** address **gemini-code-assist**, **Cursor BugBot**, and the **Native CI** status on merit — review / validate / respond / resolve (push back with technical reasoning when a suggestion is wrong; don't perform agreement).
 5. **A human merges** and raises any CI issue with you. There is no branch protection.
 
@@ -65,7 +65,7 @@ cd crates/edex-ffi && cargo build --release && \
 
 - **Offload FFI off the MainActor.** `ShellState` is `@MainActor`; every `refresh…()` does `await Task.detached(priority: .background){ client.… }.value` then assigns.
 - **Guard every `Double → Int` cast** against non-finite/out-of-range (the reviewer and reality crash on it) — see `RamwatcherSupport.safeInt`.
-- **Live graphs:** SwiftUI `Canvas` + `TimelineView(.periodic(by: 1/30))` — a bounded 30 Hz scroll cadence (was `.animation`, which redrew at the display rate up to 120 Hz; see the telemetry-perf pass). Guard `Canvas` size finite+positive.
+- **Live graphs:** a `CAShapeLayer` path rebuilt once per telemetry sample + a render-server `transform.translation.x` pan between samples (`CpuGraphScrollGeometry` + `CpuGraphNSView`) — no per-frame work at all. Do not reintroduce a `TimelineView` redraw loop for scroll motion (the bounded 30 Hz cadence profiled at ~64% of an idle main thread — whole-window layout + display-list diff per tick), and do not animate a SwiftUI `.offset` over a clipped `Canvas` (RenderBox re-textures it every display frame and stalls the main thread in `RB::SurfacePool::wait_image_queue`). Guard sizes finite+positive.
 - **Telemetry refresh discipline:** the CPU panel poll (`cpu_snapshot`) is CPU-only and must not rebuild the process table; `SysinfoService::toplist_snapshot` is the single process-table producer (TTL-deduped). CPU temperature is read at most once per `TEMP_SNAPSHOT_TTL` (the `Components`/SMC read is ~110 ms and empty on Apple Silicon). Keep `SysinfoService::new()` lazy — no `refresh_all()` at construction.
 - **Regenerate bindings** after any `crates/edex-ffi` signature change (command above); run `cargo fmt` after editing Rust.
 - **SourceKit "No such module 'X'" diagnostics in-editor are noise** — the SwiftPM CLI build is the source of truth.

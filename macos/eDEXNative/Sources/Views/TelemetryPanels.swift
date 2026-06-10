@@ -17,9 +17,6 @@ struct CpuPanel: View {
     let vh: Double
     private let cpuFormatter = EdexCpuinfoFormatter()
 
-    // See Finding #4: bounded 30 Hz scroll cadence instead of display-rate.
-    private static let cpuGraphFrameInterval = 1.0 / 30.0
-
     var body: some View {
         let snapshot = state.cpu
         let cores = Int(snapshot?.cores ?? 0)
@@ -83,52 +80,15 @@ struct CpuPanel: View {
         }
     }
 
-    // Finding #4: the CPU graph scrolls between 1 Hz telemetry samples by
-    // interpolating a horizontal pan offset. `TimelineView(.animation)` drove
-    // that at the display refresh rate (up to 120 Hz on ProMotion) — far more
-    // redraws than the data warrants. A fixed 30 Hz periodic cadence keeps the
-    // scroll visually smooth (20 px/s → 0.67 px/frame) while cutting GPU redraws
-    // ~4× on ProMotion.
+    // The CPU graph scrolls between 1 Hz telemetry samples. The old
+    // `TimelineView` redraw (display-rate, then bounded 30 Hz) re-entered the
+    // SwiftUI render loop dozens of times per second and profiled at ~64% of
+    // an idle main thread (whole-window layout + display-list diff per tick).
+    // Now the polyline is rebuilt only when a sample lands, and the
+    // in-between motion is a render-server CALayer pan — no per-frame view
+    // updates at all.
     private func cpuGraph(chart: Int, divide: Int, cores: Int) -> some View {
-        TimelineView(.periodic(from: .now, by: Self.cpuGraphFrameInterval)) { context in
-            Canvas { ctx, size in
-                guard size.width.isFinite, size.width > 0,
-                      size.height.isFinite, size.height > 0,
-                      cores > 0 else { return }
-                // millisPerPixel = 50 in the legacy → 20px per 1s sample.
-                let dx = 1000.0 / 50.0
-                // Fraction (0...1) of the way to the next sample, for smooth scroll.
-                let elapsed = min(max(context.date.timeIntervalSince(state.cpuLastSampleDate), 0), 1)
-                let series = state.cpuSeries
-
-                for core in 0..<cores where cpuFormatter.chartIndex(forCore: core, divide: divide) == chart {
-                    guard core < series.count, series[core].count >= 2 else { continue }
-                    let samples = series[core]
-                    let n = samples.count
-                    var path = Path()
-                    for (index, load) in samples.enumerated() {
-                        let x = size.width - (Double(n - 1 - index) + elapsed) * dx
-                        let y = size.height - (min(max(load, 0), 100) / 100.0) * size.height
-                        let point = CGPoint(x: x, y: y)
-                        index == 0 ? path.move(to: point) : path.addLine(to: point)
-                    }
-                    ctx.stroke(path, with: .color(state.theme.accent), lineWidth: 1.7)
-                }
-            }
-        }
-        .frame(height: 34)
-        .overlay(alignment: .top) { cpuGraphBorder }
-        .overlay(alignment: .bottom) { cpuGraphBorder }
-    }
-
-    private var cpuGraphBorder: some View {
-        Rectangle()
-            .fill(.clear)
-            .frame(height: 1)
-            .overlay(
-                Rectangle()
-                    .strokeBorder(state.theme.accent.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
-            )
+        CpuScrollingGraph(state: state, chart: chart, divide: divide, cores: cores)
     }
 
     private func cpuFooterCell(_ label: String, _ value: String) -> some View {
@@ -143,6 +103,146 @@ struct CpuPanel: View {
                 .minimumScaleFactor(0.6)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// One half of the CPU graph pair. The polyline is rebuilt once per telemetry
+/// sample (newest point on the right edge, per `CpuGraphScrollGeometry`) and
+/// panned left by one sample-width over the next second via a render-server
+/// `CABasicAnimation`. The pan never re-rasterizes anything — an animated
+/// SwiftUI `.offset` over a clipped `Canvas` was tried first and forced
+/// RenderBox to re-texture the graph every display frame, stalling the main
+/// thread in `RB::SurfacePool::wait_image_queue`. If a sample is late the pan
+/// rests fully panned — the same stall the legacy `elapsed` clamp produced.
+private struct CpuScrollingGraph: View {
+    let state: ShellState
+    let chart: Int
+    let divide: Int
+    let cores: Int
+
+    private let cpuFormatter = EdexCpuinfoFormatter()
+
+    var body: some View {
+        let series = state.cpuSeries
+        let accent = state.theme.accent
+        let chartSeries = (0..<cores)
+            .filter { cpuFormatter.chartIndex(forCore: $0, divide: divide) == chart && $0 < series.count }
+            .map { series[$0] }
+
+        CpuGraphLayerView(series: chartSeries, sampleDate: state.cpuLastSampleDate, accent: NSColor(accent))
+            .frame(height: 34)
+            .overlay {
+                CpuGraphFrameShape()
+                    .stroke(accent.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+            }
+    }
+}
+
+/// Narrow AppKit escape hatch for the graph scroll: a `CAShapeLayer` whose
+/// path is rebuilt at the 1 Hz sample cadence and panned by animating
+/// `transform.translation.x` on the render server — zero main-thread and zero
+/// rasterization work per frame.
+private struct CpuGraphLayerView: NSViewRepresentable {
+    let series: [[Double]]
+    let sampleDate: Date
+    let accent: NSColor
+
+    func makeNSView(context: Context) -> CpuGraphNSView {
+        CpuGraphNSView()
+    }
+
+    func updateNSView(_ view: CpuGraphNSView, context: Context) {
+        view.apply(series: series, sampleDate: sampleDate, accent: accent)
+    }
+}
+
+private final class CpuGraphNSView: NSView {
+    private let lineLayer = CAShapeLayer()
+    private var series = [[Double]]()
+    private var lastPannedSampleDate: Date?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        lineLayer.fillColor = nil
+        lineLayer.lineWidth = 1.7
+        lineLayer.lineJoin = .round
+        layer?.addSublayer(lineLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("CpuGraphNSView is code-only")
+    }
+
+    /// `CpuGraphScrollGeometry` produces top-left-origin coordinates.
+    override var isFlipped: Bool { true }
+
+    func apply(series: [[Double]], sampleDate: Date, accent: NSColor) {
+        self.series = series
+        lineLayer.strokeColor = accent.cgColor
+        rebuildPath()
+        if lastPannedSampleDate != sampleDate {
+            lastPannedSampleDate = sampleDate
+            startPan()
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        // Disable implicit actions: a bare frame assignment here would animate
+        // (0.25 s default), letting the line visibly lag the borders on resize.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        lineLayer.frame = bounds
+        rebuildPath()
+        CATransaction.commit()
+    }
+
+    private func rebuildPath() {
+        let path = CGMutablePath()
+        for samples in series {
+            let points = CpuGraphScrollGeometry.points(
+                samples: samples, width: bounds.width, height: bounds.height
+            )
+            guard points.count >= 2 else { continue }
+            path.move(to: points[0])
+            for point in points.dropFirst() {
+                path.addLine(to: point)
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        lineLayer.path = path
+        CATransaction.commit()
+    }
+
+    private func startPan() {
+        let pan = CABasicAnimation(keyPath: "transform.translation.x")
+        pan.fromValue = 0
+        pan.toValue = -CpuGraphScrollGeometry.scrollDistance
+        pan.duration = 1
+        pan.timingFunction = CAMediaTimingFunction(name: .linear)
+        // Rest fully panned until the next sample re-bases the path.
+        pan.isRemovedOnCompletion = false
+        pan.fillMode = .forwards
+        lineLayer.removeAnimation(forKey: "edexGraphPan")
+        lineLayer.add(pan, forKey: "edexGraphPan")
+    }
+}
+
+/// The graph's dashed top/bottom frame lines as a single shape — replaces two
+/// alignment overlays of nested `Rectangle`s, which added measurable
+/// alignment-resolution work to every layout pass.
+private struct CpuGraphFrameShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        for y in CpuGraphScrollGeometry.borderLineYs(height: rect.height, lineWidth: 1) {
+            path.move(to: CGPoint(x: rect.minX, y: rect.minY + y))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + y))
+        }
+        return path
     }
 }
 

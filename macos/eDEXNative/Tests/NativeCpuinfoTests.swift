@@ -109,4 +109,48 @@ final class NativeCpuinfoTests: XCTestCase {
         XCTAssertEqual(buffer.series[1], [100]) // 150 clamped to 100
         XCTAssertEqual(buffer.series[2], [0])   // -5 clamped to 0
     }
+
+    // MARK: - Scroll geometry (offset-animated graph, replaces the 30 Hz redraw)
+
+    func testGraphPointsPlaceNewestSampleAtRightEdgeWithLegacySpacing() {
+        let points = CpuGraphScrollGeometry.points(samples: [10, 20, 30], width: 100, height: 34)
+        // millisPerPixel = 50 in the legacy → 20 px per 1 s sample.
+        XCTAssertEqual(points.map(\.x), [60, 80, 100])
+    }
+
+    func testGraphPointsMapLoadToInvertedY() {
+        let points = CpuGraphScrollGeometry.points(samples: [0, 50, 100], width: 100, height: 34)
+        XCTAssertEqual(points.map(\.y), [34, 17, 0])
+    }
+
+    func testGraphPointsClampOutOfRangeAndNonFiniteLoads() {
+        let points = CpuGraphScrollGeometry.points(samples: [-5, 250, .nan, .infinity], width: 100, height: 34)
+        XCTAssertEqual(points.map(\.y), [34, 0, 34, 34]) // clamped low, clamped high, non-finite → 0 load
+    }
+
+    func testGraphPointsRejectDegenerateSizesAndShortSeries() {
+        XCTAssertTrue(CpuGraphScrollGeometry.points(samples: [1, 2], width: 0, height: 34).isEmpty)
+        XCTAssertTrue(CpuGraphScrollGeometry.points(samples: [1, 2], width: 100, height: -1).isEmpty)
+        XCTAssertTrue(CpuGraphScrollGeometry.points(samples: [1, 2], width: .nan, height: 34).isEmpty)
+        XCTAssertTrue(CpuGraphScrollGeometry.points(samples: [1, 2], width: 100, height: .infinity).isEmpty)
+        XCTAssertTrue(CpuGraphScrollGeometry.points(samples: [1], width: 100, height: 34).isEmpty)
+        XCTAssertTrue(CpuGraphScrollGeometry.points(samples: [], width: 100, height: 34).isEmpty)
+    }
+
+    func testScrollDistanceMatchesLegacySampleSpacing() {
+        XCTAssertEqual(CpuGraphScrollGeometry.scrollDistance, 20)
+    }
+
+    // MARK: - Graph frame lines (single shape replaces the nested border overlays)
+
+    func testBorderLineYsCenterUnitStrokeInsideBounds() {
+        XCTAssertEqual(CpuGraphScrollGeometry.borderLineYs(height: 34, lineWidth: 1), [0.5, 33.5])
+    }
+
+    func testBorderLineYsRejectDegenerateHeights() {
+        XCTAssertTrue(CpuGraphScrollGeometry.borderLineYs(height: 0, lineWidth: 1).isEmpty)
+        XCTAssertTrue(CpuGraphScrollGeometry.borderLineYs(height: .nan, lineWidth: 1).isEmpty)
+        XCTAssertTrue(CpuGraphScrollGeometry.borderLineYs(height: -10, lineWidth: 1).isEmpty)
+        XCTAssertTrue(CpuGraphScrollGeometry.borderLineYs(height: 34, lineWidth: .nan).isEmpty)
+    }
 }

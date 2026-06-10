@@ -7,9 +7,20 @@
 
 use serde::Serialize;
 use std::collections::{hash_map::Entry, HashMap};
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 use sysinfo::{Components, Disks, Networks, System};
+
+static RAYON_POOL: Once = Once::new();
+
+/// Cap rayon's global pool before sysinfo's parallel process refresh runs.
+fn init_rayon_pool() {
+    RAYON_POOL.call_once(|| {
+        let _ = rayon::ThreadPoolBuilder::new()
+            .num_threads(3)
+            .build_global();
+    });
+}
 
 pub struct SysinfoService {
     sys_state: Mutex<SystemState>,
@@ -29,6 +40,7 @@ impl SysinfoService {
     /// interactive state before full telemetry collection runs. The TTL-cached
     /// accessors below take care of the first real refresh on demand.
     pub fn new() -> Self {
+        init_rayon_pool();
         Self {
             sys_state: Mutex::new(SystemState::new(System::new())),
             temp_cache: Mutex::new(SnapshotCache::default()),
@@ -1172,6 +1184,18 @@ fn days_to_date(days_from_epoch: i64) -> (i32, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Process refresh fans out across rayon's global pool; cap it once at
+    // construction so idle telemetry doesn't wake one thread per core.
+    #[test]
+    fn new_caps_rayon_global_thread_pool() {
+        let _service = SysinfoService::new();
+        assert!(
+            rayon::current_num_threads() <= 3,
+            "rayon global pool should be capped at 3 threads (got {})",
+            rayon::current_num_threads()
+        );
+    }
 
     // Finding #1: constructing the service must not eagerly scan the process
     // table (the heavy startup cost). A fresh service has refreshed zero times.
