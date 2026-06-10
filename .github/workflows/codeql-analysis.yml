@@ -20,7 +20,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ['javascript']
+        # The JS/TS codebase is fully retired (Phase 11); scan the GitHub
+        # Actions workflows instead. Swift/Rust CodeQL would need a macOS
+        # build job and is left as a future enhancement.
+        language: ['actions']
 
     steps:
       - uses: actions/checkout@v4

@@ -111,4 +111,33 @@ final class NativeThemeTests: XCTestCase {
         XCTAssertEqual(theme.palette.swatches["cyan"]?.hexRGB, "#88C0D0")
         XCTAssertEqual(theme.fonts.mainLight, "United Sans Medium")
     }
+
+    func testLegacyLightBlackPrefersSwatchesThenPanelBackground() throws {
+        // The legacy renderer read `theme.colors.light_black` for secondary
+        // fills (e.g. the two-tone fsDisp folder glyphs); themes spell it
+        // `lightBlack`, `light_black`, or only ship `black`.
+        let withSwatch = try NativeTheme(json: """
+        {
+          "colors": { "r": 216, "g": 222, "b": 233, "lightBlack": "#4C566A", "black": "#2E3440" },
+          "terminal": { "foreground": "#D8DEE9", "background": "#2E3440" }
+        }
+        """, name: "nord")
+        XCTAssertEqual(withSwatch.legacyLightBlack.hexRGB, "#4C566A")
+
+        let blackOnly = try NativeTheme(json: """
+        {
+          "colors": { "r": 216, "g": 222, "b": 233, "black": "#2E3440" },
+          "terminal": { "foreground": "#D8DEE9", "background": "#2E3440" }
+        }
+        """, name: "mono")
+        XCTAssertEqual(blackOnly.legacyLightBlack.hexRGB, "#2E3440")
+
+        let bare = try NativeTheme(json: """
+        {
+          "colors": { "r": 170, "g": 207, "b": 209 },
+          "terminal": { "foreground": "#AACFD1", "background": "#05080D" }
+        }
+        """, name: "bare")
+        XCTAssertEqual(bare.legacyLightBlack.hexRGB, bare.palette.panelBackground.hexRGB)
+    }
 }
