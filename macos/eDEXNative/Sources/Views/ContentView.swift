@@ -578,7 +578,7 @@ private struct EdexModalChrome: View {
         case .fuzzyFinder:
             EdexFuzzyFinderView(state: state, theme: theme)
         case .mediaViewer:
-            customStatus("MEDIA VIEWER", detail: "Ready for Phase 10.1 media content")
+            EdexMediaViewerView(state: state, theme: theme)
         case .customPlaceholder:
             customStatus("CUSTOM MODAL", detail: modal.message)
         }
@@ -653,6 +653,12 @@ private struct EdexModalChrome: View {
         if modal.content == .fuzzyFinder {
             return min(max(safeContainerWidth * 0.42, 480), 640)
         }
+        if modal.content == .mediaViewer {
+            if state.mediaViewerExpanded {
+                return min(max(safeContainerWidth * 0.96, 720), safeContainerWidth)
+            }
+            return min(max(safeContainerWidth * 0.55, 560), 900)
+        }
         return min(max(safeContainerWidth * 0.42, 380), 740)
     }
 
@@ -671,6 +677,12 @@ private struct EdexModalChrome: View {
         }
         if modal.content == .fuzzyFinder {
             return min(max(safeContainerHeight * 0.34, 300), 380)
+        }
+        if modal.content == .mediaViewer {
+            if state.mediaViewerExpanded {
+                return min(max(safeContainerHeight * 0.92, 480), safeContainerHeight)
+            }
+            return min(max(safeContainerHeight * 0.52, 360), 620)
         }
         return modal.kind == .custom ? 260 : 150
     }

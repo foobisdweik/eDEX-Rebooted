@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Darwin
 import EdexCoreBridge
 import EdexDomainSupport
@@ -87,6 +88,18 @@ final class ShellState: EdexActionHandler {
     /// Status line under the editor (metrics, save success/failure).
     var textEditorStatus = ""
     @ObservationIgnored private var textEditorModalID: EdexModalID?
+
+    // Phase 10.1 media viewer state.
+    var mediaViewerPath: String?
+    var mediaViewerKind: MediaKind?
+    var mediaViewerPlayer: AVPlayer?
+    var mediaViewerExpanded = false
+    var mediaViewerMuted = false
+    /// Stored (not read from `AVPlayer.volume`) so the control bar observes
+    /// volume changes — AVPlayer itself is invisible to `@Observable`.
+    var mediaViewerVolume: Double = 1
+    @ObservationIgnored private var mediaViewerModalID: EdexModalID?
+    @ObservationIgnored private var mediaViewerVolumeBeforeMute: Float = 1
 
     // Phase 6.4 shortcuts state.
     var shortcuts: EdexShortcutsDocument?
@@ -789,9 +802,9 @@ final class ShellState: EdexActionHandler {
                     title: item.name,
                     message: "PDF preview is deferred to v0.2 of the native port."
                 )
+            } else if let kind = FileTypeDetector.mediaKind(name: item.name) {
+                openMediaFile(path: item.path, name: item.name, kind: kind)
             } else {
-                // Media (image/audio/video) gets its viewer in Phase 10.1; until
-                // then, non-text files open in the host's default application.
                 openFsExternal(item.path)
             }
         }
@@ -947,6 +960,120 @@ final class ShellState: EdexActionHandler {
             )
             textEditorModalID = openedID
         }
+    }
+
+    // MARK: Media viewer (Phase 10.1)
+
+    /// Presents the in-app media viewer for image/audio/video files.
+    func openMediaFile(path: String, name: String, kind: MediaKind) {
+        if mediaViewerPath == path,
+           let mediaViewerModalID, modalManager.modal(id: mediaViewerModalID) != nil {
+            modalManager.focus(mediaViewerModalID)
+            return
+        }
+        if let mediaViewerModalID, modalManager.modal(id: mediaViewerModalID) != nil {
+            closeModal(mediaViewerModalID)
+        }
+        mediaViewerModalID = nil
+
+        tearDownMediaViewer()
+        mediaViewerPath = path
+        mediaViewerKind = kind
+        mediaViewerExpanded = false
+        mediaViewerMuted = false
+        mediaViewerVolume = 1
+        mediaViewerVolumeBeforeMute = 1
+
+        if kind == .audio || kind == .video {
+            mediaViewerPlayer = AVPlayer(url: URL(fileURLWithPath: path))
+            mediaViewerPlayer?.volume = 1
+        }
+
+        let openedID = presentModal(
+            type: "custom",
+            title: name,
+            message: "",
+            content: .mediaViewer,
+            detachesKeyboard: true,
+            onClose: { [weak self] closedID in
+                Task { @MainActor in
+                    guard self?.mediaViewerModalID == closedID else { return }
+                    self?.mediaViewerModalID = nil
+                    self?.tearDownMediaViewer()
+                }
+            }
+        )
+        mediaViewerModalID = openedID
+    }
+
+    var mediaViewerIsPlaying: Bool {
+        guard let player = mediaViewerPlayer else { return false }
+        return player.rate > 0
+    }
+
+    func toggleMediaPlayback() {
+        guard let player = mediaViewerPlayer else { return }
+        if player.rate > 0 {
+            player.pause()
+        } else {
+            player.play()
+        }
+    }
+
+    func seekMedia(fraction: Double) {
+        guard let player = mediaViewerPlayer else { return }
+        let duration = mediaViewerDuration
+        guard duration > 0 else { return }
+        let seconds = MediaPlayerSupport.seekTime(fraction: fraction, duration: duration)
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+    }
+
+    func setMediaVolume(_ value: Double) {
+        guard let player = mediaViewerPlayer else { return }
+        let clamped = MediaPlayerSupport.clampVolume(value)
+        player.volume = Float(clamped)
+        mediaViewerVolume = clamped
+        if clamped > 0 {
+            mediaViewerVolumeBeforeMute = Float(clamped)
+            mediaViewerMuted = false
+        } else {
+            mediaViewerMuted = true
+        }
+    }
+
+    func toggleMediaMute() {
+        guard let player = mediaViewerPlayer else { return }
+        if mediaViewerMuted || player.volume == 0 {
+            mediaViewerMuted = false
+            let restored = mediaViewerVolumeBeforeMute > 0 ? mediaViewerVolumeBeforeMute : 1
+            player.volume = restored
+            mediaViewerVolume = Double(restored)
+        } else {
+            mediaViewerVolumeBeforeMute = player.volume
+            mediaViewerMuted = true
+            player.volume = 0
+        }
+    }
+
+    func toggleMediaExpanded() {
+        mediaViewerExpanded.toggle()
+    }
+
+    var mediaViewerDuration: Double {
+        guard let item = mediaViewerPlayer?.currentItem else { return 0 }
+        let seconds = item.duration.seconds
+        return seconds.isFinite && seconds > 0 ? seconds : 0
+    }
+
+    private func tearDownMediaViewer() {
+        mediaViewerPlayer?.pause()
+        mediaViewerPlayer = nil
+        mediaViewerPath = nil
+        mediaViewerKind = nil
+        mediaViewerExpanded = false
+        mediaViewerMuted = false
+        mediaViewerVolume = 1
+        mediaViewerVolumeBeforeMute = 1
     }
 
     /// The editor buffer, bridged to the SwiftUI TextEditor.

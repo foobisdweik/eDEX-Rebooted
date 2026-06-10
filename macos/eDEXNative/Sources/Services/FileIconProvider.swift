@@ -33,11 +33,7 @@ final class FileIconProvider {
 
         let fill = theme.palette.accent.hexRGB
         let secondaryFill = theme.legacyLightBlack.hexRGB
-        let fillKey = "\(fill)|\(secondaryFill)"
-        if fillKey != cachedFillKey {
-            imageCache.removeAll(keepingCapacity: true)
-            cachedFillKey = fillKey
-        }
+        resetCacheIfFillsChanged(fill: fill, secondaryFill: secondaryFill)
 
         // The cache key must name the glyph actually drawn, not the matched
         // icon id: when a matched id has no renderable catalog entry, the
@@ -64,6 +60,24 @@ final class FileIconProvider {
         }
         if let cached = imageCache[cacheKey] { return cached }
         guard let document,
+              let data = document.data(using: .utf8),
+              let image = NSImage(data: data) else { return nil }
+        imageCache[cacheKey] = image
+        return image
+    }
+
+    /// Themed playback-control glyphs from the file-icons catalog (`play`,
+    /// `pause`, `volume`, `mute`, `fullscreen`, `fullscreen-exit`).
+    func controlImage(named name: String, theme: NativeTheme) -> NSImage? {
+        beginLoadingIfNeeded()
+        guard isReady else { return nil }
+
+        let fill = theme.palette.accent.hexRGB
+        resetCacheIfFillsChanged(fill: fill, secondaryFill: theme.legacyLightBlack.hexRGB)
+
+        let cacheKey = "ctl:\(name)"
+        if let cached = imageCache[cacheKey] { return cached }
+        guard let document = catalog?.svgDocument(named: name, fill: fill),
               let data = document.data(using: .utf8),
               let image = NSImage(data: data) else { return nil }
         imageCache[cacheKey] = image
@@ -100,6 +114,14 @@ final class FileIconProvider {
                 self.matcher = matcher
                 self.isReady = catalog != nil
             }
+        }
+    }
+
+    private func resetCacheIfFillsChanged(fill: String, secondaryFill: String) {
+        let fillKey = "\(fill)|\(secondaryFill)"
+        if fillKey != cachedFillKey {
+            imageCache.removeAll(keepingCapacity: true)
+            cachedFillKey = fillKey
         }
     }
 
