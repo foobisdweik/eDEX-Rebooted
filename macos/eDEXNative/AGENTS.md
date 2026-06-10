@@ -8,7 +8,7 @@ root file for edits under macos/eDEXNative/.
 
 ## Current Direction
 
-The native app is past **Phase 8.3** (on-screen keyboard input routing, merged PR #36). **Phase 9** (real PTY terminal) is next.
+The native app has completed the Phase 0-11 native-conversion feature scope. The active work is now release hardening: packaging, signing/notarization readiness, manual QA, performance polish, and small follow-up fixes.
 
 Continue the anti-churn patterns from `Ultrareview.md`:
 
@@ -32,3 +32,4 @@ Continue the anti-churn patterns from `Ultrareview.md`:
 - Use `bash scripts/native-phase precheck` for the compile floor.
 - Use `bash scripts/native-phase verify --full` when module taxonomy, generated bindings, or cross-store architecture changes.
 - Use `bash scripts/native-phase smoke` when window/bootstrap behavior changes.
+- Use `macos/eDEXNative/Scripts/package_app.sh` when validating local `.app` bundle structure and bundled asset lookup.

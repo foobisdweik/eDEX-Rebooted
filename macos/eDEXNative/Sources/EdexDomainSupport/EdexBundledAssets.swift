@@ -1,9 +1,21 @@
 import Foundation
 
-/// Repository-root bundled data paths shared by the native app and Rust core.
-/// Runtime userdata still lives under `~/Library/Application Support/eDEX-UI/`.
+/// Bundled data paths shared by the native app and Rust core. Packaged app
+/// builds read from `Contents/Resources/assets`; SwiftPM dev/test runs fall
+/// back to the repository-root `assets/` tree. Runtime userdata still lives
+/// under `~/Library/Application Support/eDEX-UI/`.
 public enum EdexBundledAssets {
-    public static func repositoryRoot(from filePath: String = #filePath) -> URL {
+    public static func repositoryRoot(
+        from filePath: String = #filePath,
+        bundleResourceURL: URL? = Bundle.main.resourceURL
+    ) -> URL {
+        if let bundleResourceURL,
+           FileManager.default.fileExists(
+               atPath: bundleResourceURL.appendingPathComponent("assets", isDirectory: true).path
+           ) {
+            return bundleResourceURL
+        }
+
         var candidate = URL(fileURLWithPath: filePath).deletingLastPathComponent()
         for _ in 0..<8 {
             if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("assets").path) {
