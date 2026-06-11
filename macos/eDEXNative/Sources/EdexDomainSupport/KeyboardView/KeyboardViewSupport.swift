@@ -16,6 +16,8 @@ public enum KeyboardKeyRole: Equatable, Sendable {
     case enterContinuation
     /// A glyph key (arrows, etc.) — carries the legacy icon name.
     case icon(String)
+    /// A key whose width is a multiplier of the fitted key side.
+    case unit(Double)
 }
 
 /// A toggleable modifier on the on-screen keyboard.
@@ -25,6 +27,19 @@ public enum KeyboardModifier: String, Equatable, Sendable, CaseIterable {
     case alt
     case fn
     case ctrl
+}
+
+public enum KeyboardPhysicalModifier: Equatable, Sendable {
+    case leftShift
+    case rightShift
+    case capsLock
+    case leftControl
+    case rightControl
+    case leftOption
+    case rightOption
+    case leftCommand
+    case rightCommand
+    case fn
 }
 
 /// The *visual* modifier state of the keyboard band. Phase 8.2 uses this purely
@@ -145,13 +160,22 @@ public struct KeyboardRowLayoutMetrics: Equatable, Sendable {
     public let rowHeight: Double
     public let rowGap: Double
     public let keyGap: Double
+    public let clusterGap: Double
 
-    public init(keySide: Double, spacebarWidth: Double, rowHeight: Double, rowGap: Double, keyGap: Double) {
+    public init(
+        keySide: Double,
+        spacebarWidth: Double,
+        rowHeight: Double,
+        rowGap: Double,
+        keyGap: Double,
+        clusterGap: Double = 0
+    ) {
         self.keySide = keySide.finiteNonNegative
         self.spacebarWidth = spacebarWidth.finiteNonNegative
         self.rowHeight = rowHeight.finiteNonNegative
         self.rowGap = rowGap.finiteNonNegative
         self.keyGap = keyGap.finiteNonNegative
+        self.clusterGap = clusterGap.finiteNonNegative
     }
 
     public static func fit(
@@ -175,13 +199,62 @@ public struct KeyboardRowLayoutMetrics: Equatable, Sendable {
         let horizontalScale = scaleToFit(available: availableWidth, desired: maxWidth)
         let desiredHeight = preferred.totalHeight(rowCount: rows.count)
         let verticalScale = scaleToFit(available: availableHeight, desired: desiredHeight)
+        let rowHeight = preferred.rowHeight * verticalScale
 
         return KeyboardRowLayoutMetrics(
-            keySide: preferred.keySide * horizontalScale,
+            keySide: min(preferred.keySide * horizontalScale, rowHeight * 0.85),
             spacebarWidth: preferred.spacebarWidth * horizontalScale,
-            rowHeight: preferred.rowHeight * verticalScale,
+            rowHeight: rowHeight,
             rowGap: preferred.rowGap * verticalScale,
             keyGap: preferred.keyGap * horizontalScale
+        )
+    }
+
+    public static func fit(
+        primaryRows: [[KeyboardKeyDescriptor]],
+        numpadRows: [[KeyboardKeyDescriptor]],
+        availableWidth: Double,
+        availableHeight: Double,
+        preferredKeySide: Double,
+        preferredSpacebarWidth: Double,
+        preferredRowHeight: Double,
+        preferredRowGap: Double,
+        preferredKeyGap: Double,
+        preferredClusterGap: Double
+    ) -> KeyboardRowLayoutMetrics {
+        let preferred = KeyboardRowLayoutMetrics(
+            keySide: preferredKeySide,
+            spacebarWidth: preferredSpacebarWidth,
+            rowHeight: preferredRowHeight,
+            rowGap: preferredRowGap,
+            keyGap: preferredKeyGap,
+            clusterGap: preferredClusterGap
+        )
+        let rowCount = max(primaryRows.count, numpadRows.count)
+        let horizontalScale = (0..<rowCount).reduce(1.0) { scale, index in
+            let primaryRow = primaryRows.indices.contains(index) ? primaryRows[index] : []
+            let numpadRow = numpadRows.indices.contains(index) ? numpadRows[index] : []
+            let primaryKeysWidth = primaryRow.reduce(0) { $0 + preferred.keyWidth(for: $1) }
+            let numpadKeysWidth = numpadRow.reduce(0) { $0 + preferred.keyWidth(for: $1) }
+            let primaryGaps = max(0, primaryRow.count - 1)
+            let numpadGaps = max(0, numpadRow.count - 1)
+            let fixedWidth = (Double(primaryGaps + numpadGaps) * preferred.keyGap)
+                + (primaryRow.isEmpty || numpadRow.isEmpty ? 0 : preferred.clusterGap)
+            let scalableWidth = primaryKeysWidth + numpadKeysWidth
+            let availableForKeys = max(0, availableWidth.finiteNonNegative - fixedWidth)
+            return min(scale, scaleToFit(available: availableForKeys, desired: scalableWidth))
+        }
+        let desiredHeight = preferred.totalHeight(rowCount: rowCount)
+        let verticalScale = scaleToFit(available: availableHeight, desired: desiredHeight)
+        let rowHeight = preferred.rowHeight * verticalScale
+
+        return KeyboardRowLayoutMetrics(
+            keySide: min(preferred.keySide * horizontalScale, rowHeight * 0.85),
+            spacebarWidth: preferred.spacebarWidth * horizontalScale,
+            rowHeight: rowHeight,
+            rowGap: preferred.rowGap * verticalScale,
+            keyGap: preferred.keyGap,
+            clusterGap: preferred.clusterGap
         )
     }
 
@@ -195,6 +268,8 @@ public struct KeyboardRowLayoutMetrics: Equatable, Sendable {
             return max(keySide * 1.4, 0)
         case .wide:
             return keySide * 1.7
+        case let .unit(multiplier):
+            return keySide * max(0, multiplier)
         case .standard, .icon:
             return keySide
         }
@@ -238,12 +313,232 @@ public enum KeyboardViewModel {
         }
     }
 
+    public static func macBookDescriptors(for layout: NativeKeyboardLayout) -> [[KeyboardKeyDescriptor]] {
+        [
+            [
+                makeKey(id: "mac_escape", name: "ESC", sourceName: "ESC", layout: layout, role: .unit(1.65)),
+                functionKey(1, sourceName: "1", layout: layout),
+                functionKey(2, sourceName: "2", layout: layout),
+                functionKey(3, sourceName: "3", layout: layout),
+                functionKey(4, sourceName: "4", layout: layout),
+                functionKey(5, sourceName: "5", layout: layout),
+                functionKey(6, sourceName: "6", layout: layout),
+                functionKey(7, sourceName: "7", layout: layout),
+                functionKey(8, sourceName: "8", layout: layout),
+                functionKey(9, sourceName: "9", layout: layout),
+                functionKey(10, sourceName: "0", layout: layout),
+                functionKey(11, sourceName: "-", layout: layout),
+                functionKey(12, sourceName: "=", layout: layout)
+            ],
+            [
+                makeKey(id: "mac_backtick", name: "`", layout: layout),
+                makeKey(id: "mac_1", name: "1", layout: layout),
+                makeKey(id: "mac_2", name: "2", layout: layout),
+                makeKey(id: "mac_3", name: "3", layout: layout),
+                makeKey(id: "mac_4", name: "4", layout: layout),
+                makeKey(id: "mac_5", name: "5", layout: layout),
+                makeKey(id: "mac_6", name: "6", layout: layout),
+                makeKey(id: "mac_7", name: "7", layout: layout),
+                makeKey(id: "mac_8", name: "8", layout: layout),
+                makeKey(id: "mac_9", name: "9", layout: layout),
+                makeKey(id: "mac_0", name: "0", layout: layout),
+                makeKey(id: "mac_minus", name: "-", layout: layout),
+                makeKey(id: "mac_equals", name: "=", layout: layout),
+                makeKey(id: "mac_delete", name: "DELETE", sourceName: "BACK", layout: layout, role: .unit(1.95))
+            ],
+            [
+                makeKey(id: "mac_tab", name: "TAB", layout: layout, role: .unit(1.65)),
+                makeKey(id: "mac_q", name: "Q", layout: layout),
+                makeKey(id: "mac_w", name: "W", layout: layout),
+                makeKey(id: "mac_e", name: "E", layout: layout),
+                makeKey(id: "mac_r", name: "R", layout: layout),
+                makeKey(id: "mac_t", name: "T", layout: layout),
+                makeKey(id: "mac_y", name: "Y", layout: layout),
+                makeKey(id: "mac_u", name: "U", layout: layout),
+                makeKey(id: "mac_i", name: "I", layout: layout),
+                makeKey(id: "mac_o", name: "O", layout: layout),
+                makeKey(id: "mac_p", name: "P", layout: layout),
+                makeKey(id: "mac_left_bracket", name: "[", layout: layout),
+                makeKey(id: "mac_right_bracket", name: "]", layout: layout),
+                makeKey(id: "mac_backslash", name: "\\", sourceName: "\\\\", layout: layout, role: .unit(1.45))
+            ],
+            [
+                makeKey(id: "mac_caps", name: "CAPS", sourceName: "CAPS", layout: layout, role: .unit(1.95)),
+                makeKey(id: "mac_a", name: "A", layout: layout),
+                makeKey(id: "mac_s", name: "S", layout: layout),
+                makeKey(id: "mac_d", name: "D", layout: layout),
+                makeKey(id: "mac_f", name: "F", layout: layout),
+                makeKey(id: "mac_g", name: "G", layout: layout),
+                makeKey(id: "mac_h", name: "H", layout: layout),
+                makeKey(id: "mac_j", name: "J", layout: layout),
+                makeKey(id: "mac_k", name: "K", layout: layout),
+                makeKey(id: "mac_l", name: "L", layout: layout),
+                makeKey(id: "mac_semicolon", name: ";", layout: layout),
+                makeKey(id: "mac_quote", name: "'", layout: layout),
+                makeKey(id: "mac_return", name: "RETURN", sourceName: "ENTER", layout: layout, role: .unit(2.25))
+            ],
+            [
+                makeKey(id: "mac_shift_left", name: "SHIFT", sourceName: "SHIFT", layout: layout, role: .unit(2.35)),
+                makeKey(id: "mac_z", name: "Z", layout: layout),
+                makeKey(id: "mac_x", name: "X", layout: layout),
+                makeKey(id: "mac_c", name: "C", layout: layout),
+                makeKey(id: "mac_v", name: "V", layout: layout),
+                makeKey(id: "mac_b", name: "B", layout: layout),
+                makeKey(id: "mac_n", name: "N", layout: layout),
+                makeKey(id: "mac_m", name: "M", layout: layout),
+                makeKey(id: "mac_comma", name: ",", layout: layout),
+                makeKey(id: "mac_period", name: ".", layout: layout),
+                makeKey(id: "mac_slash", name: "/", layout: layout),
+                makeKey(id: "mac_shift_right", name: "SHIFT", sourceName: "SHIFT", layout: layout, role: .unit(2.75))
+            ],
+            [
+                makeKey(id: "mac_fn", name: "FN", sourceName: "FN", layout: layout, role: .unit(1.2)),
+                makeKey(id: "mac_ctrl_left", name: "CTRL", sourceName: "CTRL", layout: layout, role: .unit(1.35)),
+                makeKey(id: "mac_option_left", name: "OPTION", sourceName: "ALT GR", layout: layout, role: .unit(1.55)),
+                synthesizedKey(id: "mac_command_left", name: "COMMAND", command: "ESCAPED|-- COMMAND: LEFT", role: .unit(1.7)),
+                makeKey(id: "mac_space", name: "SPACE", sourceName: "", layout: layout, role: .spacebar),
+                synthesizedKey(id: "mac_command_right", name: "COMMAND", command: "ESCAPED|-- COMMAND: RIGHT", role: .unit(1.7)),
+                makeKey(id: "mac_option_right", name: "OPTION", sourceName: "ALT GR", layout: layout, role: .unit(1.55)),
+                arrowKey(id: "mac_arrow_left", name: "LEFT", iconName: "ARROW_LEFT", layout: layout),
+                arrowKey(id: "mac_arrow_up", name: "UP", iconName: "ARROW_UP", layout: layout),
+                arrowKey(id: "mac_arrow_down", name: "DOWN", iconName: "ARROW_DOWN", layout: layout),
+                arrowKey(id: "mac_arrow_right", name: "RIGHT", iconName: "ARROW_RIGHT", layout: layout)
+            ]
+        ]
+    }
+
+    /// Supplemental render-only numpad rows. These do not come from the legacy
+    /// keyboard JSON, so duplicate digits keep independent visual IDs and do not
+    /// interfere with physical-key highlighting for the primary keyboard.
+    public static func numpadDescriptors() -> [[KeyboardKeyDescriptor]] {
+        [
+            [
+                numpadKey(row: 0, column: 0, name: "NUM", command: "ESCAPED|-- NUMLOCK"),
+                numpadKey(row: 0, column: 1, name: "HOME", command: "\u{001B}[H"),
+                numpadKey(row: 0, column: 2, name: "INS", command: "\u{001B}[2~"),
+                numpadKey(row: 0, column: 3, name: "DEL", command: "\u{001B}[3~")
+            ],
+            [
+                numpadKey(row: 1, column: 0, name: "7", command: "7", alternateName: "HOME"),
+                numpadKey(row: 1, column: 1, name: "8", command: "8", alternateName: "UP"),
+                numpadKey(row: 1, column: 2, name: "9", command: "9", alternateName: "PGUP"),
+                numpadKey(row: 1, column: 3, name: "/", command: "/")
+            ],
+            [
+                numpadKey(row: 2, column: 0, name: "4", command: "4", alternateName: "LEFT"),
+                numpadKey(row: 2, column: 1, name: "5", command: "5"),
+                numpadKey(row: 2, column: 2, name: "6", command: "6", alternateName: "RIGHT"),
+                numpadKey(row: 2, column: 3, name: "*", command: "*")
+            ],
+            [
+                numpadKey(row: 3, column: 0, name: "1", command: "1", alternateName: "END"),
+                numpadKey(row: 3, column: 1, name: "2", command: "2", alternateName: "DOWN"),
+                numpadKey(row: 3, column: 2, name: "3", command: "3", alternateName: "PGDN"),
+                numpadKey(row: 3, column: 3, name: "-", command: "-")
+            ],
+            [
+                numpadKey(row: 4, column: 0, name: "0", command: "0", alternateName: "INS", role: .wide),
+                numpadKey(row: 4, column: 1, name: ".", command: "."),
+                numpadKey(row: 4, column: 2, name: "+", command: "+"),
+                numpadKey(row: 4, column: 3, name: "ENTER", command: "\r", role: .enter)
+            ]
+        ]
+    }
+
     /// Whole-band opacity: password mode dims to 0.5 (legacy
     /// `[data-password-mode]`), otherwise a detached keyboard dims to 0.18.
     public static func bandOpacity(modifiers: KeyboardModifierState, isDetached: Bool) -> Double {
         if modifiers.passwordMode { return 0.5 }
         if isDetached { return 0.18 }
         return 1.0
+    }
+
+    private static func numpadKey(
+        row: Int,
+        column: Int,
+        name: String,
+        command: String,
+        alternateName: String? = nil,
+        role: KeyboardKeyRole = .standard
+    ) -> KeyboardKeyDescriptor {
+        KeyboardKeyDescriptor(
+            id: "numpad_\(row)_\(column)",
+            key: NativeKeyboardKey(
+                name: name,
+                command: command,
+                alternateName: alternateName
+            ),
+            role: role,
+            modifier: nil
+        )
+    }
+
+    private static func functionKey(_ number: Int, sourceName: String, layout: NativeKeyboardLayout) -> KeyboardKeyDescriptor {
+        let source = layout.key(name: sourceName)
+        return KeyboardKeyDescriptor(
+            id: "mac_f\(number)",
+            key: NativeKeyboardKey(
+                name: "F\(number)",
+                command: source?.functionCommand ?? "",
+                functionName: "F\(number)",
+                functionCommand: source?.functionCommand
+            ),
+            role: .standard,
+            modifier: nil
+        )
+    }
+
+    private static func makeKey(
+        id: String,
+        name: String,
+        sourceName: String? = nil,
+        layout: NativeKeyboardLayout,
+        role: KeyboardKeyRole = .standard
+    ) -> KeyboardKeyDescriptor {
+        let source = layout.key(name: sourceName ?? name)
+        let key = source.map { relabeled($0, name: name) }
+            ?? NativeKeyboardKey(name: name, command: name.lowercased())
+        return KeyboardKeyDescriptor(id: id, key: key, role: role, modifier: modifier(for: key))
+    }
+
+    private static func synthesizedKey(
+        id: String,
+        name: String,
+        command: String,
+        role: KeyboardKeyRole
+    ) -> KeyboardKeyDescriptor {
+        let key = NativeKeyboardKey(name: name, command: command)
+        return KeyboardKeyDescriptor(id: id, key: key, role: role, modifier: modifier(for: key))
+    }
+
+    private static func arrowKey(
+        id: String,
+        name: String,
+        iconName: String,
+        layout: NativeKeyboardLayout
+    ) -> KeyboardKeyDescriptor {
+        let source = layout.key(iconName: iconName)
+        let key = source.map { relabeled($0, name: name) }
+            ?? NativeKeyboardKey(name: name, command: "", iconName: iconName)
+        return KeyboardKeyDescriptor(id: id, key: key, role: .icon(iconName), modifier: nil)
+    }
+
+    private static func relabeled(_ source: NativeKeyboardKey, name: String) -> NativeKeyboardKey {
+        NativeKeyboardKey(
+            name: name,
+            command: source.command,
+            shiftName: source.shiftName,
+            shiftCommand: source.shiftCommand,
+            controlCommand: source.controlCommand,
+            alternateName: source.alternateName,
+            alternateCommand: source.alternateCommand,
+            alternateShiftName: source.alternateShiftName,
+            alternateShiftCommand: source.alternateShiftCommand,
+            functionName: source.functionName,
+            functionCommand: source.functionCommand,
+            capsLockCommand: source.capsLockCommand,
+            iconName: source.iconName
+        )
     }
 
     private static func role(
@@ -281,6 +576,88 @@ public enum KeyboardViewModel {
         if body.hasPrefix("CAPSLCK") { return .capsLock }
         if body.hasPrefix("FN") { return .fn }
         return nil
+    }
+}
+
+/// Maps physical-key shortcut models to the matching on-screen key descriptor.
+/// This keeps the AppKit event monitor thin: it can translate `NSEvent` into a
+/// `KeyCombo`, then ask this pure mapper which key should light visually.
+public enum KeyboardPhysicalKeyMapper {
+    public static func descriptorID(for combo: KeyCombo, in layout: NativeKeyboardLayout) -> String? {
+        let descriptors = KeyboardViewModel.macBookDescriptors(for: layout).flatMap { $0 }
+        switch combo.key {
+        case .special(.space):
+            return descriptors.first { $0.role == .spacebar }?.id
+        case .special(.tab):
+            return descriptors.first { $0.key.name.caseInsensitiveCompare("TAB") == .orderedSame }?.id
+        case .function(let number):
+            return descriptors.first { $0.key.functionName == "F\(number)" }?.id
+        case .character(let character):
+            return descriptorID(forCharacter: character, in: descriptors)
+        }
+    }
+
+    public static func descriptorID(for modifier: KeyboardModifier, in layout: NativeKeyboardLayout) -> String? {
+        KeyboardViewModel.macBookDescriptors(for: layout)
+            .flatMap { $0 }
+            .first { $0.modifier == modifier }?
+            .id
+    }
+
+    public static func descriptorID(for physicalModifier: KeyboardPhysicalModifier, in layout: NativeKeyboardLayout) -> String? {
+        let descriptors = KeyboardViewModel.macBookDescriptors(for: layout).flatMap { $0 }
+        switch physicalModifier {
+        case .leftShift:
+            return "mac_shift_left"
+        case .rightShift:
+            return "mac_shift_right"
+        case .capsLock:
+            return descriptors.first { $0.modifier == .capsLock }?.id
+        case .leftControl:
+            return "mac_ctrl_left"
+        case .rightControl:
+            return descriptors.first { $0.id != "mac_ctrl_left" && $0.modifier == .ctrl }?.id ?? "mac_ctrl_left"
+        case .leftOption:
+            return "mac_option_left"
+        case .rightOption:
+            return "mac_option_right"
+        case .leftCommand:
+            return "mac_command_left"
+        case .rightCommand:
+            return "mac_command_right"
+        case .fn:
+            return descriptors.first { $0.modifier == .fn }?.id
+        }
+    }
+
+    private static func descriptorID(
+        forCharacter character: Character,
+        in descriptors: [KeyboardKeyDescriptor]
+    ) -> String? {
+        let value = String(character).lowercased()
+        switch value {
+        case "\r", "\n":
+            return descriptors.first { $0.role == .enter }?.id
+        case "\u{1B}":
+            return descriptors.first { $0.key.name.caseInsensitiveCompare("ESC") == .orderedSame }?.id
+        case "\u{8}", "\u{7F}":
+            return descriptors.first {
+                $0.key.name.caseInsensitiveCompare("DELETE") == .orderedSame
+                    || $0.key.name.caseInsensitiveCompare("BACK") == .orderedSame
+            }?.id
+        case "\u{F700}":
+            return descriptors.first { $0.role == .icon("ARROW_UP") }?.id
+        case "\u{F701}":
+            return descriptors.first { $0.role == .icon("ARROW_DOWN") }?.id
+        case "\u{F702}":
+            return descriptors.first { $0.role == .icon("ARROW_LEFT") }?.id
+        case "\u{F703}":
+            return descriptors.first { $0.role == .icon("ARROW_RIGHT") }?.id
+        default:
+            return descriptors.first {
+                $0.key.command.lowercased() == value || $0.key.name.lowercased() == value
+            }?.id
+        }
     }
 }
 

@@ -18,14 +18,14 @@ struct ContentView: View {
 
             ZStack(alignment: .topLeading) {
                 background(size: proxy.size)
-                column(layout.leftColumn, title: "PANEL", subtitle: "SYSTEM", side: .left, vh: layout.vh)
+                column(layout.leftColumn, title: "SYSTEM", subtitle: "", side: .left, vh: layout.vh)
                 mainShell(layout.mainShell, vh: layout.vh)
-                column(layout.rightColumn, title: "PANEL", subtitle: "NETWORK", side: .right, vh: layout.vh)
+                column(layout.rightColumn, title: "NETWORK", subtitle: "", side: .right, vh: layout.vh)
                 if !layout.filesystem.isHidden {
                     filesystem(layout.filesystem, vh: layout.vh)
                 }
                 keyboard(layout.keyboard, vh: layout.vh)
-                statusRibbon(vh: layout.vh)
+                statusRibbon(layout.statusRibbon, vh: layout.vh)
                 modalLayer(size: proxy.size, vh: layout.vh)
                 if state.bootStage != .complete {
                     BootView(state: state)
@@ -36,15 +36,37 @@ struct ContentView: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
+            .onAppear {
+                state.updateFixedReservedRects(layout.fixedReservedRects)
+                replaceAllModals(containerSize: proxy.size)
+            }
+            .onChange(of: layout.fixedReservedRects) { _, rects in
+                state.updateFixedReservedRects(rects)
+                replaceAllModals(containerSize: proxy.size)
+            }
         }
         .foregroundStyle(state.theme.accent)
-        .overlay(alignment: .top) {
+        .overlay(alignment: .topLeading) {
             // Transparent drag strip for the full-size-content titlebar.
-            Color.clear
+            GeometryReader { proxy in
+                let layout = layoutEngine.layout(
+                    in: LayoutSize(
+                        width: Double(proxy.size.width),
+                        height: Double(proxy.size.height)
+                    )
+                )
+                HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: CGFloat(min(Double(proxy.size.width), layout.statusRibbon.maxX + 8)))
+                        .allowsHitTesting(false)
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(WindowDragGesture())
+                        .allowsWindowActivationEvents(true)
+                }
                 .frame(height: 42)
-                .contentShape(Rectangle())
-                .gesture(WindowDragGesture())
-                .allowsWindowActivationEvents(true)
+            }
+            .frame(height: 42)
         }
     }
 
@@ -171,6 +193,12 @@ struct ContentView: View {
 
     private func modalLayer(size: CGSize, vh: Double) -> some View {
         ForEach(state.modalManager.modals, id: \.id) { modal in
+            let modalSize = EdexModalMetrics.size(
+                for: modal,
+                containerSize: size,
+                mediaViewerExpanded: state.mediaViewerExpanded
+            )
+            let existingRects = existingModalRects(excluding: modal.id, containerSize: size)
             EdexModalChrome(
                 state: state,
                 modal: modal,
@@ -180,11 +208,75 @@ struct ContentView: View {
                 processRows: state.processRows,
                 processSort: state.processSort,
                 onFocus: { state.modalManager.focus(modal.id) },
-                onMove: { dx, dy in state.modalManager.move(modal.id, dx: dx, dy: dy) },
+                onMove: { dx, dy in
+                    state.moveModal(
+                        modal.id,
+                        dx: dx,
+                        dy: dy,
+                        containerSize: size,
+                        modalSize: modalSize,
+                        existingModalRects: existingRects
+                    )
+                },
                 onProcessSort: { field in state.processSort = state.processSort.toggled(field) },
                 onClose: { state.closeModal(modal.id) }
             )
             .zIndex(Double(modal.zIndex))
+            .onAppear {
+                state.moveModal(
+                    modal.id,
+                    dx: 0,
+                    dy: 0,
+                    containerSize: size,
+                    modalSize: modalSize,
+                    existingModalRects: existingRects
+                )
+            }
+            .onChange(of: modalSize) { _, newSize in
+                state.moveModal(
+                    modal.id,
+                    dx: 0,
+                    dy: 0,
+                    containerSize: size,
+                    modalSize: newSize,
+                    existingModalRects: existingModalRects(excluding: modal.id, containerSize: size)
+                )
+            }
+        }
+    }
+
+    private func existingModalRects(excluding id: EdexModalID, containerSize: CGSize) -> [ModalLayoutRect] {
+        state.modalManager.modals.compactMap { modal in
+            guard modal.id != id else { return nil }
+            let size = EdexModalMetrics.size(
+                for: modal,
+                containerSize: containerSize,
+                mediaViewerExpanded: state.mediaViewerExpanded
+            )
+            return ModalLayoutRect(
+                x: (Double(containerSize.width) - Double(size.width)) / 2 + modal.offsetX,
+                y: (Double(containerSize.height) - Double(size.height)) / 2 + modal.offsetY,
+                width: Double(size.width),
+                height: Double(size.height)
+            )
+        }
+    }
+
+    private func replaceAllModals(containerSize: CGSize) {
+        for modal in state.modalManager.modals {
+            let size = EdexModalMetrics.size(
+                for: modal,
+                containerSize: containerSize,
+                mediaViewerExpanded: state.mediaViewerExpanded
+            )
+            state.moveModal(
+                modal.id,
+                dx: 0,
+                dy: 0,
+                containerSize: containerSize,
+                modalSize: size,
+                existingModalRects: existingModalRects(excluding: modal.id, containerSize: containerSize)
+            )
         }
     }
 
@@ -192,7 +284,9 @@ struct ContentView: View {
         HStack {
             Text(left)
             Spacer(minLength: 8)
-            Text(right)
+            if !right.isEmpty {
+                Text(right)
+            }
         }
         .font(.custom(state.theme.fonts.main, size: 11))
         .foregroundStyle(state.theme.accent.opacity(0.76))
@@ -362,7 +456,7 @@ struct ContentView: View {
         }
     }
 
-    private func statusRibbon(vh: Double) -> some View {
+    private func statusRibbon(_ frame: LayoutRect, vh: Double) -> some View {
         return HStack(spacing: 14) {
             Text("⚙ eDEX NATIVE")
                 .font(.custom(state.theme.fonts.main, size: 13))
@@ -383,7 +477,7 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .onTapGesture { state.openSettingsModal() }
         .help("Open settings")
-        .position(x: 132, y: 23)
+        .positioned(in: frame)
     }
 }
 
@@ -638,6 +732,46 @@ private struct EdexModalChrome: View {
     }
 
     private var modalWidth: CGFloat {
+        EdexModalMetrics.size(
+            for: modal,
+            containerSize: CGSize(width: safeContainerWidth, height: safeContainerHeight),
+            mediaViewerExpanded: state.mediaViewerExpanded
+        ).width
+    }
+
+    private var modalHeight: CGFloat {
+        EdexModalMetrics.size(
+            for: modal,
+            containerSize: CGSize(width: safeContainerWidth, height: safeContainerHeight),
+            mediaViewerExpanded: state.mediaViewerExpanded
+        ).height
+    }
+
+    private var safeContainerWidth: CGFloat {
+        containerSize.width.isFinite && containerSize.width > 0 ? containerSize.width : 960
+    }
+
+    private var safeContainerHeight: CGFloat {
+        containerSize.height.isFinite && containerSize.height > 0 ? containerSize.height : 600
+    }
+}
+
+private enum EdexModalMetrics {
+    static func size(for modal: EdexModalRecord, containerSize: CGSize, mediaViewerExpanded: Bool) -> CGSize {
+        let safeWidth = containerSize.width.isFinite && containerSize.width > 0 ? containerSize.width : 960
+        let safeHeight = containerSize.height.isFinite && containerSize.height > 0 ? containerSize.height : 600
+
+        return CGSize(
+            width: width(for: modal, safeContainerWidth: safeWidth, mediaViewerExpanded: mediaViewerExpanded),
+            height: height(for: modal, safeContainerHeight: safeHeight, mediaViewerExpanded: mediaViewerExpanded)
+        )
+    }
+
+    private static func width(
+        for modal: EdexModalRecord,
+        safeContainerWidth: CGFloat,
+        mediaViewerExpanded: Bool
+    ) -> CGFloat {
         if modal.content == .processList {
             return min(max(safeContainerWidth * 0.72, 680), 980)
         }
@@ -654,7 +788,7 @@ private struct EdexModalChrome: View {
             return min(max(safeContainerWidth * 0.42, 480), 640)
         }
         if modal.content == .mediaViewer {
-            if state.mediaViewerExpanded {
+            if mediaViewerExpanded {
                 return min(max(safeContainerWidth * 0.96, 720), safeContainerWidth)
             }
             return min(max(safeContainerWidth * 0.55, 560), 900)
@@ -662,7 +796,11 @@ private struct EdexModalChrome: View {
         return min(max(safeContainerWidth * 0.42, 380), 740)
     }
 
-    private var modalHeight: CGFloat {
+    private static func height(
+        for modal: EdexModalRecord,
+        safeContainerHeight: CGFloat,
+        mediaViewerExpanded: Bool
+    ) -> CGFloat {
         if modal.content == .processList {
             return min(max(safeContainerHeight * 0.55, 360), 620)
         }
@@ -679,20 +817,12 @@ private struct EdexModalChrome: View {
             return min(max(safeContainerHeight * 0.34, 300), 380)
         }
         if modal.content == .mediaViewer {
-            if state.mediaViewerExpanded {
+            if mediaViewerExpanded {
                 return min(max(safeContainerHeight * 0.92, 480), safeContainerHeight)
             }
             return min(max(safeContainerHeight * 0.52, 360), 620)
         }
         return modal.kind == .custom ? 260 : 150
-    }
-
-    private var safeContainerWidth: CGFloat {
-        containerSize.width.isFinite && containerSize.width > 0 ? containerSize.width : 960
-    }
-
-    private var safeContainerHeight: CGFloat {
-        containerSize.height.isFinite && containerSize.height > 0 ? containerSize.height : 600
     }
 }
 

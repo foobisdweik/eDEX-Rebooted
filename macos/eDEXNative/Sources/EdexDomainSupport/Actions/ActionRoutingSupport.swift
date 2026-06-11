@@ -165,4 +165,12 @@ public final class KeyboardStore {
             self?.pressedKeyIDs.remove(id)
         }
     }
+
+    public func holdVisual(id: String) {
+        pressedKeyIDs.insert(id)
+    }
+
+    public func releaseVisual(id: String) {
+        pressedKeyIDs.remove(id)
+    }
 }

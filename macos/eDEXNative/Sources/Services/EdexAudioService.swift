@@ -5,7 +5,8 @@ import Foundation
 @MainActor
 final class EdexAudioService {
     private let assetDirectory: URL
-    private var players: [EdexAudioCue: AVAudioPlayer] = [:]
+    private var players: [EdexAudioCue: [AVAudioPlayer]] = [:]
+    private var nextVoiceIndex: [EdexAudioCue: Int] = [:]
     private var catalog = EdexAudioCatalog()
 
     init(assetDirectory: URL = EdexAudioService.defaultAssetDirectory()) {
@@ -19,19 +20,26 @@ final class EdexAudioService {
 
         for cue in plan.remove {
             players[cue] = nil
+            nextVoiceIndex[cue] = nil
         }
 
         for cue in plan.update {
-            players[cue]?.volume = Float(catalog.effectiveVolume(for: cue))
+            players[cue]?.forEach { player in
+                player.volume = Float(catalog.effectiveVolume(for: cue))
+            }
         }
 
         for cue in plan.load {
             guard let url = resolver.url(for: cue) else { continue }
             do {
-                let player = try AVAudioPlayer(contentsOf: url)
-                player.volume = Float(catalog.effectiveVolume(for: cue))
-                player.prepareToPlay()
-                players[cue] = player
+                let voices = try (0..<EdexAudioVoicePolicy.voiceCount(for: cue)).map { _ in
+                    let player = try AVAudioPlayer(contentsOf: url)
+                    player.volume = Float(catalog.effectiveVolume(for: cue))
+                    player.prepareToPlay()
+                    return player
+                }
+                players[cue] = voices
+                nextVoiceIndex[cue] = 0
             } catch {
                 // Match the legacy proxy behavior: unavailable sounds are no-ops.
                 continue
@@ -41,7 +49,10 @@ final class EdexAudioService {
 
     @discardableResult
     func play(_ cue: EdexAudioCue) -> Bool {
-        guard let player = players[cue] else { return false }
+        guard let voices = players[cue], !voices.isEmpty else { return false }
+        let index = nextVoiceIndex[cue, default: 0] % voices.count
+        let player = voices[index]
+        nextVoiceIndex[cue] = (index + 1) % voices.count
         player.currentTime = 0
         return player.play()
     }

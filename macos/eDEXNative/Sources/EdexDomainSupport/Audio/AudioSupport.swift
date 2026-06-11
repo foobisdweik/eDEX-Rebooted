@@ -117,6 +117,17 @@ public struct EdexAudioUpdatePlan: Equatable, Sendable {
     public var remove: Set<EdexAudioCue>
 }
 
+public enum EdexAudioVoicePolicy {
+    public static func voiceCount(for cue: EdexAudioCue) -> Int {
+        switch cue {
+        case .stdin, .keyboard:
+            4
+        case .stdout, .folder, .granted, .theme, .expand, .panels, .scan, .denied, .info, .alarm, .error:
+            1
+        }
+    }
+}
+
 public struct EdexAudioAssetResolver: Sendable {
     public let assetDirectory: URL
 

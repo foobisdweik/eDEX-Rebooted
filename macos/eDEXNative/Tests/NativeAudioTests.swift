@@ -96,4 +96,12 @@ final class NativeAudioTests: XCTestCase {
         XCTAssertFalse(plan.load.contains(.keyboard))
         XCTAssertTrue(plan.load.contains(.theme))
     }
+
+    func testRapidInputCuesUseMultiplePreparedVoices() {
+        XCTAssertEqual(EdexAudioVoicePolicy.voiceCount(for: .stdin), 4)
+        XCTAssertEqual(EdexAudioVoicePolicy.voiceCount(for: .keyboard), 4)
+        XCTAssertEqual(EdexAudioVoicePolicy.voiceCount(for: .stdout), 1)
+        XCTAssertEqual(EdexAudioVoicePolicy.voiceCount(for: .granted), 1)
+        XCTAssertEqual(EdexAudioVoicePolicy.voiceCount(for: .theme), 1)
+    }
 }

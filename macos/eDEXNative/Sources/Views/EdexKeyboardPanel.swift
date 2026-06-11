@@ -14,14 +14,29 @@ struct EdexKeyboardPanel: View {
     let onPressKey: @MainActor (KeyboardKeyDescriptor) -> Void
 
     var body: some View {
-        Group {
-            if let layout {
-                keyboardBand(layout: layout)
-            } else {
-                keyboardStubBand
+        VStack(alignment: .leading, spacing: 8) {
+            Text("KEYBOARD")
+                .font(.custom(theme.fonts.main, size: 11))
+                .foregroundStyle(theme.accent.opacity(0.76))
+                .padding(.horizontal, 5)
+                .padding(.bottom, 3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(theme.accent.opacity(0.28))
+                        .frame(height: 1)
+                }
+
+            Group {
+                if let layout {
+                    keyboardBand(layout: layout)
+                } else {
+                    keyboardStubBand
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(10)
         .augmentedSurface(
             style: .panel(vh: vh),
             fill: theme.panelBackground.opacity(0.42),
@@ -31,23 +46,30 @@ struct EdexKeyboardPanel: View {
     }
 
     private func keyboardBand(layout: NativeKeyboardLayout) -> some View {
-        let rows = KeyboardViewModel.descriptors(for: layout)
+        let rows = KeyboardViewModel.macBookDescriptors(for: layout)
+        let numpadRows = KeyboardViewModel.numpadDescriptors()
+        let rowCount = max(rows.count, numpadRows.count)
         return GeometryReader { proxy in
             let fitted = KeyboardRowLayoutMetrics.fit(
-                rows: rows,
+                primaryRows: rows,
+                numpadRows: numpadRows,
                 availableWidth: Double(proxy.size.width),
                 availableHeight: Double(proxy.size.height),
                 preferredKeySide: metrics.keySide,
                 preferredSpacebarWidth: metrics.spacebarWidth,
                 preferredRowHeight: metrics.rowHeight,
                 preferredRowGap: metrics.rowGap,
-                preferredKeyGap: 6
+                preferredKeyGap: 8,
+                preferredClusterGap: 28
             )
             VStack(spacing: CGFloat(fitted.rowGap)) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    HStack(spacing: CGFloat(fitted.keyGap)) {
-                        ForEach(row) { descriptor in
-                            keyView(descriptor, metrics: fitted)
+                ForEach(0..<rowCount, id: \.self) { index in
+                    HStack(spacing: CGFloat(fitted.clusterGap)) {
+                        if rows.indices.contains(index) {
+                            keyboardRow(rows[index], metrics: fitted)
+                        }
+                        if numpadRows.indices.contains(index) {
+                            keyboardRow(numpadRows[index], metrics: fitted)
                         }
                     }
                     .frame(height: CGFloat(fitted.rowHeight))
@@ -55,6 +77,14 @@ struct EdexKeyboardPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .clipped()
+        }
+    }
+
+    private func keyboardRow(_ row: [KeyboardKeyDescriptor], metrics: KeyboardRowLayoutMetrics) -> some View {
+        HStack(spacing: CGFloat(metrics.keyGap)) {
+            ForEach(row) { descriptor in
+                keyView(descriptor, metrics: metrics)
+            }
         }
     }
 

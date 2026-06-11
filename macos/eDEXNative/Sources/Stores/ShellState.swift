@@ -41,6 +41,7 @@ final class ShellState: EdexActionHandler {
     var processSort = EdexProcessSort.default
     @ObservationIgnored private var processListModalID: EdexModalID?
     @ObservationIgnored private var processListRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var fixedReservedRects = [ModalLayoutRect]()
 
     // Phase 6.5 boot screen state.
     /// Which stage of the boot sequence is active.
@@ -108,6 +109,8 @@ final class ShellState: EdexActionHandler {
     var shortcutsStatus = ""
     @ObservationIgnored private var shortcutsModalID: EdexModalID?
     @ObservationIgnored private var shortcutMonitor: Any?
+    @ObservationIgnored private var keyUpMonitor: Any?
+    @ObservationIgnored private var modifierMonitor: Any?
 
     // Phase 6.3 settings editor state.
     var settingsDocument = EdexSettingsDocument()
@@ -191,6 +194,42 @@ final class ShellState: EdexActionHandler {
             guard let top = modalManager.modals.max(by: { $0.zIndex < $1.zIndex }) else { return }
             closeModal(top.id)
         }
+    }
+
+    func updateFixedReservedRects(_ rects: [LayoutRect]) {
+        fixedReservedRects = rects
+            .filter { !$0.isHidden && $0.width > 0 && $0.height > 0 }
+            .map {
+                ModalLayoutRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height)
+            }
+    }
+
+    func moveModal(
+        _ id: EdexModalID,
+        dx: Double,
+        dy: Double,
+        containerSize: CGSize,
+        modalSize: CGSize,
+        existingModalRects: [ModalLayoutRect] = []
+    ) {
+        let viewport = ModalLayoutRect(
+            x: 0,
+            y: 0,
+            width: Double(containerSize.width),
+            height: Double(containerSize.height)
+        )
+        let size = ModalLayoutSize(width: Double(modalSize.width), height: Double(modalSize.height))
+        modalManager.move(
+            id,
+            dx: dx,
+            dy: dy,
+            placement: ModalPlacementContext(
+                viewport: viewport,
+                modalSize: size,
+                reserved: fixedReservedRects,
+                existing: existingModalRects
+            )
+        )
     }
 
     func bootstrap() async {
@@ -1203,15 +1242,54 @@ final class ShellState: EdexActionHandler {
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             let combo = event.keyCombo
-            let consumed = MainActor.assumeIsolated { self.handleShortcutKeyCombo(combo) }
+            let consumed = MainActor.assumeIsolated {
+                if let combo,
+                   let layout = self.keyboard.layout,
+                   let id = KeyboardPhysicalKeyMapper.descriptorID(for: combo, in: layout) {
+                    self.keyboard.holdVisual(id: id)
+                }
+                return self.handleShortcutKeyCombo(combo)
+            }
             return consumed ? nil : event
+        }
+        keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+            guard let self else { return event }
+            let combo = event.keyCombo
+            MainActor.assumeIsolated {
+                guard let combo,
+                      let layout = self.keyboard.layout,
+                      let id = KeyboardPhysicalKeyMapper.descriptorID(for: combo, in: layout)
+                else { return }
+                self.keyboard.releaseVisual(id: id)
+            }
+            return event
+        }
+        modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            guard let self else { return event }
+            MainActor.assumeIsolated {
+                guard let physicalModifier = event.keyboardPhysicalModifier,
+                      let modifier = event.keyboardModifier,
+                      let layout = self.keyboard.layout,
+                      let id = KeyboardPhysicalKeyMapper.descriptorID(for: physicalModifier, in: layout)
+                else { return }
+                if event.isActiveModifier(modifier) {
+                    self.keyboard.holdVisual(id: id)
+                } else {
+                    self.keyboard.releaseVisual(id: id)
+                }
+            }
+            return event
         }
     }
 
     /// Called by deinit or on explicit teardown. Removes the NSEvent monitor.
     func removeShortcutMonitor() {
         if let m = shortcutMonitor { NSEvent.removeMonitor(m) }
+        if let m = keyUpMonitor { NSEvent.removeMonitor(m) }
+        if let m = modifierMonitor { NSEvent.removeMonitor(m) }
         shortcutMonitor = nil
+        keyUpMonitor = nil
+        modifierMonitor = nil
     }
 
     /// Matches a keyDown combo against loaded shortcuts. Returns true when the

@@ -24,6 +24,15 @@ public struct LayoutRect: Equatable, Sendable {
         self.height = height.isFinite ? max(0, height) : 0
         self.isHidden = isHidden
     }
+
+    public var maxX: Double { x + width }
+    public var maxY: Double { y + height }
+
+    public func intersects(_ other: LayoutRect) -> Bool {
+        guard !isHidden, !other.isHidden else { return false }
+        guard width > 0, height > 0, other.width > 0, other.height > 0 else { return false }
+        return x < other.maxX && maxX > other.x && y < other.maxY && maxY > other.y
+    }
 }
 
 public struct KeyboardLayoutMetrics: Equatable, Sendable {
@@ -42,11 +51,18 @@ public struct KeyboardLayoutMetrics: Equatable, Sendable {
 
 public struct EdexLayout: Equatable, Sendable {
     public let viewport: LayoutSize
+    public let statusRibbon: LayoutRect
     public let leftColumn: LayoutRect
     public let mainShell: LayoutRect
     public let rightColumn: LayoutRect
     public let filesystem: LayoutRect
     public let keyboard: KeyboardLayoutMetrics
+
+    public var fixedReservedRects: [LayoutRect] {
+        [statusRibbon, leftColumn, mainShell, rightColumn, filesystem, keyboard.frame].filter {
+            !$0.isHidden && $0.width > 0 && $0.height > 0
+        }
+    }
 }
 
 public struct EdexLayoutEngine: Sendable {
@@ -62,35 +78,35 @@ public struct EdexLayoutEngine: Sendable {
         let isClassicNarrow = aspect > 0 && aspect <= 1.34
         let isUltraWide = abs(aspect - (64.0 / 27.0)) < 0.04
 
-        let columnWidth = width * (isSixteenTen ? 0.175 : 0.17)
-        let columnHeight = height * 0.96
-        let columnY = 2.5 * vh
+        let gap = max(8, 0.8 * vw)
+        let edgeInset = max(8, 0.5 * vw)
+        let statusWidth = min(max(220, 14 * vw), max(0, width - (2 * edgeInset)))
+        let statusHeight = max(30, 3.6 * vh)
+        let statusRibbon = LayoutRect(
+            x: edgeInset,
+            y: edgeInset,
+            width: statusWidth,
+            height: statusHeight
+        )
+        let columnWidth = min(width * (isSixteenTen ? 0.175 : 0.17), max(0, (width - (4 * gap)) / 3))
+        let columnY = max(2.5 * vh, statusRibbon.maxY + gap)
         let columnBleed = 0.555 * vh
+        let leftColumnX = -columnBleed
+        let rightColumnX = width - columnWidth + columnBleed
+        let centerMinX = max(0, leftColumnX + columnWidth + gap)
+        let centerMaxX = max(centerMinX, rightColumnX - gap)
+        let centerWidth = max(0, centerMaxX - centerMinX)
 
-        let shellWidth = 65 * vw
-        let shellHeight = 60.3 * vh
-        let shell = LayoutRect(
-            x: centered(shellWidth, in: width),
-            y: centered(shellHeight, in: height),
-            width: shellWidth,
-            height: shellHeight
-        )
-
-        let filesystemWidth = 43 * vw
-        let filesystemHeight = 30 * vh
-        let filesystem = LayoutRect(
-            x: max(0, width - filesystemWidth - (0.5 * vw)),
-            y: max(0, height - filesystemHeight - (0.925 * vh)),
-            width: filesystemWidth,
-            height: filesystemHeight,
-            isHidden: isClassicNarrow
-        )
-
-        let keyboardWidth = 55.5 * vw
+        let preferredKeyboardWidth = 55.5 * vw
+        let baseKeyboardWidth = isClassicNarrow
+            ? min(preferredKeyboardWidth, centerWidth)
+            : min(preferredKeyboardWidth, centerWidth * 0.48)
+        let filesystemWidth = isClassicNarrow ? 0 : max(0, centerWidth - baseKeyboardWidth - gap)
         let keyboardRowHeight = 5.28 * vh
         let keyboardRowGap = 0.92 * vh
         let keyboardHeight = (5 * keyboardRowHeight) + (5 * keyboardRowGap)
-        let keySide = (isSixteenTen ? 2.5 : 2.7) * vw
+        let filesystemHeight = isClassicNarrow ? 0 : keyboardHeight
+        let keySide = min(keyboardRowHeight * 0.85, (isSixteenTen ? 2.9 : 3.0) * vw)
         let spacebarWidth: Double
         if isClassicNarrow {
             spacebarWidth = 36 * vw
@@ -101,27 +117,59 @@ public struct EdexLayoutEngine: Sendable {
         } else {
             spacebarWidth = 47.68 * vh
         }
+        let bottomBandHeight = max(keyboardHeight, filesystemHeight)
+        let bottomBandY = max(columnY, height - bottomBandHeight - edgeInset)
+        let keyboardAndFilesystemWidth = isClassicNarrow
+            ? baseKeyboardWidth
+            : baseKeyboardWidth + gap + filesystemWidth
+        let bottomBandX = centerMinX + max(0, (centerWidth - keyboardAndFilesystemWidth) / 2)
+        let filesystem = LayoutRect(
+            x: isClassicNarrow ? 0 : bottomBandX,
+            y: isClassicNarrow ? 0 : bottomBandY + max(0, (bottomBandHeight - filesystemHeight) / 2),
+            width: filesystemWidth,
+            height: filesystemHeight,
+            isHidden: isClassicNarrow
+        )
+        let keyboardX = isClassicNarrow ? bottomBandX : filesystem.maxX + gap
+        let keyboardRightEdge = isClassicNarrow
+            ? min(width - edgeInset, keyboardX + baseKeyboardWidth)
+            : max(keyboardX, width - edgeInset)
         let keyboardFrame = LayoutRect(
-            x: centered(keyboardWidth, in: width),
-            y: max(0, height - keyboardHeight - (0.925 * vh)),
-            width: keyboardWidth,
+            x: keyboardX,
+            y: bottomBandY + max(0, (bottomBandHeight - keyboardHeight) / 2),
+            width: max(0, keyboardRightEdge - keyboardX),
             height: keyboardHeight
+        )
+
+        let dashboardBottom = max(columnY, bottomBandY - gap)
+        let columnHeight = max(0, height - columnY - edgeInset)
+        let rightColumnHeight = isClassicNarrow ? columnHeight : max(0, keyboardFrame.y - gap - columnY)
+        let shellTop = columnY
+        let shellBottom = dashboardBottom
+        let shellHeight = max(0, shellBottom - shellTop)
+        let shellWidth = min(65 * vw, centerWidth)
+        let shell = LayoutRect(
+            x: centerMinX + max(0, (centerWidth - shellWidth) / 2),
+            y: shellTop,
+            width: shellWidth,
+            height: shellHeight
         )
 
         return EdexLayout(
             viewport: size,
+            statusRibbon: statusRibbon,
             leftColumn: LayoutRect(
-                x: -columnBleed,
+                x: leftColumnX,
                 y: columnY,
                 width: columnWidth,
                 height: columnHeight
             ),
             mainShell: shell,
             rightColumn: LayoutRect(
-                x: width - columnWidth + columnBleed,
+                x: rightColumnX,
                 y: columnY,
                 width: columnWidth,
-                height: columnHeight
+                height: rightColumnHeight
             ),
             filesystem: filesystem,
             keyboard: KeyboardLayoutMetrics(
