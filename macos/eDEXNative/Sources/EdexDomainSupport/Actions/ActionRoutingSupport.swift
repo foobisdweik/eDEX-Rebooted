@@ -135,6 +135,8 @@ public final class KeyboardStore {
     public var status: String
     public var modifiers: KeyboardModifierState
     public var pressedKeyIDs: Set<String>
+    private var heldKeyIDs: Set<String> = []
+    private var visualClearTasks: [String: Task<Void, Never>] = [:]
     /// The dead key armed by the last diacritic press; the next key composes
     /// against it (Phase 8.3). nil when no diacritic is pending.
     public var armedDeadKey: DeadKey?
@@ -158,11 +160,27 @@ public final class KeyboardStore {
     }
 
     public func pressVisual(id: String, clearAfterNanoseconds: UInt64 = 120_000_000) {
+        visualClearTasks[id]?.cancel()
         pressedKeyIDs.insert(id)
-        Task { @MainActor [weak self] in
+        visualClearTasks[id] = Task { @MainActor [weak self] in
             let delay = min(clearAfterNanoseconds, UInt64(Int64.max))
             try? await Task.sleep(for: .nanoseconds(Int64(delay)))
+            guard !Task.isCancelled else { return }
+            self?.visualClearTasks[id] = nil
+            guard self?.heldKeyIDs.contains(id) != true else { return }
             self?.pressedKeyIDs.remove(id)
         }
+    }
+
+    public func holdVisual(id: String) {
+        visualClearTasks[id]?.cancel()
+        visualClearTasks[id] = nil
+        heldKeyIDs.insert(id)
+        pressedKeyIDs.insert(id)
+    }
+
+    public func releaseVisual(id: String) {
+        heldKeyIDs.remove(id)
+        pressedKeyIDs.remove(id)
     }
 }

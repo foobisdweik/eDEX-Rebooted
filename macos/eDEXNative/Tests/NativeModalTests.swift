@@ -98,4 +98,63 @@ final class NativeModalTests: XCTestCase {
         XCTAssertEqual(manager.modal(id: second)?.offsetX, 0)
         XCTAssertEqual(manager.modal(id: second)?.offsetY, 0)
     }
+
+    func testModalPlacementKeepsRectInsideViewport() {
+        let viewport = ModalLayoutRect(x: 0, y: 0, width: 800, height: 600)
+        let proposed = ModalLayoutRect(x: 700, y: 540, width: 200, height: 120)
+
+        let result = ModalPlacement.place(proposed: proposed, viewport: viewport, reserved: [], existing: [])
+
+        XCTAssertEqual(result.rect, ModalLayoutRect(x: 600, y: 480, width: 200, height: 120))
+        XCTAssertEqual(result.status, .clamped)
+    }
+
+    func testModalPlacementAvoidsReservedRects() {
+        let viewport = ModalLayoutRect(x: 0, y: 0, width: 1000, height: 700)
+        let terminal = ModalLayoutRect(x: 250, y: 120, width: 500, height: 300)
+        let proposed = ModalLayoutRect(x: 350, y: 180, width: 260, height: 180)
+
+        let result = ModalPlacement.place(proposed: proposed, viewport: viewport, reserved: [terminal], existing: [])
+
+        XCTAssertFalse(result.rect.intersects(terminal))
+    }
+
+    func testModalPlacementAvoidsExistingModalRects() {
+        let viewport = ModalLayoutRect(x: 0, y: 0, width: 900, height: 600)
+        let existing = ModalLayoutRect(x: 300, y: 200, width: 260, height: 180)
+        let proposed = ModalLayoutRect(x: 320, y: 220, width: 260, height: 180)
+
+        let result = ModalPlacement.place(proposed: proposed, viewport: viewport, reserved: [], existing: [existing])
+
+        XCTAssertFalse(result.rect.intersects(existing))
+    }
+
+    func testModalPlacementDegradedFallbackMinimizesOverlapInsteadOfReturningProposed() {
+        let viewport = ModalLayoutRect(x: 0, y: 0, width: 300, height: 220)
+        let blocker = ModalLayoutRect(x: 0, y: 0, width: 220, height: 220)
+        let proposed = ModalLayoutRect(x: 40, y: 20, width: 160, height: 140)
+
+        let result = ModalPlacement.place(proposed: proposed, viewport: viewport, reserved: [blocker], existing: [])
+
+        XCTAssertEqual(result.status, .degraded)
+        XCTAssertNotEqual(result.rect, proposed)
+        XCTAssertLessThan(result.rect.overlapArea(with: blocker), proposed.overlapArea(with: blocker))
+    }
+
+    func testManagerCanApplyPlacementAwareMove() throws {
+        let manager = EdexModalManager(idGenerator: EdexModalIdGenerator(seed: 40))
+        let id = manager.present(try .init(type: "info", title: "One", message: "First"))
+        let viewport = ModalLayoutRect(x: 0, y: 0, width: 800, height: 600)
+
+        manager.move(
+            id,
+            dx: 500,
+            dy: 500,
+            placement: .init(viewport: viewport, modalSize: ModalLayoutSize(width: 300, height: 160), reserved: [])
+        )
+
+        let modal = try XCTUnwrap(manager.modal(id: id))
+        XCTAssertLessThanOrEqual(modal.offsetX, 250)
+        XCTAssertLessThanOrEqual(modal.offsetY, 220)
+    }
 }

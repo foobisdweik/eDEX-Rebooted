@@ -87,4 +87,29 @@ final class NativeActionRoutingTests: XCTestCase {
         try await Task.sleep(for: .nanoseconds(20_000_000))
         XCTAssertFalse(store.pressedKeyIDs.contains("key-a"))
     }
+
+    func testKeyboardStoreHoldsPhysicalKeyUntilRelease() async throws {
+        let store = KeyboardStore()
+
+        store.holdVisual(id: "mac_a")
+        try await Task.sleep(for: .nanoseconds(20_000_000))
+
+        XCTAssertTrue(store.pressedKeyIDs.contains("mac_a"))
+
+        store.releaseVisual(id: "mac_a")
+        XCTAssertFalse(store.pressedKeyIDs.contains("mac_a"))
+    }
+
+    func testKeyboardStoreHoldCancelsPendingTimedPressClear() async throws {
+        let store = KeyboardStore()
+
+        store.pressVisual(id: "mac_a", clearAfterNanoseconds: 1_000)
+        store.holdVisual(id: "mac_a")
+        try await Task.sleep(for: .nanoseconds(20_000_000))
+
+        XCTAssertTrue(store.pressedKeyIDs.contains("mac_a"))
+
+        store.releaseVisual(id: "mac_a")
+        XCTAssertFalse(store.pressedKeyIDs.contains("mac_a"))
+    }
 }

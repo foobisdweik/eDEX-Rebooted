@@ -21,8 +21,16 @@ extension NSEvent {
     /// charactersIgnoringModifiers for printable characters.
     var shortcutKey: ShortcutKey? {
         switch keyCode {
+        case 36, 76: return .character("\r")
         case 48: return .special(.tab)
         case 49: return .special(.space)
+        case 51: return .character("\u{8}")
+        case 53: return .character("\u{1B}")
+        case 117: return .character("\u{7F}")
+        case 123: return .character("\u{F702}")
+        case 124: return .character("\u{F703}")
+        case 125: return .character("\u{F701}")
+        case 126: return .character("\u{F700}")
         // Function keys — virtual key codes from Carbon HIToolbox
         case 122: return .function(1)
         case 120: return .function(2)
@@ -53,5 +61,81 @@ extension NSEvent {
     var keyCombo: KeyCombo? {
         guard let key = shortcutKey else { return nil }
         return KeyCombo(modifiers: shortcutModifiers, key: key)
+    }
+
+    var keyboardModifier: KeyboardModifier? {
+        switch keyCode {
+        case 56, 60:
+            return .shift
+        case 59, 62:
+            return .ctrl
+        case 58, 61:
+            return .alt
+        case 57:
+            return .capsLock
+        case 63:
+            return .fn
+        default:
+            return nil
+        }
+    }
+
+    var keyboardPhysicalModifier: KeyboardPhysicalModifier? {
+        switch keyCode {
+        case 56:
+            return .leftShift
+        case 60:
+            return .rightShift
+        case 59:
+            return .leftControl
+        case 62:
+            return .rightControl
+        case 58:
+            return .leftOption
+        case 61:
+            return .rightOption
+        case 55:
+            return .leftCommand
+        case 54:
+            return .rightCommand
+        case 57:
+            return .capsLock
+        case 63:
+            return .fn
+        default:
+            return nil
+        }
+    }
+
+    func isActiveModifier(_ modifier: KeyboardModifier) -> Bool {
+        switch modifier {
+        case .shift:
+            return modifierFlags.contains(.shift)
+        case .ctrl:
+            return modifierFlags.contains(.control)
+        case .alt:
+            return modifierFlags.contains(.option)
+        case .capsLock:
+            return modifierFlags.contains(.capsLock)
+        case .fn:
+            return modifierFlags.contains(.function)
+        }
+    }
+
+    func isActivePhysicalModifier(_ modifier: KeyboardPhysicalModifier) -> Bool {
+        switch modifier {
+        case .leftShift, .rightShift:
+            return modifierFlags.contains(.shift)
+        case .leftControl, .rightControl:
+            return modifierFlags.contains(.control)
+        case .leftOption, .rightOption:
+            return modifierFlags.contains(.option)
+        case .leftCommand, .rightCommand:
+            return modifierFlags.contains(.command)
+        case .capsLock:
+            return modifierFlags.contains(.capsLock)
+        case .fn:
+            return modifierFlags.contains(.function)
+        }
     }
 }

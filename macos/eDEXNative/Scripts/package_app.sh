@@ -29,9 +29,9 @@ sign_item() {
   local item="$1"
   [[ "${SKIP_CODESIGN:-0}" == "1" ]] && return 0
 
-  local args=(--force --sign "$SIGN_IDENTITY" --options runtime)
+  local args=(--force --sign "$SIGN_IDENTITY")
   if [[ "$SIGN_IDENTITY" != "-" ]]; then
-    args+=(--timestamp)
+    args+=(--options runtime --timestamp)
   fi
   codesign "${args[@]}" "$item"
 }

@@ -146,6 +146,197 @@ public struct EdexModalRecord: Equatable, Sendable {
     public var detachesKeyboard: Bool { request.detachesKeyboard }
 }
 
+public struct ModalLayoutSize: Equatable, Sendable {
+    public let width: Double
+    public let height: Double
+
+    public init(width: Double, height: Double) {
+        self.width = width.isFinite ? max(0, width) : 0
+        self.height = height.isFinite ? max(0, height) : 0
+    }
+}
+
+public struct ModalLayoutRect: Equatable, Sendable {
+    public let x: Double
+    public let y: Double
+    public let width: Double
+    public let height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x.isFinite ? x : 0
+        self.y = y.isFinite ? y : 0
+        self.width = width.isFinite ? max(0, width) : 0
+        self.height = height.isFinite ? max(0, height) : 0
+    }
+
+    public var maxX: Double { x + width }
+    public var maxY: Double { y + height }
+
+    public func intersects(_ other: ModalLayoutRect) -> Bool {
+        x < other.maxX && maxX > other.x && y < other.maxY && maxY > other.y
+    }
+
+    public func overlapArea(with other: ModalLayoutRect) -> Double {
+        guard intersects(other) else { return 0 }
+        let overlapWidth = max(0, min(maxX, other.maxX) - max(x, other.x))
+        let overlapHeight = max(0, min(maxY, other.maxY) - max(y, other.y))
+        return overlapWidth * overlapHeight
+    }
+
+    public func clamped(to viewport: ModalLayoutRect) -> ModalLayoutRect {
+        let minX = viewport.x
+        let minY = viewport.y
+        let maxX = max(minX, viewport.maxX - width)
+        let maxY = max(minY, viewport.maxY - height)
+
+        return ModalLayoutRect(
+            x: Swift.min(Swift.max(x, minX), maxX),
+            y: Swift.min(Swift.max(y, minY), maxY),
+            width: width,
+            height: height
+        )
+    }
+}
+
+public enum ModalPlacementStatus: Equatable, Sendable {
+    case placed
+    case clamped
+    case degraded
+}
+
+public struct ModalPlacementResult: Equatable, Sendable {
+    public let rect: ModalLayoutRect
+    public let status: ModalPlacementStatus
+
+    public init(rect: ModalLayoutRect, status: ModalPlacementStatus) {
+        self.rect = rect
+        self.status = status
+    }
+}
+
+public struct ModalPlacementContext: Equatable, Sendable {
+    public let viewport: ModalLayoutRect
+    public let modalSize: ModalLayoutSize
+    public let reserved: [ModalLayoutRect]
+    public let existing: [ModalLayoutRect]
+
+    public init(
+        viewport: ModalLayoutRect,
+        modalSize: ModalLayoutSize,
+        reserved: [ModalLayoutRect],
+        existing: [ModalLayoutRect] = []
+    ) {
+        self.viewport = viewport
+        self.modalSize = modalSize
+        self.reserved = reserved
+        self.existing = existing
+    }
+}
+
+public enum ModalPlacement {
+    public static func place(
+        proposed: ModalLayoutRect,
+        viewport: ModalLayoutRect,
+        reserved: [ModalLayoutRect],
+        existing: [ModalLayoutRect]
+    ) -> ModalPlacementResult {
+        let blockers = reserved + existing
+        let clamped = proposed.clamped(to: viewport)
+        let wasClamped = clamped != proposed
+
+        guard clamped.intersectingBlockers(in: blockers).isEmpty else {
+            return placeAroundBlockers(
+                startingFrom: clamped,
+                proposedWasClamped: wasClamped,
+                viewport: viewport,
+                blockers: blockers
+            )
+        }
+
+        return ModalPlacementResult(rect: clamped, status: wasClamped ? .clamped : .placed)
+    }
+
+    private static func placeAroundBlockers(
+        startingFrom proposed: ModalLayoutRect,
+        proposedWasClamped: Bool,
+        viewport: ModalLayoutRect,
+        blockers: [ModalLayoutRect]
+    ) -> ModalPlacementResult {
+        let candidates = candidateRects(around: proposed, viewport: viewport, blockers: blockers)
+
+        for candidate in candidates {
+            let clampedCandidate = candidate.clamped(to: viewport)
+            if clampedCandidate.intersectingBlockers(in: blockers).isEmpty {
+                let status: ModalPlacementStatus = proposedWasClamped || clampedCandidate != candidate ? .clamped : .placed
+                return ModalPlacementResult(rect: clampedCandidate, status: status)
+            }
+        }
+
+        return ModalPlacementResult(
+            rect: leastOverlapping(candidates: candidates, proposed: proposed, viewport: viewport, blockers: blockers),
+            status: .degraded
+        )
+    }
+
+    private static func candidateRects(
+        around proposed: ModalLayoutRect,
+        viewport: ModalLayoutRect,
+        blockers: [ModalLayoutRect]
+    ) -> [ModalLayoutRect] {
+        var candidates = [
+            proposed,
+            ModalLayoutRect(x: viewport.x, y: viewport.y, width: proposed.width, height: proposed.height),
+            ModalLayoutRect(x: viewport.maxX - proposed.width, y: viewport.y, width: proposed.width, height: proposed.height),
+            ModalLayoutRect(x: viewport.x, y: viewport.maxY - proposed.height, width: proposed.width, height: proposed.height),
+            ModalLayoutRect(x: viewport.maxX - proposed.width, y: viewport.maxY - proposed.height, width: proposed.width, height: proposed.height)
+        ]
+
+        for blocker in proposed.intersectingBlockers(in: blockers) {
+            candidates.append(contentsOf: [
+                ModalLayoutRect(x: proposed.x, y: blocker.y - proposed.height, width: proposed.width, height: proposed.height),
+                ModalLayoutRect(x: proposed.x, y: blocker.maxY, width: proposed.width, height: proposed.height),
+                ModalLayoutRect(x: blocker.x - proposed.width, y: proposed.y, width: proposed.width, height: proposed.height),
+                ModalLayoutRect(x: blocker.maxX, y: proposed.y, width: proposed.width, height: proposed.height)
+            ])
+        }
+
+        return candidates
+    }
+
+    private static func leastOverlapping(
+        candidates: [ModalLayoutRect],
+        proposed: ModalLayoutRect,
+        viewport: ModalLayoutRect,
+        blockers: [ModalLayoutRect]
+    ) -> ModalLayoutRect {
+        let clampedCandidates = candidates.map { $0.clamped(to: viewport) }
+        return clampedCandidates.min { lhs, rhs in
+            let lhsOverlap = lhs.totalOverlap(with: blockers)
+            let rhsOverlap = rhs.totalOverlap(with: blockers)
+            if lhsOverlap != rhsOverlap {
+                return lhsOverlap < rhsOverlap
+            }
+            return lhs.distanceSquared(to: proposed) < rhs.distanceSquared(to: proposed)
+        } ?? proposed.clamped(to: viewport)
+    }
+}
+
+private extension ModalLayoutRect {
+    func intersectingBlockers(in blockers: [ModalLayoutRect]) -> [ModalLayoutRect] {
+        blockers.filter { intersects($0) }
+    }
+
+    func totalOverlap(with blockers: [ModalLayoutRect]) -> Double {
+        blockers.reduce(0) { $0 + overlapArea(with: $1) }
+    }
+
+    func distanceSquared(to other: ModalLayoutRect) -> Double {
+        let dx = x - other.x
+        let dy = y - other.y
+        return (dx * dx) + (dy * dy)
+    }
+}
+
 @Observable
 @MainActor
 public final class EdexModalManager {
@@ -200,6 +391,31 @@ public final class EdexModalManager {
         modals[index].offsetY += safeDY
     }
 
+    public func move(_ id: EdexModalID, dx: Double, dy: Double, placement: ModalPlacementContext) {
+        guard let index = modals.firstIndex(where: { $0.id == id }) else { return }
+        let safeDX = dx.isFinite ? dx : 0
+        let safeDY = dy.isFinite ? dy : 0
+        let centeredOrigin = ModalLayoutRect.centeredOrigin(
+            size: placement.modalSize,
+            in: placement.viewport
+        )
+        let proposed = ModalLayoutRect(
+            x: centeredOrigin.x + modals[index].offsetX + safeDX,
+            y: centeredOrigin.y + modals[index].offsetY + safeDY,
+            width: placement.modalSize.width,
+            height: placement.modalSize.height
+        )
+        let placed = ModalPlacement.place(
+            proposed: proposed,
+            viewport: placement.viewport,
+            reserved: placement.reserved,
+            existing: placement.existing
+        ).rect
+
+        modals[index].offsetX = placed.x - centeredOrigin.x
+        modals[index].offsetY = placed.y - centeredOrigin.y
+    }
+
     @discardableResult
     public func close(_ id: EdexModalID) -> EdexAudioCue? {
         guard let index = modals.firstIndex(where: { $0.id == id }) else { return nil }
@@ -212,5 +428,16 @@ public final class EdexModalManager {
         }
 
         return .denied
+    }
+}
+
+private extension ModalLayoutRect {
+    static func centeredOrigin(size: ModalLayoutSize, in viewport: ModalLayoutRect) -> ModalLayoutRect {
+        ModalLayoutRect(
+            x: viewport.x + (viewport.width - size.width) / 2,
+            y: viewport.y + (viewport.height - size.height) / 2,
+            width: 0,
+            height: 0
+        )
     }
 }
