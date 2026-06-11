@@ -183,7 +183,7 @@ final class NativeKeyboardViewTests: XCTestCase {
         )
         XCTAssertEqual(
             KeyboardPhysicalKeyMapper.descriptorID(for: KeyCombo(modifiers: [], key: .character("\r")), in: layout),
-            all.first { $0.role == .enter }?.id
+            all.first { $0.id == "mac_return" }?.id
         )
         XCTAssertEqual(
             KeyboardPhysicalKeyMapper.descriptorID(for: KeyCombo(modifiers: [], key: .character("\u{1B}")), in: layout),

@@ -638,6 +638,7 @@ public enum KeyboardPhysicalKeyMapper {
         switch value {
         case "\r", "\n":
             return descriptors.first { $0.role == .enter }?.id
+                ?? descriptors.first { $0.id == "mac_return" }?.id
         case "\u{1B}":
             return descriptors.first { $0.key.name.caseInsensitiveCompare("ESC") == .orderedSame }?.id
         case "\u{8}", "\u{7F}":

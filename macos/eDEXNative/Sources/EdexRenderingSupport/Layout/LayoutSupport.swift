@@ -104,7 +104,7 @@ public struct EdexLayoutEngine: Sendable {
         let filesystemWidth = isClassicNarrow ? 0 : max(0, centerWidth - baseKeyboardWidth - gap)
         let keyboardRowHeight = 5.28 * vh
         let keyboardRowGap = 0.92 * vh
-        let keyboardHeight = (5 * keyboardRowHeight) + (5 * keyboardRowGap)
+        let keyboardHeight = (6 * keyboardRowHeight) + (6 * keyboardRowGap)
         let filesystemHeight = isClassicNarrow ? 0 : keyboardHeight
         let keySide = min(keyboardRowHeight * 0.85, (isSixteenTen ? 2.9 : 3.0) * vw)
         let spacebarWidth: Double

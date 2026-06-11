@@ -1268,11 +1268,10 @@ final class ShellState: EdexActionHandler {
             guard let self else { return event }
             MainActor.assumeIsolated {
                 guard let physicalModifier = event.keyboardPhysicalModifier,
-                      let modifier = event.keyboardModifier,
                       let layout = self.keyboard.layout,
                       let id = KeyboardPhysicalKeyMapper.descriptorID(for: physicalModifier, in: layout)
                 else { return }
-                if event.isActiveModifier(modifier) {
+                if event.isActivePhysicalModifier(physicalModifier) {
                     self.keyboard.holdVisual(id: id)
                 } else {
                     self.keyboard.releaseVisual(id: id)

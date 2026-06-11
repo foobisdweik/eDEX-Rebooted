@@ -121,4 +121,21 @@ extension NSEvent {
             return modifierFlags.contains(.function)
         }
     }
+
+    func isActivePhysicalModifier(_ modifier: KeyboardPhysicalModifier) -> Bool {
+        switch modifier {
+        case .leftShift, .rightShift:
+            return modifierFlags.contains(.shift)
+        case .leftControl, .rightControl:
+            return modifierFlags.contains(.control)
+        case .leftOption, .rightOption:
+            return modifierFlags.contains(.option)
+        case .leftCommand, .rightCommand:
+            return modifierFlags.contains(.command)
+        case .capsLock:
+            return modifierFlags.contains(.capsLock)
+        case .fn:
+            return modifierFlags.contains(.function)
+        }
+    }
 }
