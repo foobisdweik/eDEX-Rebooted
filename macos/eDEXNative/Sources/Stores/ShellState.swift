@@ -646,6 +646,11 @@ final class ShellState: EdexActionHandler {
             return
         }
         guard let field = activeDetachedField else { return }
+        if let delta = KeyboardDetachedEditor.verticalDelta(command: text),
+           let moveVertical = field.moveVertical {
+            moveVertical(delta)
+            return
+        }
         switch KeyboardDetachedEditor.apply(command: text, to: field.state) {
         case let .replace(newState): field.setState(newState)
         case .submit: field.submit()
@@ -661,7 +666,8 @@ final class ShellState: EdexActionHandler {
             return DetachedField(
                 state: KeyboardDetachedEditor.State(text: fuzzyQuery, caret: fuzzyCaret),
                 setState: { [weak self] in self?.setFuzzyState($0) },
-                submit: { [weak self] in self?.submitFuzzySelection() }
+                submit: { [weak self] in self?.submitFuzzySelection() },
+                moveVertical: { [weak self] in self?.moveFuzzySelection($0) }
             )
         }
         if let id = textEditorModalID, modalManager.modal(id: id) != nil {
@@ -686,6 +692,9 @@ final class ShellState: EdexActionHandler {
         let state: KeyboardDetachedEditor.State
         let setState: (KeyboardDetachedEditor.State) -> Void
         let submit: () -> Void
+        /// List-style fields override vertical arrows (the fuzzy finder moves
+        /// its result selection); nil falls through to line-aware caret moves.
+        var moveVertical: ((Int) -> Void)?
     }
 
     // MARK: Filesystem panel (Phase 7.1)
