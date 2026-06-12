@@ -236,7 +236,10 @@ private final class CpuGraphNSView: NSView {
     /// rasterization, no SwiftUI.
     private func startPan() {
         panStart = CACurrentMediaTime()
-        guard panTimer == nil else { return }
+        guard panTimer == nil else {
+            panTick()
+            return
+        }
         let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.panTick()
         }
