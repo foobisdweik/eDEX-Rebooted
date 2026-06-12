@@ -160,6 +160,12 @@ private final class CpuGraphNSView: NSView {
     private let lineLayer = CAShapeLayer()
     private var series = [[Double]]()
     private var lastPannedSampleDate: Date?
+    private var panTimer: Timer?
+    private var panStart: CFTimeInterval = 0
+
+    deinit {
+        panTimer?.invalidate()
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -218,17 +224,38 @@ private final class CpuGraphNSView: NSView {
         CATransaction.commit()
     }
 
+    /// Pan by stepping the layer transform from a 10 Hz timer instead of a
+    /// render-server `CABasicAnimation`. A continuous CAAnimation keeps
+    /// WindowServer compositing the (blended, translucent) window at the
+    /// display's max refresh for as long as the app is visible — measured at a
+    /// steady ~25% extra WindowServer CPU at idle, enough to make the rest of
+    /// the macOS UI feel sluggish (`preferredFrameRateRange` is not honored
+    /// here). Ten explicit transform commits per second keep the scroll
+    /// visually smooth while letting the compositor (and ProMotion) idle
+    /// between steps; each tick is a single transform set — no layout, no
+    /// rasterization, no SwiftUI.
     private func startPan() {
-        let pan = CABasicAnimation(keyPath: "transform.translation.x")
-        pan.fromValue = 0
-        pan.toValue = -CpuGraphScrollGeometry.scrollDistance
-        pan.duration = 1
-        pan.timingFunction = CAMediaTimingFunction(name: .linear)
-        // Rest fully panned until the next sample re-bases the path.
-        pan.isRemovedOnCompletion = false
-        pan.fillMode = .forwards
-        lineLayer.removeAnimation(forKey: "edexGraphPan")
-        lineLayer.add(pan, forKey: "edexGraphPan")
+        panStart = CACurrentMediaTime()
+        guard panTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.panTick()
+        }
+        timer.tolerance = 0.02
+        RunLoop.main.add(timer, forMode: .common)
+        panTimer = timer
+        panTick()
+    }
+
+    private func panTick() {
+        // Skip the commit entirely when nothing would be seen.
+        guard window?.occlusionState.contains(.visible) ?? false else { return }
+        let progress = min(1, max(0, CACurrentMediaTime() - panStart))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        lineLayer.transform = CATransform3DMakeTranslation(
+            -CpuGraphScrollGeometry.scrollDistance * progress, 0, 0
+        )
+        CATransaction.commit()
     }
 }
 
