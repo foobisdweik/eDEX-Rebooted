@@ -173,6 +173,7 @@ private final class CpuGraphNSView: NSView {
     private var lastPannedSampleDate: Date?
     private var panTimer: Timer?
     private var panStart: CFTimeInterval = 0
+    private var isReducedMotion = false
 
     deinit {
         panTimer?.invalidate()
@@ -203,6 +204,7 @@ private final class CpuGraphNSView: NSView {
         if reducedMotion {
             // Step once per sample: rest at the fully-panned position (where a
             // completed pan would land) with no inter-sample commits at all.
+            isReducedMotion = true
             panTimer?.invalidate()
             panTimer = nil
             lastPannedSampleDate = sampleDate
@@ -214,7 +216,9 @@ private final class CpuGraphNSView: NSView {
             CATransaction.commit()
             return
         }
-        if lastPannedSampleDate != sampleDate {
+        let resumedMotion = isReducedMotion
+        isReducedMotion = false
+        if resumedMotion || lastPannedSampleDate != sampleDate {
             lastPannedSampleDate = sampleDate
             startPan()
         }
