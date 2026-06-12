@@ -219,8 +219,14 @@ private final class CpuGraphNSView: NSView {
         let resumedMotion = isReducedMotion
         isReducedMotion = false
         if resumedMotion || lastPannedSampleDate != sampleDate {
+            // On resume with an unchanged sample, rejoin the pan mid-flight
+            // (elapsed time since the sample landed) instead of snapping the
+            // fully-panned layer back to zero.
+            let elapsed = resumedMotion && lastPannedSampleDate == sampleDate
+                ? max(0, Date.now.timeIntervalSince(sampleDate))
+                : 0
             lastPannedSampleDate = sampleDate
-            startPan()
+            startPan(elapsed: elapsed)
         }
     }
 
@@ -263,31 +269,37 @@ private final class CpuGraphNSView: NSView {
     /// visually smooth while letting the compositor (and ProMotion) idle
     /// between steps; each tick is a single transform set — no layout, no
     /// rasterization, no SwiftUI.
-    private func startPan() {
-        panStart = CACurrentMediaTime()
-        guard panTimer == nil else {
-            panTick()
-            return
+    private func startPan(elapsed: TimeInterval = 0) {
+        panStart = CACurrentMediaTime() - elapsed
+        if panTimer == nil {
+            let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.panTick()
+            }
+            timer.tolerance = 0.02
+            RunLoop.main.add(timer, forMode: .common)
+            panTimer = timer
         }
-        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-            self?.panTick()
-        }
-        timer.tolerance = 0.02
-        RunLoop.main.add(timer, forMode: .common)
-        panTimer = timer
         panTick()
     }
 
     private func panTick() {
-        // Skip the commit entirely when nothing would be seen.
-        guard window?.occlusionState.contains(.visible) ?? false else { return }
         let progress = min(1, max(0, CACurrentMediaTime() - panStart))
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        lineLayer.transform = CATransform3DMakeTranslation(
-            -CpuGraphScrollGeometry.scrollDistance * progress, 0, 0
-        )
-        CATransaction.commit()
+        // Skip the commit when nothing would be seen.
+        if window?.occlusionState.contains(.visible) ?? false {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            lineLayer.transform = CATransform3DMakeTranslation(
+                -CpuGraphScrollGeometry.scrollDistance * progress, 0, 0
+            )
+            CATransaction.commit()
+        }
+        // The pan rests fully panned once complete (a late sample holds it
+        // there); stop ticking so an idle graph costs zero wakeups/commits.
+        // The next sample's startPan() recreates the timer.
+        if progress >= 1 {
+            panTimer?.invalidate()
+            panTimer = nil
+        }
     }
 }
 

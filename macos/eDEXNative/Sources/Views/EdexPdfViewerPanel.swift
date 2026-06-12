@@ -45,12 +45,15 @@ struct EdexPdfViewerView: View {
             loadFailed = true
             return
         }
-        let data = await Task.detached(priority: .userInitiated) {
-            try? Data(contentsOf: URL(fileURLWithPath: path))
+        // Read + parse off the main thread (xref parsing alone can take tens
+        // of ms on large files); pages still render lazily inside PDFView.
+        let loaded = await Task.detached(priority: .userInitiated) { () -> PDFDocument? in
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+            return PDFDocument(data: data)
         }.value
-        // The modal may have moved to another file while the read ran.
+        // The modal may have moved to another file while the load ran.
         guard state.pdfViewerPath == path else { return }
-        if let data, let loaded = PDFDocument(data: data) {
+        if let loaded {
             document = loaded
         } else {
             loadFailed = true
@@ -75,6 +78,8 @@ private struct EdexPdfKitSurface: NSViewRepresentable {
         view.backgroundColor = background
         if view.document !== document {
             view.document = document
+            // Setting a document can reset the scale factor; re-assert fit.
+            view.autoScales = true
         }
     }
 }

@@ -1260,6 +1260,7 @@ final class ShellState: EdexActionHandler {
     /// persisted `settings.keyboard` is still owned by the settings editor).
     private func applyKeyboardFile(_ fileName: String) {
         let layoutName = fileName.hasSuffix(".json") ? String(fileName.dropLast(5)) : fileName
+        let previous = keyboardLayout
         Task {
             await loadKeyboardLayout(named: layoutName)
             if let loaded = keyboardLayout {
@@ -1268,6 +1269,9 @@ final class ShellState: EdexActionHandler {
                 settingsSummary.keyboard = loaded.name
                 playAudio(.granted)
             } else {
+                // A malformed file must not leave the on-screen keyboard empty.
+                keyboardLayout = previous
+                keyboardStatus = "Keyboard layout \(layoutName) failed; kept \(previous?.name ?? "none")"
                 playAudio(.denied)
             }
         }
