@@ -129,7 +129,12 @@ private struct CpuScrollingGraph: View {
             .filter { cpuFormatter.chartIndex(forCore: $0, divide: divide) == chart && $0 < series.count }
             .map { series[$0] }
 
-        CpuGraphLayerView(series: chartSeries, sampleDate: state.cpuLastSampleDate, accent: NSColor(accent))
+        CpuGraphLayerView(
+            series: chartSeries,
+            sampleDate: state.cpuLastSampleDate,
+            accent: NSColor(accent),
+            reducedMotion: state.settingsSummary.reducedMotion
+        )
             .frame(height: 34)
             .overlay {
                 CpuGraphFrameShape()
@@ -146,13 +151,19 @@ private struct CpuGraphLayerView: NSViewRepresentable {
     let series: [[Double]]
     let sampleDate: Date
     let accent: NSColor
+    let reducedMotion: Bool
 
     func makeNSView(context: Context) -> CpuGraphNSView {
         CpuGraphNSView()
     }
 
     func updateNSView(_ view: CpuGraphNSView, context: Context) {
-        view.apply(series: series, sampleDate: sampleDate, accent: accent)
+        view.apply(
+            series: series,
+            sampleDate: sampleDate,
+            accent: accent,
+            reducedMotion: reducedMotion
+        )
     }
 }
 
@@ -185,10 +196,24 @@ private final class CpuGraphNSView: NSView {
     /// `CpuGraphScrollGeometry` produces top-left-origin coordinates.
     override var isFlipped: Bool { true }
 
-    func apply(series: [[Double]], sampleDate: Date, accent: NSColor) {
+    func apply(series: [[Double]], sampleDate: Date, accent: NSColor, reducedMotion: Bool) {
         self.series = series
         lineLayer.strokeColor = accent.cgColor
         rebuildPath()
+        if reducedMotion {
+            // Step once per sample: rest at the fully-panned position (where a
+            // completed pan would land) with no inter-sample commits at all.
+            panTimer?.invalidate()
+            panTimer = nil
+            lastPannedSampleDate = sampleDate
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            lineLayer.transform = CATransform3DMakeTranslation(
+                -CpuGraphScrollGeometry.scrollDistance, 0, 0
+            )
+            CATransaction.commit()
+            return
+        }
         if lastPannedSampleDate != sampleDate {
             lastPannedSampleDate = sampleDate
             startPan()

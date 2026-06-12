@@ -35,6 +35,7 @@ struct EdexCoreClient {
             nointro: decodedSettings.nointro ?? false,
             hideDotfiles: decodedSettings.hideDotfiles ?? false,
             fsListView: decodedSettings.fsListView ?? false,
+            reducedMotion: decodedSettings.reducedMotion ?? false,
             audioSettings: (try? JSONDecoder().decode(EdexAudioSettings.self, from: settingsData)) ?? EdexAudioSettings(),
             byteCount: settingsData.count
         )
@@ -177,4 +178,5 @@ private struct SettingsFile: Decodable {
     var nointro: Bool?
     var hideDotfiles: Bool?
     var fsListView: Bool?
+    var reducedMotion: Bool?
 }

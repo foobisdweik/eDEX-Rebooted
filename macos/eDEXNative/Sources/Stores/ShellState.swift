@@ -510,6 +510,7 @@ final class ShellState: EdexActionHandler {
         settingsSummary.keepGeometry = document.bool(.keepGeometry) ?? true
         settingsSummary.excludeThreadsFromToplist = document.bool(.excludeThreadsFromToplist) ?? true
         settingsSummary.nointro = document.bool(.nointro) ?? false
+        settingsSummary.reducedMotion = document.bool(.reducedMotion) ?? false
         keepGeometry = settingsSummary.keepGeometry
 
         let audioSettings = EdexAudioSettings(
@@ -1486,6 +1487,7 @@ struct SettingsSummary: Sendable {
     var nointro = false
     var hideDotfiles = false
     var fsListView = false
+    var reducedMotion = false
     var audioSettings = EdexAudioSettings()
     var byteCount: Int?
 }
