@@ -284,8 +284,10 @@ private final class CpuGraphNSView: NSView {
 
     private func panTick() {
         let progress = min(1, max(0, CACurrentMediaTime() - panStart))
-        // Skip the commit when nothing would be seen.
-        if window?.occlusionState.contains(.visible) ?? false {
+        let isVisible = window?.occlusionState.contains(.visible) ?? false
+        // Skip intermediate commits when nothing would be seen, but always
+        // land the final transform so an occluded pan does not stall mid-scroll.
+        if isVisible || progress >= 1 {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             lineLayer.transform = CATransform3DMakeTranslation(

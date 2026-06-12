@@ -73,6 +73,7 @@ final class ShellState: EdexActionHandler {
     /// Serializes metadata polls and cwd-follow work so overlapping 1 Hz polls and
     /// tab-switch follow-ups cannot apply stale PTY reads or skip navigation.
     @ObservationIgnored private var terminalMetadataRefreshTail: Task<Void, Never>?
+    @ObservationIgnored private var keyboardFileApplyGeneration: UInt = 0
     @ObservationIgnored private var stdoutCueGate = StdoutAudioCueGate()
 
     // Phase 7.2 fuzzy finder state.
@@ -1261,14 +1262,27 @@ final class ShellState: EdexActionHandler {
     private func applyKeyboardFile(_ fileName: String) {
         let layoutName = fileName.hasSuffix(".json") ? String(fileName.dropLast(5)) : fileName
         let previous = keyboardLayout
+        keyboardFileApplyGeneration &+= 1
+        let generation = keyboardFileApplyGeneration
+        let client = self.client
         Task {
-            await loadKeyboardLayout(named: layoutName)
-            if let loaded = keyboardLayout {
+            let result: Result<NativeKeyboardLayout, Error> = await Task.detached(priority: .background) {
+                do {
+                    return .success(try client.loadKeyboardLayout(layoutName))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            guard generation == keyboardFileApplyGeneration else { return }
+            switch result {
+            case let .success(layout):
+                keyboardLayout = layout
                 // Record the layout that actually loaded (the client falls
                 // back to en-US for names missing from the keyboards dir).
-                settingsSummary.keyboard = loaded.name
+                settingsSummary.keyboard = layout.name
+                keyboardStatus = "Loaded \(layout.name) keyboard layout (\(layout.keyCount) keys)"
                 playAudio(.granted)
-            } else {
+            case .failure:
                 // A malformed file must not leave the on-screen keyboard empty.
                 keyboardLayout = previous
                 keyboardStatus = "Keyboard layout \(layoutName) failed; kept \(previous?.name ?? "none")"
