@@ -192,7 +192,6 @@ cmd_smoke() {
 phase_files() {
   cat <<'EOF'
 Generic native phase first-read files:
-  docs/plans/full-native-swift-rust-conversion-2026-05-30.md
   macos/eDEXNative/Package.swift
   macos/eDEXNative/Sources/Views/ContentView.swift
   macos/eDEXNative/Sources/Stores/ShellState.swift

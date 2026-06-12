@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code (and any agent) working in this repo. **Read this, then `Ultrareview.md`, then the authoritative plan: `docs/plans/full-native-swift-rust-conversion-2026-05-30.md`.**
+Guidance for Claude Code (and any agent) working in this repo. **Read this, then `Ultrareview.md`.** (The Phase 0–11 conversion plan and its companion docs were retired once that scope completed; current work is release hardening and QoL — see `docs/plans/QoL-improvements.md`.)
 
 ## Repository status
 
@@ -13,7 +13,7 @@ The repo now holds the active native app plus shared data assets:
 
 The legacy Tauri 2 / WKWebView frontend (`src-tauri/` + `src/`) and earlier Approach-A per-panel `NSView` slots were retired in Phase 9.7; the remaining JS/Node footprint (file-icons generator/matcher, `package.json`/lockfiles/`tsconfig.json`, the `file-icons/*` submodules) was retired in Phase 11.2. **The repo contains zero JS/TS/CSS** — do not reintroduce a WebView runtime path or a Node toolchain. File icons are frozen data (`assets/icons/file-icons.json` + `assets/misc/file-icons-match.json`) consumed by `FileIconSupport` (domain) and `FileIconProvider` (app target).
 
-Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, hardware, cpu, ram, toplist), Phase 6 (audio, modal manager, settings editor, shortcuts, boot screen), Phase 7 (filesystem, fuzzy finder, text editor), Phase 8.1 (keyboard layout loader), 8.2 (keyboard view), anti-churn cleanup (SwiftPM taxonomy, terminal/action seams, `KeyboardStore`, `EdexKeyboardPanel`), 8.3 (on-screen keyboard input routing), Phase 9 SwiftTerm integration through 9.6, Phase 9.7 (terminal burn-in + WKWebView/Tauri retirement, PR #42), telemetry perf pass (PR #43), Phase 11.2 JS/TS/CSS retirement + native file icons (PR #44), and Phase 10 media viewer (PR #45). The plan's original "emulate in Rust" approach (slices 9.1–9.2) is carved out as a separate future project; nothing is thrown away because the `PtyOutputSink` FFI seam is unchanged. The Phase 0-11 native-conversion feature scope is complete; current work is release hardening, packaging, notarization readiness, manual QA, and polish. The per-phase completion log lives in the authoritative plan.
+Done & merged on `post-web-runtime`: Phase 5 telemetry panels (clock, sysinfo, hardware, cpu, ram, toplist), Phase 6 (audio, modal manager, settings editor, shortcuts, boot screen), Phase 7 (filesystem, fuzzy finder, text editor), Phase 8.1 (keyboard layout loader), 8.2 (keyboard view), anti-churn cleanup (SwiftPM taxonomy, terminal/action seams, `KeyboardStore`, `EdexKeyboardPanel`), 8.3 (on-screen keyboard input routing), Phase 9 SwiftTerm integration through 9.6, Phase 9.7 (terminal burn-in + WKWebView/Tauri retirement, PR #42), telemetry perf pass (PR #43), Phase 11.2 JS/TS/CSS retirement + native file icons (PR #44), and Phase 10 media viewer (PR #45). The plan's original "emulate in Rust" approach (slices 9.1–9.2) is carved out as a separate future project; nothing is thrown away because the `PtyOutputSink` FFI seam is unchanged. The Phase 0-11 native-conversion feature scope is complete; current work is release hardening, packaging, notarization readiness, manual QA, and polish (see `docs/plans/QoL-improvements.md`). The retired per-phase completion log is in git history.
 
 ## The per-phase workflow (debloated — follow it exactly)
 
@@ -51,11 +51,11 @@ cd crates/edex-ffi && cargo build --release && \
 
 ## Conversion docs (authoritative)
 
-- `Ultrareview.md` — binding anti-churn architecture addendum (taxonomy, store split, compositor pattern); still applies through Phase 9.
+- `Ultrareview.md` — binding anti-churn architecture addendum (taxonomy, store split, compositor pattern); still applies.
 - `docs/plans/anti-churn-strategem-2026-06-09.md` — staged branch plan for docs, SwiftPM taxonomy, architecture cleanup, and PR.
-- `docs/plans/full-native-swift-rust-conversion-2026-05-30.md` — Phase 0–11 roadmap, gates, and completion log. Historical per-panel recipes remain there for context, not as the default architecture for new Swift work.
-- `docs/plans/ffi-throughput-decision-2026-05-30.md` — FFI-throughput decision feeding Phase 9.
+- `docs/plans/QoL-improvements.md` — current QoL/release-hardening task list.
 - `assets/` is the source of truth for bundled themes, keyboard layouts, fonts, audio, icons, and boot/log data.
+- The Phase 0–11 conversion plan, FFI-throughput decision, phase-9 terminal strategy, and burn-in/validation docs were removed after the conversion scope completed — consult git history if you need them.
 
 ## Settings storage
 
