@@ -39,6 +39,7 @@ public enum EdexModalContent: Equatable, Sendable {
     case textEditor
     case fuzzyFinder
     case mediaViewer
+    case pdfViewer
     case customPlaceholder
 }
 

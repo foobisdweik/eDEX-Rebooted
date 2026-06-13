@@ -63,6 +63,10 @@ public enum KeyboardDetachedEditor {
             return .replace(State(text: text, caret: text.utf16Offset(of: newIndex)))
         }
 
+        if let delta = verticalDelta(command: command) {
+            return .replace(moveCaretVertically(state, delta: delta))
+        }
+
         // The on-screen BACK key emits BS (\u{8}). Legacy keyboard JSON also uses
         // an empty command for backspace-like keys in some layouts.
         if command.isEmpty || command == "\u{8}" {
@@ -89,6 +93,51 @@ public enum KeyboardDetachedEditor {
         textWithInsertion.insert(contentsOf: command, at: currentIndex)
         let newIndex = textWithInsertion.index(currentIndex, offsetBy: command.count)
         return .replace(State(text: textWithInsertion, caret: textWithInsertion.utf16Offset(of: newIndex)))
+    }
+
+    /// -1 for the up-arrow escape codes, +1 for down, nil otherwise. Exposed so
+    /// hosts can give vertical arrows a different meaning for list-style fields
+    /// (the fuzzy finder moves its result selection instead of the caret).
+    public static func verticalDelta(command: String) -> Int? {
+        switch command {
+        case "\u{001B}OA", "\u{001B}[A": return -1
+        case "\u{001B}OB", "\u{001B}[B": return 1
+        default: return nil
+        }
+    }
+
+    /// Line-aware caret movement (matches NSTextView: the column — counted in
+    /// characters so multi-scalar graphemes never split — is kept where the
+    /// target line is long enough, clamped to its end otherwise; up on the
+    /// first line snaps to the start, down on the last line to the end).
+    private static func moveCaretVertically(_ state: State, delta: Int) -> State {
+        let text = state.text
+        let caretIndex = text.index(atUTF16Offset: state.caret)
+        let lineStart = text[..<caretIndex].lastIndex(of: "\n")
+            .map { text.index(after: $0) } ?? text.startIndex
+        let column = text.distance(from: lineStart, to: caretIndex)
+
+        if delta < 0 {
+            guard lineStart > text.startIndex else {
+                return State(text: text, caret: 0)
+            }
+            let previousLineBreak = text.index(before: lineStart)
+            let previousLineStart = text[..<previousLineBreak].lastIndex(of: "\n")
+                .map { text.index(after: $0) } ?? text.startIndex
+            let previousLength = text.distance(from: previousLineStart, to: previousLineBreak)
+            let target = text.index(previousLineStart, offsetBy: min(column, previousLength))
+            return State(text: text, caret: text.utf16Offset(of: target))
+        }
+
+        let lineEnd = text[caretIndex...].firstIndex(of: "\n") ?? text.endIndex
+        guard lineEnd < text.endIndex else {
+            return State(text: text, caret: text.utf16.count)
+        }
+        let nextLineStart = text.index(after: lineEnd)
+        let nextLineEnd = text[nextLineStart...].firstIndex(of: "\n") ?? text.endIndex
+        let nextLength = text.distance(from: nextLineStart, to: nextLineEnd)
+        let target = text.index(nextLineStart, offsetBy: min(column, nextLength))
+        return State(text: text, caret: text.utf16Offset(of: target))
     }
 }
 

@@ -58,6 +58,7 @@ public enum EdexSettingsKey: String, CaseIterable, Sendable {
     case audio, audioVolume, disableFeedbackAudio, pingAddr, clockHours, monitor
     case nointro, nocursor, iface, allowWindowed, keepGeometry
     case excludeThreadsFromToplist, hideDotfiles, fsListView
+    case reducedMotion
 }
 
 public enum EdexSettingsControl: Equatable, Sendable {
@@ -100,6 +101,7 @@ public struct EdexSettingsField: Equatable, Sendable, Identifiable {
         .init(key: .excludeThreadsFromToplist, label: "excludeThreadsFromToplist", help: "Collapse threads in the top processes list", control: .toggle),
         .init(key: .hideDotfiles, label: "hideDotfiles", help: "Hide files starting with a dot", control: .toggle),
         .init(key: .fsListView, label: "fsListView", help: "Show files in a detailed list", control: .toggle),
+        .init(key: .reducedMotion, label: "reducedMotion", help: "Step telemetry graphs once per second instead of scrolling (saves compositor work on battery)", control: .toggle),
     ]
 }
 
@@ -129,6 +131,7 @@ public struct EdexSettingsDocument: Equatable, Sendable {
         .excludeThreadsFromToplist: .bool(true),
         .hideDotfiles: .bool(false),
         .fsListView: .bool(false),
+        .reducedMotion: .bool(false),
     ]
 
     /// Reboot-sensitive keys (legacy `writeSettingsFile` order). `forceFullscreen`

@@ -129,7 +129,12 @@ private struct CpuScrollingGraph: View {
             .filter { cpuFormatter.chartIndex(forCore: $0, divide: divide) == chart && $0 < series.count }
             .map { series[$0] }
 
-        CpuGraphLayerView(series: chartSeries, sampleDate: state.cpuLastSampleDate, accent: NSColor(accent))
+        CpuGraphLayerView(
+            series: chartSeries,
+            sampleDate: state.cpuLastSampleDate,
+            accent: NSColor(accent),
+            reducedMotion: state.settingsSummary.reducedMotion
+        )
             .frame(height: 34)
             .overlay {
                 CpuGraphFrameShape()
@@ -146,13 +151,19 @@ private struct CpuGraphLayerView: NSViewRepresentable {
     let series: [[Double]]
     let sampleDate: Date
     let accent: NSColor
+    let reducedMotion: Bool
 
     func makeNSView(context: Context) -> CpuGraphNSView {
         CpuGraphNSView()
     }
 
     func updateNSView(_ view: CpuGraphNSView, context: Context) {
-        view.apply(series: series, sampleDate: sampleDate, accent: accent)
+        view.apply(
+            series: series,
+            sampleDate: sampleDate,
+            accent: accent,
+            reducedMotion: reducedMotion
+        )
     }
 }
 
@@ -160,6 +171,13 @@ private final class CpuGraphNSView: NSView {
     private let lineLayer = CAShapeLayer()
     private var series = [[Double]]()
     private var lastPannedSampleDate: Date?
+    private var panTimer: Timer?
+    private var panStart: CFTimeInterval = 0
+    private var isReducedMotion = false
+
+    deinit {
+        panTimer?.invalidate()
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -179,13 +197,36 @@ private final class CpuGraphNSView: NSView {
     /// `CpuGraphScrollGeometry` produces top-left-origin coordinates.
     override var isFlipped: Bool { true }
 
-    func apply(series: [[Double]], sampleDate: Date, accent: NSColor) {
+    func apply(series: [[Double]], sampleDate: Date, accent: NSColor, reducedMotion: Bool) {
         self.series = series
         lineLayer.strokeColor = accent.cgColor
         rebuildPath()
-        if lastPannedSampleDate != sampleDate {
+        if reducedMotion {
+            // Step once per sample: rest at the fully-panned position (where a
+            // completed pan would land) with no inter-sample commits at all.
+            isReducedMotion = true
+            panTimer?.invalidate()
+            panTimer = nil
             lastPannedSampleDate = sampleDate
-            startPan()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            lineLayer.transform = CATransform3DMakeTranslation(
+                -CpuGraphScrollGeometry.scrollDistance, 0, 0
+            )
+            CATransaction.commit()
+            return
+        }
+        let resumedMotion = isReducedMotion
+        isReducedMotion = false
+        if resumedMotion || lastPannedSampleDate != sampleDate {
+            // On resume with an unchanged sample, rejoin the pan mid-flight
+            // (elapsed time since the sample landed) instead of snapping the
+            // fully-panned layer back to zero.
+            let elapsed = resumedMotion && lastPannedSampleDate == sampleDate
+                ? max(0, Date.now.timeIntervalSince(sampleDate))
+                : 0
+            lastPannedSampleDate = sampleDate
+            startPan(elapsed: elapsed)
         }
     }
 
@@ -218,17 +259,49 @@ private final class CpuGraphNSView: NSView {
         CATransaction.commit()
     }
 
-    private func startPan() {
-        let pan = CABasicAnimation(keyPath: "transform.translation.x")
-        pan.fromValue = 0
-        pan.toValue = -CpuGraphScrollGeometry.scrollDistance
-        pan.duration = 1
-        pan.timingFunction = CAMediaTimingFunction(name: .linear)
-        // Rest fully panned until the next sample re-bases the path.
-        pan.isRemovedOnCompletion = false
-        pan.fillMode = .forwards
-        lineLayer.removeAnimation(forKey: "edexGraphPan")
-        lineLayer.add(pan, forKey: "edexGraphPan")
+    /// Pan by stepping the layer transform from a 10 Hz timer instead of a
+    /// render-server `CABasicAnimation`. A continuous CAAnimation keeps
+    /// WindowServer compositing the (blended, translucent) window at the
+    /// display's max refresh for as long as the app is visible — measured at a
+    /// steady ~25% extra WindowServer CPU at idle, enough to make the rest of
+    /// the macOS UI feel sluggish (`preferredFrameRateRange` is not honored
+    /// here). Ten explicit transform commits per second keep the scroll
+    /// visually smooth while letting the compositor (and ProMotion) idle
+    /// between steps; each tick is a single transform set — no layout, no
+    /// rasterization, no SwiftUI.
+    private func startPan(elapsed: TimeInterval = 0) {
+        panStart = CACurrentMediaTime() - elapsed
+        if panTimer == nil {
+            let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.panTick()
+            }
+            timer.tolerance = 0.02
+            RunLoop.main.add(timer, forMode: .common)
+            panTimer = timer
+        }
+        panTick()
+    }
+
+    private func panTick() {
+        let progress = min(1, max(0, CACurrentMediaTime() - panStart))
+        let isVisible = window?.occlusionState.contains(.visible) ?? false
+        // Skip intermediate commits when nothing would be seen, but always
+        // land the final transform so an occluded pan does not stall mid-scroll.
+        if isVisible || progress >= 1 {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            lineLayer.transform = CATransform3DMakeTranslation(
+                -CpuGraphScrollGeometry.scrollDistance * progress, 0, 0
+            )
+            CATransaction.commit()
+        }
+        // The pan rests fully panned once complete (a late sample holds it
+        // there); stop ticking so an idle graph costs zero wakeups/commits.
+        // The next sample's startPan() recreates the timer.
+        if progress >= 1 {
+            panTimer?.invalidate()
+            panTimer = nil
+        }
     }
 }
 

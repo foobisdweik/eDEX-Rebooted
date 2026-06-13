@@ -73,6 +73,7 @@ final class ShellState: EdexActionHandler {
     /// Serializes metadata polls and cwd-follow work so overlapping 1 Hz polls and
     /// tab-switch follow-ups cannot apply stale PTY reads or skip navigation.
     @ObservationIgnored private var terminalMetadataRefreshTail: Task<Void, Never>?
+    @ObservationIgnored private var keyboardFileApplyGeneration: UInt = 0
     @ObservationIgnored private var stdoutCueGate = StdoutAudioCueGate()
 
     // Phase 7.2 fuzzy finder state.
@@ -103,6 +104,8 @@ final class ShellState: EdexActionHandler {
     var mediaViewerVolume: Double = 1
     @ObservationIgnored private var mediaViewerModalID: EdexModalID?
     @ObservationIgnored private var mediaViewerVolumeBeforeMute: Float = 1
+    var pdfViewerPath: String?
+    @ObservationIgnored private var pdfViewerModalID: EdexModalID?
 
     // Phase 6.4 shortcuts state.
     var shortcuts: EdexShortcutsDocument?
@@ -508,6 +511,7 @@ final class ShellState: EdexActionHandler {
         settingsSummary.keepGeometry = document.bool(.keepGeometry) ?? true
         settingsSummary.excludeThreadsFromToplist = document.bool(.excludeThreadsFromToplist) ?? true
         settingsSummary.nointro = document.bool(.nointro) ?? false
+        settingsSummary.reducedMotion = document.bool(.reducedMotion) ?? false
         keepGeometry = settingsSummary.keepGeometry
 
         let audioSettings = EdexAudioSettings(
@@ -644,6 +648,11 @@ final class ShellState: EdexActionHandler {
             return
         }
         guard let field = activeDetachedField else { return }
+        if let delta = KeyboardDetachedEditor.verticalDelta(command: text),
+           let moveVertical = field.moveVertical {
+            moveVertical(delta)
+            return
+        }
         switch KeyboardDetachedEditor.apply(command: text, to: field.state) {
         case let .replace(newState): field.setState(newState)
         case .submit: field.submit()
@@ -659,7 +668,8 @@ final class ShellState: EdexActionHandler {
             return DetachedField(
                 state: KeyboardDetachedEditor.State(text: fuzzyQuery, caret: fuzzyCaret),
                 setState: { [weak self] in self?.setFuzzyState($0) },
-                submit: { [weak self] in self?.submitFuzzySelection() }
+                submit: { [weak self] in self?.submitFuzzySelection() },
+                moveVertical: { [weak self] in self?.moveFuzzySelection($0) }
             )
         }
         if let id = textEditorModalID, modalManager.modal(id: id) != nil {
@@ -684,6 +694,9 @@ final class ShellState: EdexActionHandler {
         let state: KeyboardDetachedEditor.State
         let setState: (KeyboardDetachedEditor.State) -> Void
         let submit: () -> Void
+        /// List-style fields override vertical arrows (the fuzzy finder moves
+        /// its result selection); nil falls through to line-aware caret moves.
+        var moveVertical: ((Int) -> Void)?
     }
 
     // MARK: Filesystem panel (Phase 7.1)
@@ -839,18 +852,12 @@ final class ShellState: EdexActionHandler {
         case .themeFile:
             applyThemeFile(item.name)
         case .keyboardFile:
-            // Keyboard layout swapping is Phase 8; open in the host app for now.
-            openFsExternal(item.path)
+            applyKeyboardFile(item.name)
         case .file:
             if FileTypeDetector.isText(name: item.name) {
                 openTextFile(path: item.path)
             } else if FileTypeDetector.isPdf(name: item.name) {
-                // DocReader/pdfjs is deferred to v0.2, mirroring the legacy panel.
-                presentModal(
-                    type: "info",
-                    title: item.name,
-                    message: "PDF preview is deferred to v0.2 of the native port."
-                )
+                openPdfFile(path: item.path, name: item.name)
             } else if let kind = FileTypeDetector.mediaKind(name: item.name) {
                 openMediaFile(path: item.path, name: item.name, kind: kind)
             } else {
@@ -1070,6 +1077,37 @@ final class ShellState: EdexActionHandler {
         mediaViewerModalID = openedID
     }
 
+    // MARK: PDF viewer (QoL)
+
+    /// Opens a PDF in the in-app PDFKit modal, mirroring `openMediaFile`'s
+    /// focus-or-replace semantics for repeat activations.
+    func openPdfFile(path: String, name: String) {
+        if pdfViewerPath == path,
+           let pdfViewerModalID, modalManager.modal(id: pdfViewerModalID) != nil {
+            modalManager.focus(pdfViewerModalID)
+            return
+        }
+        if let pdfViewerModalID, modalManager.modal(id: pdfViewerModalID) != nil {
+            closeModal(pdfViewerModalID)
+        }
+        pdfViewerModalID = nil
+        pdfViewerPath = path
+
+        let openedID = presentModal(
+            type: "custom",
+            title: name,
+            message: "",
+            content: .pdfViewer,
+            detachesKeyboard: true,
+            onClose: { [weak self] closedID in
+                guard self?.pdfViewerModalID == closedID else { return }
+                self?.pdfViewerModalID = nil
+                self?.pdfViewerPath = nil
+            }
+        )
+        pdfViewerModalID = openedID
+    }
+
     var mediaViewerIsPlaying: Bool {
         guard let player = mediaViewerPlayer else { return false }
         return player.rate > 0
@@ -1213,6 +1251,41 @@ final class ShellState: EdexActionHandler {
                 settingsSummary.theme = themeName
                 playAudio(.granted)
             } catch {
+                playAudio(.denied)
+            }
+        }
+    }
+
+    /// Applies a keyboard layout file tapped in the filesystem panel to the
+    /// on-screen keyboard for this session (mirrors `applyThemeFile`; the
+    /// persisted `settings.keyboard` is still owned by the settings editor).
+    private func applyKeyboardFile(_ fileName: String) {
+        let layoutName = fileName.hasSuffix(".json") ? String(fileName.dropLast(5)) : fileName
+        let previous = keyboardLayout
+        keyboardFileApplyGeneration &+= 1
+        let generation = keyboardFileApplyGeneration
+        let client = self.client
+        Task {
+            let result: Result<NativeKeyboardLayout, Error> = await Task.detached(priority: .background) {
+                do {
+                    return .success(try client.loadKeyboardLayout(layoutName))
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+            guard generation == keyboardFileApplyGeneration else { return }
+            switch result {
+            case let .success(layout):
+                keyboardLayout = layout
+                // Record the layout that actually loaded (the client falls
+                // back to en-US for names missing from the keyboards dir).
+                settingsSummary.keyboard = layout.name
+                keyboardStatus = "Loaded \(layout.name) keyboard layout (\(layout.keyCount) keys)"
+                playAudio(.granted)
+            case .failure:
+                // A malformed file must not leave the on-screen keyboard empty.
+                keyboardLayout = previous
+                keyboardStatus = "Keyboard layout \(layoutName) failed; kept \(previous?.name ?? "none")"
                 playAudio(.denied)
             }
         }
@@ -1432,6 +1505,7 @@ struct SettingsSummary: Sendable {
     var nointro = false
     var hideDotfiles = false
     var fsListView = false
+    var reducedMotion = false
     var audioSettings = EdexAudioSettings()
     var byteCount: Int?
 }

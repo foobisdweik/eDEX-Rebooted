@@ -290,6 +290,91 @@ final class NativeKeyboardInputTests: XCTestCase {
         )
     }
 
+    func testDetachedUpArrowKeepsColumnAcrossLines() {
+        // "abc\ndef", caret after 'd' (column 1 on line 2).
+        let state = KeyboardDetachedEditor.State(text: "abc\ndef", caret: 5)
+
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{001B}[A", to: state),
+            .replace(.init(text: "abc\ndef", caret: 1))
+        )
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{001B}OA", to: state),
+            .replace(.init(text: "abc\ndef", caret: 1))
+        )
+    }
+
+    func testDetachedDownArrowKeepsColumnAcrossLines() {
+        let state = KeyboardDetachedEditor.State(text: "abc\ndef", caret: 1)
+
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{001B}[B", to: state),
+            .replace(.init(text: "abc\ndef", caret: 5))
+        )
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{001B}OB", to: state),
+            .replace(.init(text: "abc\ndef", caret: 5))
+        )
+    }
+
+    func testDetachedVerticalArrowsClampToShorterLine() {
+        // Up from column 3 of "wxyz" lands at the end of "ab".
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(
+                command: "\u{001B}[A",
+                to: .init(text: "ab\nwxyz", caret: 6)
+            ),
+            .replace(.init(text: "ab\nwxyz", caret: 2))
+        )
+        // Down from column 4 of "wxyz" lands at the end of "ab".
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(
+                command: "\u{001B}[B",
+                to: .init(text: "wxyz\nab", caret: 4)
+            ),
+            .replace(.init(text: "wxyz\nab", caret: 7))
+        )
+    }
+
+    func testDetachedVerticalArrowsAtEdgesSnapToTextBounds() {
+        // Up on the first line moves to the start (NSTextView behavior)…
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(
+                command: "\u{001B}[A",
+                to: .init(text: "abc\ndef", caret: 2)
+            ),
+            .replace(.init(text: "abc\ndef", caret: 0))
+        )
+        // …and down on the last line moves to the end.
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(
+                command: "\u{001B}[B",
+                to: .init(text: "abc\ndef", caret: 5)
+            ),
+            .replace(.init(text: "abc\ndef", caret: 7))
+        )
+    }
+
+    func testDetachedVerticalArrowsCountColumnsInCharactersNotUTF16() {
+        // Line 1 is "🇺🇸x" (2 characters, 5 UTF-16 units). Down from after 'x'
+        // (column 2) lands after 'b' (column 2 of "ab"), not mid-scalar.
+        let state = KeyboardDetachedEditor.State(text: "🇺🇸x\nab", caret: 5)
+
+        XCTAssertEqual(
+            KeyboardDetachedEditor.apply(command: "\u{001B}[B", to: state),
+            .replace(.init(text: "🇺🇸x\nab", caret: 8))
+        )
+    }
+
+    func testDetachedVerticalDeltaRecognizesArrowCommands() {
+        XCTAssertEqual(KeyboardDetachedEditor.verticalDelta(command: "\u{001B}[A"), -1)
+        XCTAssertEqual(KeyboardDetachedEditor.verticalDelta(command: "\u{001B}OA"), -1)
+        XCTAssertEqual(KeyboardDetachedEditor.verticalDelta(command: "\u{001B}[B"), 1)
+        XCTAssertEqual(KeyboardDetachedEditor.verticalDelta(command: "\u{001B}OB"), 1)
+        XCTAssertNil(KeyboardDetachedEditor.verticalDelta(command: "\u{001B}[C"))
+        XCTAssertNil(KeyboardDetachedEditor.verticalDelta(command: "a"))
+    }
+
     func testDetachedBackspaceAndDeleteRespectCaret() {
         let state = KeyboardDetachedEditor.State(text: "🇺🇸foo", caret: 4)
 

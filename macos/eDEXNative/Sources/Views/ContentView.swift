@@ -673,6 +673,8 @@ private struct EdexModalChrome: View {
             EdexFuzzyFinderView(state: state, theme: theme)
         case .mediaViewer:
             EdexMediaViewerView(state: state, theme: theme)
+        case .pdfViewer:
+            EdexPdfViewerView(state: state, theme: theme)
         case .customPlaceholder:
             customStatus("CUSTOM MODAL", detail: modal.message)
         }
@@ -793,6 +795,9 @@ private enum EdexModalMetrics {
             }
             return min(max(safeContainerWidth * 0.55, 560), 900)
         }
+        if modal.content == .pdfViewer {
+            return min(max(safeContainerWidth * 0.6, 560), 900)
+        }
         return min(max(safeContainerWidth * 0.42, 380), 740)
     }
 
@@ -821,6 +826,9 @@ private enum EdexModalMetrics {
                 return min(max(safeContainerHeight * 0.92, 480), safeContainerHeight)
             }
             return min(max(safeContainerHeight * 0.52, 360), 620)
+        }
+        if modal.content == .pdfViewer {
+            return min(max(safeContainerHeight * 0.72, 440), 780)
         }
         return modal.kind == .custom ? 260 : 150
     }
