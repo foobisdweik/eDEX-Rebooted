@@ -48,8 +48,7 @@ struct EdexPdfViewerView: View {
         // Read + parse off the main thread (xref parsing alone can take tens
         // of ms on large files); pages still render lazily inside PDFView.
         let loaded = await Task.detached(priority: .userInitiated) { () -> PDFDocument? in
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
-            return PDFDocument(data: data)
+            PDFDocument(url: URL(fileURLWithPath: path))
         }.value
         // The modal may have moved to another file while the load ran.
         guard state.pdfViewerPath == path else { return }

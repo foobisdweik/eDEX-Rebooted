@@ -2,7 +2,7 @@ use include_dir::{include_dir, Dir};
 use serde::Serialize;
 use serde_json::Value;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // Bundled assets, embedded at compile time so the core does not depend on
 // Tauri resource_dir() plumbing. Mirrored into userData on first boot.
@@ -140,21 +140,37 @@ pub fn ensure_userdata() -> Result<(), Box<dyn std::error::Error>> {
     // in user-added files, which survive). Matches _boot.js behavior.
     for entry in THEMES_DIR.files() {
         if let Some(name) = entry.path().file_name() {
-            fs::write(PathBuf::from(&p.themes_dir).join(name), entry.contents())?;
+            mirror_bundled_file(&PathBuf::from(&p.themes_dir).join(name), entry.contents())?;
         }
     }
     for entry in KB_DIR.files() {
         if let Some(name) = entry.path().file_name() {
-            fs::write(PathBuf::from(&p.keyboards_dir).join(name), entry.contents())?;
+            mirror_bundled_file(
+                &PathBuf::from(&p.keyboards_dir).join(name),
+                entry.contents(),
+            )?;
         }
     }
     for entry in FONTS_DIR.files() {
         if let Some(name) = entry.path().file_name() {
-            fs::write(PathBuf::from(&p.fonts_dir).join(name), entry.contents())?;
+            mirror_bundled_file(&PathBuf::from(&p.fonts_dir).join(name), entry.contents())?;
         }
     }
 
     Ok(())
+}
+
+/// Write bundled bytes to `dest` when missing or changed. Skips the write when
+/// the on-disk file already matches byte-for-byte so bootstrap stays cheap.
+fn mirror_bundled_file(dest: &Path, bundled: &[u8]) -> std::io::Result<()> {
+    if dest.exists() {
+        if let Ok(existing) = fs::read(dest) {
+            if existing == bundled {
+                return Ok(());
+            }
+        }
+    }
+    fs::write(dest, bundled)
 }
 
 pub async fn get_settings() -> Result<Value, String> {
@@ -306,7 +322,63 @@ pub fn get_displays() -> Vec<DisplayInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_basename;
+    use super::{mirror_bundled_file, validate_basename};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    #[test]
+    fn mirror_bundled_file_skips_identical_bytes() {
+        let dir = std::env::temp_dir().join(format!("edex-mirror-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("tron.json");
+        let bundled = br#"{"cssvars":{}}"#;
+        fs::write(&path, bundled).expect("seed file");
+
+        let before = fs::metadata(&path)
+            .expect("metadata")
+            .modified()
+            .expect("mtime");
+        std::thread::sleep(Duration::from_millis(10));
+        mirror_bundled_file(&path, bundled).expect("mirror");
+        let after = fs::metadata(&path)
+            .expect("metadata")
+            .modified()
+            .expect("mtime");
+
+        assert_eq!(before, after, "identical bytes should not be rewritten");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mirror_bundled_file_overwrites_changed_same_size_bytes() {
+        let dir =
+            std::env::temp_dir().join(format!("edex-mirror-overwrite-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("tron.json");
+        let existing = br#"{"cssvars":{"a":1}}"#;
+        let bundled = br#"{"cssvars":{"b":2}}"#;
+        assert_eq!(existing.len(), bundled.len());
+        fs::write(&path, existing).expect("seed file");
+
+        mirror_bundled_file(&path, bundled).expect("mirror");
+        assert_eq!(fs::read(&path).expect("read"), bundled);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mirror_bundled_file_writes_missing_file() {
+        let dir = std::env::temp_dir().join(format!("edex-mirror-missing-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        let path: PathBuf = dir.join("custom.json");
+        let bundled = b"new-bytes";
+
+        mirror_bundled_file(&path, bundled).expect("mirror");
+        assert_eq!(fs::read(&path).expect("read"), bundled);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn accepts_real_theme_and_keyboard_names() {

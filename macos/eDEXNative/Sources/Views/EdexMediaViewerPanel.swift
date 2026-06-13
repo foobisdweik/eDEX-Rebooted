@@ -3,6 +3,7 @@ import AVFoundation
 import AVKit
 import EdexDomainSupport
 import EdexRenderingSupport
+import ImageIO
 import SwiftUI
 
 /// In-app media viewer modal — image preview plus AVKit audio/video playback with
@@ -17,7 +18,8 @@ struct EdexMediaViewerView: View {
     @State private var duration: Double = 0
     @State private var isPlaying = false
     @State private var controlsVisible = true
-    @State private var hideControlsTask: Task<Void, Never>?
+    @State private var lastInteraction = Date()
+    @State private var hideControlsLoop: Task<Void, Never>?
     @State private var timeObserverToken: Any?
     @State private var observedPlayer: AVPlayer?
 
@@ -44,19 +46,24 @@ struct EdexMediaViewerView: View {
         .onContinuousHover { phase in
             if case .active = phase { revealControls() }
         }
-        .task(id: state.mediaViewerPath) {
+        .task(id: imageLoadKey) {
             await loadImageIfNeeded()
         }
         .onAppear {
             beginPlaybackObservation()
-            resetControlsHideTimer()
+            startHideControlsLoop()
+            lastInteraction = Date()
         }
         .onDisappear {
             endPlaybackObservation()
-            hideControlsTask?.cancel()
+            hideControlsLoop?.cancel()
+            hideControlsLoop = nil
         }
-        .onChange(of: state.mediaViewerExpanded) { _, _ in
-            resetControlsHideTimer()
+        .onChange(of: state.mediaViewerExpanded) { _, expanded in
+            if !expanded {
+                controlsVisible = true
+            }
+            lastInteraction = Date()
         }
         .onChange(of: state.mediaViewerPath) { _, _ in
             endPlaybackObservation()
@@ -203,12 +210,22 @@ struct EdexMediaViewerView: View {
         .frame(width: 28, height: 28)
     }
 
+    /// Hashable key so the image (re)loads when either the path or the expanded
+    /// state changes; a tuple can't conform to Equatable for `.task(id:)`.
+    private var imageLoadKey: String {
+        "\(state.mediaViewerExpanded ? "1" : "0")|\(state.mediaViewerPath ?? "")"
+    }
+
     private func loadImageIfNeeded() async {
         loadedImage = nil
         imageLoadFailed = false
         guard state.mediaViewerKind == .image, let path = state.mediaViewerPath else { return }
+        let expanded = state.mediaViewerExpanded
+        // NSScreen is AppKit and must be read on the MainActor; capture the
+        // scale here and pass it into the detached decode.
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
         let image = await Task.detached(priority: .userInitiated) {
-            NSImage(contentsOfFile: path)
+            Self.loadThumbnail(path: path, expanded: expanded, scale: scale)
         }.value
         guard !Task.isCancelled else { return }
         if let image {
@@ -218,6 +235,22 @@ struct EdexMediaViewerView: View {
             loadedImage = nil
             imageLoadFailed = true
         }
+    }
+
+    private nonisolated static func loadThumbnail(path: String, expanded: Bool, scale: CGFloat) -> NSImage? {
+        let url = URL(fileURLWithPath: path)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let baseEdge = expanded ? 960.0 : 640.0
+        let maxPixel = Int((baseEdge * scale).rounded())
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixel)
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: .zero)
     }
 
     private func beginPlaybackObservation() {
@@ -257,19 +290,28 @@ struct EdexMediaViewerView: View {
 
     private func revealControls() {
         controlsVisible = true
-        resetControlsHideTimer()
+        lastInteraction = Date()
     }
 
-    private func resetControlsHideTimer() {
-        hideControlsTask?.cancel()
-        guard state.mediaViewerExpanded else {
-            controlsVisible = true
-            return
-        }
-        hideControlsTask = Task {
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            controlsVisible = false
+    private func startHideControlsLoop() {
+        guard hideControlsLoop == nil else { return }
+        hideControlsLoop = Task {
+            while !Task.isCancelled {
+                if state.mediaViewerExpanded {
+                    let remaining = lastInteraction.addingTimeInterval(2).timeIntervalSinceNow
+                    if remaining <= 0 {
+                        controlsVisible = false
+                        try? await Task.sleep(for: .milliseconds(250))
+                    } else {
+                        try? await Task.sleep(for: .seconds(remaining))
+                    }
+                } else {
+                    // Collapsed: controls stay visible, so there's nothing to
+                    // hide — poll slowly just to notice an expand toggle.
+                    controlsVisible = true
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
         }
     }
 }
@@ -279,18 +321,28 @@ struct EdexMediaViewerView: View {
 private struct EdexAVPlayerSurface: NSViewRepresentable {
     let player: AVPlayer
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.controlsStyle = .none
         view.videoGravity = .resizeAspect
         view.player = player
+        context.coordinator.playerToken = ObjectIdentifier(player)
         return view
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        let token = ObjectIdentifier(player)
+        guard context.coordinator.playerToken != token else { return }
+        context.coordinator.playerToken = token
         nsView.player = player
-        nsView.controlsStyle = .none
-        nsView.videoGravity = .resizeAspect
+    }
+
+    final class Coordinator {
+        var playerToken: ObjectIdentifier?
     }
 }
 

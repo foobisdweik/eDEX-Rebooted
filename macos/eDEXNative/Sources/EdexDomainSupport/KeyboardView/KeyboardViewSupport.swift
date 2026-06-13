@@ -662,6 +662,169 @@ public enum KeyboardPhysicalKeyMapper {
     }
 }
 
+/// Finding #3 (List 3): `KeyboardPhysicalKeyMapper` rebuilds the full ~80-key
+/// descriptor matrix (`macBookDescriptors(...).flatMap`) and linearly scans it
+/// on *every* keystroke (keyDown/keyUp) and modifier change. The on-screen
+/// keyboard panel rebuilds the same matrix on every render. This index builds
+/// the matrix and the lookup tables once per layout so both paths become O(1).
+/// Every lookup is byte-for-byte equivalent to the matching
+/// `KeyboardPhysicalKeyMapper` method (see `KeyboardDescriptorIndexTests`).
+public struct KeyboardDescriptorIndex: Sendable {
+    /// The full descriptor matrix, cached so the on-screen keyboard render and
+    /// the per-keystroke lookups share a single build per layout.
+    public let rows: [[KeyboardKeyDescriptor]]
+
+    private let spacebarID: String?
+    private let tabID: String?
+    private let enterID: String?
+    private let escID: String?
+    private let deleteID: String?
+    private let arrowUpID: String?
+    private let arrowDownID: String?
+    private let arrowLeftID: String?
+    private let arrowRightID: String?
+    private let functionIDs: [String: String]
+    /// Lowercased `command`/`name` → id, first-writer-wins to mirror `.first`.
+    private let charIDs: [String: String]
+    private let modifierIDs: [KeyboardModifier: String]
+    private let capsLockID: String?
+    private let fnID: String?
+    private let rightCtrlID: String?
+
+    public init(layout: NativeKeyboardLayout) {
+        let matrix = KeyboardViewModel.macBookDescriptors(for: layout)
+        rows = matrix
+
+        var spacebar: String?
+        var tab: String?
+        var enterRole: String?
+        var hasMacReturn = false
+        var esc: String?
+        var del: String?
+        var up: String?
+        var down: String?
+        var left: String?
+        var right: String?
+        var fns = [String: String]()
+        var chars = [String: String]()
+        var mods = [KeyboardModifier: String]()
+        var caps: String?
+        var fn: String?
+        var rightCtrl: String?
+
+        for descriptor in matrix.flatMap({ $0 }) {
+            let key = descriptor.key
+            if spacebar == nil, descriptor.role == .spacebar { spacebar = descriptor.id }
+            if tab == nil, key.name.caseInsensitiveCompare("TAB") == .orderedSame { tab = descriptor.id }
+            if enterRole == nil, descriptor.role == .enter { enterRole = descriptor.id }
+            if descriptor.id == "mac_return" { hasMacReturn = true }
+            if esc == nil, key.name.caseInsensitiveCompare("ESC") == .orderedSame { esc = descriptor.id }
+            if del == nil,
+               key.name.caseInsensitiveCompare("DELETE") == .orderedSame
+                || key.name.caseInsensitiveCompare("BACK") == .orderedSame {
+                del = descriptor.id
+            }
+            if up == nil, descriptor.role == .icon("ARROW_UP") { up = descriptor.id }
+            if down == nil, descriptor.role == .icon("ARROW_DOWN") { down = descriptor.id }
+            if left == nil, descriptor.role == .icon("ARROW_LEFT") { left = descriptor.id }
+            if right == nil, descriptor.role == .icon("ARROW_RIGHT") { right = descriptor.id }
+            if let fname = key.functionName, fns[fname] == nil { fns[fname] = descriptor.id }
+            let cmd = key.command.lowercased()
+            if chars[cmd] == nil { chars[cmd] = descriptor.id }
+            let nm = key.name.lowercased()
+            if chars[nm] == nil { chars[nm] = descriptor.id }
+            if let modifier = descriptor.modifier {
+                if mods[modifier] == nil { mods[modifier] = descriptor.id }
+                if caps == nil, modifier == .capsLock { caps = descriptor.id }
+                if fn == nil, modifier == .fn { fn = descriptor.id }
+                if rightCtrl == nil, descriptor.id != "mac_ctrl_left", modifier == .ctrl {
+                    rightCtrl = descriptor.id
+                }
+            }
+        }
+
+        spacebarID = spacebar
+        tabID = tab
+        enterID = enterRole ?? (hasMacReturn ? "mac_return" : nil)
+        escID = esc
+        deleteID = del
+        arrowUpID = up
+        arrowDownID = down
+        arrowLeftID = left
+        arrowRightID = right
+        functionIDs = fns
+        charIDs = chars
+        modifierIDs = mods
+        capsLockID = caps
+        fnID = fn
+        rightCtrlID = rightCtrl
+    }
+
+    public func id(for combo: KeyCombo) -> String? {
+        switch combo.key {
+        case .special(.space):
+            return spacebarID
+        case .special(.tab):
+            return tabID
+        case .function(let number):
+            return functionIDs["F\(number)"]
+        case .character(let character):
+            return id(forCharacter: character)
+        }
+    }
+
+    public func id(for modifier: KeyboardModifier) -> String? {
+        modifierIDs[modifier]
+    }
+
+    public func id(for physicalModifier: KeyboardPhysicalModifier) -> String? {
+        switch physicalModifier {
+        case .leftShift:
+            return "mac_shift_left"
+        case .rightShift:
+            return "mac_shift_right"
+        case .capsLock:
+            return capsLockID
+        case .leftControl:
+            return "mac_ctrl_left"
+        case .rightControl:
+            return rightCtrlID ?? "mac_ctrl_left"
+        case .leftOption:
+            return "mac_option_left"
+        case .rightOption:
+            return "mac_option_right"
+        case .leftCommand:
+            return "mac_command_left"
+        case .rightCommand:
+            return "mac_command_right"
+        case .fn:
+            return fnID
+        }
+    }
+
+    private func id(forCharacter character: Character) -> String? {
+        let value = String(character).lowercased()
+        switch value {
+        case "\r", "\n":
+            return enterID
+        case "\u{1B}":
+            return escID
+        case "\u{8}", "\u{7F}":
+            return deleteID
+        case "\u{F700}":
+            return arrowUpID
+        case "\u{F701}":
+            return arrowDownID
+        case "\u{F702}":
+            return arrowLeftID
+        case "\u{F703}":
+            return arrowRightID
+        default:
+            return charIDs[value]
+        }
+    }
+}
+
 private extension Double {
     var finiteNonNegative: Double {
         isFinite ? max(0, self) : 0

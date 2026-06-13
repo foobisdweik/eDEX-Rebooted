@@ -25,6 +25,8 @@ final class FileIconProvider {
     @ObservationIgnored private var loadStarted = false
     /// filename+role → resolved icon image, reset when the fill colors change.
     @ObservationIgnored private var imageCache: [String: NSImage] = [:]
+    /// Stable (name, role) → resolution; survives theme/fill changes.
+    @ObservationIgnored private var resolutionCache: [String: FileIconResolution] = [:]
     @ObservationIgnored private var cachedFillKey = ""
 
     func image(forName name: String, role: FilesystemRole, theme: NativeTheme) -> NSImage? {
@@ -39,9 +41,10 @@ final class FileIconProvider {
         // icon id: when a matched id has no renderable catalog entry, the
         // fallback differs by role (`dir` vs `file`), so keying on the
         // matched id would pin one role's fallback for the other.
+        let resolution = cachedResolution(name: name, role: role)
         let cacheKey: String
         let document: String?
-        switch FileIconResolver.resolve(name: name, role: role, matcher: matcher) {
+        switch resolution {
         case .catalog(let iconName):
             if let matchedDocument = catalog?.svgDocument(named: iconName, fill: fill) {
                 cacheKey = "c:\(iconName)"
@@ -115,6 +118,14 @@ final class FileIconProvider {
                 self.isReady = catalog != nil
             }
         }
+    }
+
+    private func cachedResolution(name: String, role: FilesystemRole) -> FileIconResolution {
+        let key = "\(role)|\(name)"
+        if let cached = resolutionCache[key] { return cached }
+        let resolution = FileIconResolver.resolve(name: name, role: role, matcher: matcher)
+        resolutionCache[key] = resolution
+        return resolution
     }
 
     private func resetCacheIfFillsChanged(fill: String, secondaryFill: String) {

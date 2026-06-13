@@ -7,11 +7,19 @@ struct EdexTerminalSurface: NSViewRepresentable {
     let terminalView: TerminalView
     let theme: NativeTheme
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> TerminalView {
         terminalView
     }
 
     func updateNSView(_ nsView: TerminalView, context: Context) {
+        let token = TerminalThemeToken(theme: theme)
+        guard context.coordinator.appliedThemeToken != token else { return }
+        context.coordinator.appliedThemeToken = token
+
         let bg = theme.palette.terminalBackground
         nsView.nativeBackgroundColor = NSColor(
             red: bg.red,
@@ -36,5 +44,23 @@ struct EdexTerminalSurface: NSViewRepresentable {
             blue: sel.blue,
             alpha: max(sel.alpha, 0.001)
         )
+    }
+
+    final class Coordinator {
+        fileprivate var appliedThemeToken: TerminalThemeToken?
+    }
+}
+
+private struct TerminalThemeToken: Equatable {
+    let terminalFont: String
+    let backgroundHex: String
+    let foregroundHex: String
+    let selectionHex: String
+
+    init(theme: NativeTheme) {
+        terminalFont = theme.fonts.terminal
+        backgroundHex = theme.palette.terminalBackground.hexRGB
+        foregroundHex = theme.palette.terminalForeground.hexRGB
+        selectionHex = theme.palette.terminalSelection.hexRGB
     }
 }

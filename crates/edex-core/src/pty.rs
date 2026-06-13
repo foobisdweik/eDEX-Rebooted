@@ -93,7 +93,7 @@ impl PtyManager {
 
         let inner_for_reader = Arc::clone(&self.inner);
         std::thread::spawn(move || {
-            let mut buf = [0u8; 8192];
+            let mut buf = [0u8; 65536];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,

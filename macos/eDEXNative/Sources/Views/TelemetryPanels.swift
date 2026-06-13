@@ -28,12 +28,12 @@ struct CpuPanel: View {
                     .font(.custom(state.theme.fonts.main, size: 12))
                 Text(snapshot.map { cpuFormatter.cpuName(manufacturer: $0.manufacturer, brand: $0.brand) } ?? "")
                     .font(.custom(state.theme.fonts.terminal, size: 10))
-                    .foregroundStyle(state.theme.accent.opacity(0.7))
+                    .foregroundStyle(state.theme.accent70)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
-            cpuGraphBlock(chart: 0, rangeStart: 1, rangeEnd: divide, divide: divide, cores: cores, snapshot: snapshot)
-            cpuGraphBlock(chart: 1, rangeStart: divide + 1, rangeEnd: cores, divide: divide, cores: cores, snapshot: snapshot)
+            cpuGraphBlock(chart: 0, rangeStart: 1, rangeEnd: divide, divide: divide, cores: cores, snapshot: snapshot, sampleDate: state.cpuLastSampleDate)
+            cpuGraphBlock(chart: 1, rangeStart: divide + 1, rangeEnd: cores, divide: divide, cores: cores, snapshot: snapshot, sampleDate: state.cpuLastSampleDate)
             HStack(spacing: 0) {
                 cpuFooterCell("TEMP", snapshot.map { cpuFormatter.temperatureText($0.temperatureMax) } ?? "--°C")
                 cpuFooterCell("SPD", snapshot.map { cpuFormatter.speedText($0.speed) } ?? "--GHz")
@@ -42,14 +42,14 @@ struct CpuPanel: View {
             }
             .padding(.top, 3)
             .overlay(alignment: .top) {
-                Rectangle().fill(state.theme.accent.opacity(0.3)).frame(height: 1)
+                Rectangle().fill(state.theme.accent30).frame(height: 1)
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
         .augmentedSurface(
             style: .panel(vh: vh),
-            fill: state.theme.terminalBackground.opacity(0.72),
+            fill: state.theme.terminalBackground72,
             stroke: state.theme.accent
         )
         .task {
@@ -61,41 +61,33 @@ struct CpuPanel: View {
         }
     }
 
-    private func cpuGraphBlock(chart: Int, rangeStart: Int, rangeEnd: Int, divide: Int, cores: Int, snapshot: FfiCpuSnapshot?) -> some View {
-        // Average of the loads belonging to this graph half.
-        let halfLoads: [Double] = (snapshot?.loads ?? []).enumerated()
-            .filter { cpuFormatter.chartIndex(forCore: $0.offset, divide: divide) == chart }
-            .map(\.element)
-        let avg = snapshot == nil ? nil : cpuFormatter.average(loads: halfLoads)
-
-        return VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 6) {
-                Text(cores > 0 ? "# \(rangeStart) - \(rangeEnd)" : "# --")
-                Spacer(minLength: 4)
-                Text(avg.map { "Avg. \($0)%" } ?? "Avg. --%")
-            }
-            .font(.custom(state.theme.fonts.terminal, size: 10))
-            .foregroundStyle(state.theme.accent.opacity(0.72))
-            cpuGraph(chart: chart, divide: divide, cores: cores)
-        }
-    }
-
-    // The CPU graph scrolls between 1 Hz telemetry samples. The old
-    // `TimelineView` redraw (display-rate, then bounded 30 Hz) re-entered the
-    // SwiftUI render loop dozens of times per second and profiled at ~64% of
-    // an idle main thread (whole-window layout + display-list diff per tick).
-    // Now the polyline is rebuilt only when a sample lands, and the
-    // in-between motion is a render-server CALayer pan — no per-frame view
-    // updates at all.
-    private func cpuGraph(chart: Int, divide: Int, cores: Int) -> some View {
-        CpuScrollingGraph(state: state, chart: chart, divide: divide, cores: cores)
+    private func cpuGraphBlock(
+        chart: Int,
+        rangeStart: Int,
+        rangeEnd: Int,
+        divide: Int,
+        cores: Int,
+        snapshot: FfiCpuSnapshot?,
+        sampleDate: Date
+    ) -> some View {
+        CpuGraphHalfBlock(
+            theme: state.theme,
+            chart: chart,
+            rangeStart: rangeStart,
+            rangeEnd: rangeEnd,
+            divide: divide,
+            cores: cores,
+            snapshot: snapshot,
+            sampleDate: sampleDate,
+            state: state
+        )
     }
 
     private func cpuFooterCell(_ label: String, _ value: String) -> some View {
         VStack(spacing: 1) {
             Text(label)
                 .font(.custom(state.theme.fonts.main, size: 9))
-                .foregroundStyle(state.theme.accent.opacity(0.7))
+                .foregroundStyle(state.theme.accent70)
             Text(value)
                 .font(.custom(state.theme.fonts.terminal, size: 11))
                 .foregroundStyle(state.theme.terminalForeground)
@@ -106,30 +98,97 @@ struct CpuPanel: View {
     }
 }
 
-/// One half of the CPU graph pair. The polyline is rebuilt once per telemetry
-/// sample (newest point on the right edge, per `CpuGraphScrollGeometry`) and
-/// panned left by one sample-width over the next second via a render-server
-/// `CABasicAnimation`. The pan never re-rasterizes anything — an animated
-/// SwiftUI `.offset` over a clipped `Canvas` was tried first and forced
-/// RenderBox to re-texture the graph every display frame, stalling the main
-/// thread in `RB::SurfacePool::wait_image_queue`. If a sample is late the pan
-/// rests fully panned — the same stall the legacy `elapsed` clamp produced.
+private struct CpuGraphHalfBlock: View {
+    let theme: NativeTheme
+    let chart: Int
+    let rangeStart: Int
+    let rangeEnd: Int
+    let divide: Int
+    let cores: Int
+    let snapshot: FfiCpuSnapshot?
+    let sampleDate: Date
+    let state: ShellState
+
+    @State private var memoKey = ""
+    @State private var memoAvg: Int?
+
+    private let cpuFormatter = EdexCpuinfoFormatter()
+
+    var body: some View {
+        let loads = snapshot?.loads ?? []
+        let key = Self.avgMemoKey(loads: loads, sampleDate: sampleDate, chart: chart, divide: divide, cores: cores)
+        let avg: Int? = {
+            if key == memoKey { return memoAvg }
+            guard snapshot != nil else { return nil }
+            let halfLoads = loads.enumerated()
+                .filter { cpuFormatter.chartIndex(forCore: $0.offset, divide: divide) == chart }
+                .map(\.element)
+            return cpuFormatter.average(loads: halfLoads)
+        }()
+
+        return VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                Text(cores > 0 ? "# \(rangeStart) - \(rangeEnd)" : "# --")
+                Spacer(minLength: 4)
+                Text(avg.map { "Avg. \($0)%" } ?? "Avg. --%")
+            }
+            .font(.custom(theme.fonts.terminal, size: 10))
+            .foregroundStyle(theme.accent72)
+            CpuScrollingGraph(state: state, chart: chart, divide: divide, cores: cores)
+        }
+        .onChange(of: key, initial: true) { _, newKey in
+            guard newKey != memoKey else { return }
+            memoKey = newKey
+            if snapshot != nil {
+                let halfLoads = loads.enumerated()
+                    .filter { cpuFormatter.chartIndex(forCore: $0.offset, divide: divide) == chart }
+                    .map(\.element)
+                memoAvg = cpuFormatter.average(loads: halfLoads)
+            } else {
+                memoAvg = nil
+            }
+        }
+    }
+
+    private static func avgMemoKey(
+        loads: [Double],
+        sampleDate: Date,
+        chart: Int,
+        divide: Int,
+        cores: Int
+    ) -> String {
+        let tail = loads.last.map { String($0) } ?? "nil"
+        return "\(sampleDate.timeIntervalSinceReferenceDate)|\(loads.count)|\(tail)|\(chart)|\(divide)|\(cores)"
+    }
+}
+
+/// Scrolling CPU graph for one core half; polyline rebuilds at the 1 Hz sample cadence.
 private struct CpuScrollingGraph: View {
     let state: ShellState
     let chart: Int
     let divide: Int
     let cores: Int
 
+    @State private var memoKey = ""
+    @State private var memoChartSeries: [[Double]] = []
+
     private let cpuFormatter = EdexCpuinfoFormatter()
 
     var body: some View {
         let series = state.cpuSeries
         let accent = state.theme.accent
-        let chartSeries = (0..<cores)
-            .filter { cpuFormatter.chartIndex(forCore: $0, divide: divide) == chart && $0 < series.count }
-            .map { series[$0] }
+        let key = Self.seriesMemoKey(
+            sampleDate: state.cpuLastSampleDate,
+            series: series,
+            cores: cores,
+            chart: chart,
+            divide: divide
+        )
+        let chartSeries: [[Double]] = key == memoKey && !memoChartSeries.isEmpty
+            ? memoChartSeries
+            : Self.filteredSeries(series: series, cores: cores, chart: chart, divide: divide, cpuFormatter: cpuFormatter)
 
-        CpuGraphLayerView(
+        return CpuGraphLayerView(
             series: chartSeries,
             sampleDate: state.cpuLastSampleDate,
             accent: NSColor(accent),
@@ -138,8 +197,43 @@ private struct CpuScrollingGraph: View {
             .frame(height: 34)
             .overlay {
                 CpuGraphFrameShape()
-                    .stroke(accent.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
+                    .stroke(state.theme.accent30, style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
             }
+            .onChange(of: key, initial: true) { _, newKey in
+                guard newKey != memoKey else { return }
+                memoKey = newKey
+                memoChartSeries = Self.filteredSeries(
+                    series: series,
+                    cores: cores,
+                    chart: chart,
+                    divide: divide,
+                    cpuFormatter: cpuFormatter
+                )
+            }
+    }
+
+    private static func seriesMemoKey(
+        sampleDate: Date,
+        series: [[Double]],
+        cores: Int,
+        chart: Int,
+        divide: Int
+    ) -> String {
+        let depth = series.first?.count ?? 0
+        let tail = series.first?.last.map { String($0) } ?? "nil"
+        return "\(sampleDate.timeIntervalSinceReferenceDate)|\(series.count)|\(depth)|\(tail)|\(chart)|\(divide)|\(cores)"
+    }
+
+    private static func filteredSeries(
+        series: [[Double]],
+        cores: Int,
+        chart: Int,
+        divide: Int,
+        cpuFormatter: EdexCpuinfoFormatter
+    ) -> [[Double]] {
+        (0..<cores)
+            .filter { cpuFormatter.chartIndex(forCore: $0, divide: divide) == chart && $0 < series.count }
+            .map { series[$0] }
     }
 }
 
@@ -337,7 +431,7 @@ struct RamPanel: View {
                 Spacer(minLength: 4)
                 Text(mem.map { ramFormatter.infoText(active: $0.active, total: $0.total) } ?? "")
                     .font(.custom(state.theme.fonts.terminal, size: 9))
-                    .foregroundStyle(state.theme.accent.opacity(0.7))
+                    .foregroundStyle(state.theme.accent70)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
             }
@@ -345,7 +439,7 @@ struct RamPanel: View {
             HStack(spacing: 8) {
                 Text("SWAP")
                     .font(.custom(state.theme.fonts.main, size: 10))
-                    .foregroundStyle(state.theme.accent.opacity(0.7))
+                    .foregroundStyle(state.theme.accent70)
                 ramSwapBar(percent: swapPct)
                 Text(mem.map { ramFormatter.swapText(used: $0.swapUsed) } ?? "0 GiB")
                     .font(.custom(state.theme.fonts.terminal, size: 10))
@@ -358,7 +452,7 @@ struct RamPanel: View {
         .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
         .augmentedSurface(
             style: .panel(vh: vh),
-            fill: state.theme.terminalBackground.opacity(0.72),
+            fill: state.theme.terminalBackground72,
             stroke: state.theme.accent
         )
         .task {
@@ -381,24 +475,29 @@ struct RamPanel: View {
             let cellW = size.width / Double(cols)
             let cellH = size.height / Double(rows)
             let pad = min(cellW, cellH) * 0.16
+            var activePath = Path()
+            var availablePath = Path()
+            var freePath = Path()
             for position in 0..<(cols * rows) {
                 let column = position % cols
                 let row = position / cols
                 let tier = ramFormatter.cellState(rank: ranks[position], activeCount: active, availableCount: available)
-                let opacity: Double
-                switch tier {
-                case .active: opacity = 1.0
-                case .available: opacity = 0.45
-                case .free: opacity = 0.12
-                }
                 let rect = CGRect(
                     x: Double(column) * cellW + pad,
                     y: Double(row) * cellH + pad,
                     width: max(0.5, cellW - 2 * pad),
                     height: max(0.5, cellH - 2 * pad)
                 )
-                ctx.fill(Path(roundedRect: rect, cornerRadius: 0.5), with: .color(state.theme.accent.opacity(opacity)))
+                let cellPath = Path(roundedRect: rect, cornerRadius: 0.5)
+                switch tier {
+                case .active: activePath.addPath(cellPath)
+                case .available: availablePath.addPath(cellPath)
+                case .free: freePath.addPath(cellPath)
+                }
             }
+            ctx.fill(activePath, with: .color(state.theme.ramGridActive))
+            ctx.fill(availablePath, with: .color(state.theme.ramGridAvailable))
+            ctx.fill(freePath, with: .color(state.theme.ramGridFree))
         }
         .frame(height: 60)
     }
@@ -406,7 +505,7 @@ struct RamPanel: View {
     private func ramSwapBar(percent: Int) -> some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Rectangle().fill(state.theme.accent.opacity(0.2))
+                Rectangle().fill(state.theme.accent20)
                 Rectangle()
                     .fill(state.theme.accent)
                     .frame(width: geo.size.width * Double(min(max(percent, 0), 100)) / 100.0)
@@ -432,7 +531,7 @@ struct ToplistPanel: View {
                     Spacer(minLength: 4)
                     Text("PID | NAME | CPU | MEM")
                         .font(.custom(state.theme.fonts.main, size: 9))
-                        .foregroundStyle(state.theme.accent.opacity(0.48))
+                        .foregroundStyle(state.theme.accent48)
                 }
                 VStack(spacing: 2) {
                     ForEach(state.topProcesses, id: \.pid) { row in
@@ -441,7 +540,7 @@ struct ToplistPanel: View {
                     if state.topProcesses.isEmpty {
                         Text("NO PROCESS DATA")
                             .font(.custom(state.theme.fonts.terminal, size: 10))
-                            .foregroundStyle(state.theme.terminalForeground.opacity(0.52))
+                            .foregroundStyle(state.theme.terminalForeground52)
                             .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
                     }
                 }
@@ -450,7 +549,7 @@ struct ToplistPanel: View {
             .frame(maxWidth: .infinity, minHeight: 98, alignment: .leading)
             .augmentedSurface(
                 style: .panel(vh: vh),
-                fill: state.theme.terminalBackground.opacity(0.72),
+                fill: state.theme.terminalBackground72,
                 stroke: state.theme.accent
             )
         }
@@ -482,6 +581,6 @@ struct ToplistPanel: View {
                 .frame(width: 42, alignment: .trailing)
         }
         .font(.custom(state.theme.fonts.terminal, size: 10))
-        .foregroundStyle(state.theme.accent.opacity(0.86))
+        .foregroundStyle(state.theme.accent86)
     }
 }

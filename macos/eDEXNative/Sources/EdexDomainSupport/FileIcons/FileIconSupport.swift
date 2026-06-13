@@ -111,6 +111,7 @@ public struct FileIconMatcher {
     /// Patterns that failed ICU compilation; those rules are skipped.
     public let compilationFailures: [String]
     private let compiled: [(regex: NSRegularExpression, icon: String)]
+    private let iconCache = FileIconMatcherIconCache()
 
     public var ruleCount: Int { rules.count }
 
@@ -150,13 +151,47 @@ public struct FileIconMatcher {
     /// First matching rule wins; patterns are unanchored searches, mirroring
     /// JS `regex.test(filename)`.
     public func icon(forName name: String) -> String? {
+        let cached = iconCache.lookup(name)
+        if cached.found { return cached.icon }
         let range = NSRange(name.startIndex..., in: name)
         for (regex, icon) in compiled {
             if regex.firstMatch(in: name, options: [], range: range) != nil {
+                iconCache.store(name, icon: icon)
                 return icon
             }
         }
+        iconCache.store(name, icon: nil)
         return nil
+    }
+}
+
+/// Memo for `icon(forName:)` — filename-only, independent of theme fills.
+/// `FileIconProvider.shared` is a global singleton, so the `@unchecked Sendable`
+/// promise needs real synchronization: an `NSLock` guards the mutable maps
+/// against concurrent lookups.
+private final class FileIconMatcherIconCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hits: [String: String] = [:]
+    private var misses: Set<String> = []
+
+    func lookup(_ name: String) -> (found: Bool, icon: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let icon = hits[name] { return (true, icon) }
+        if misses.contains(name) { return (true, nil) }
+        return (false, nil)
+    }
+
+    func store(_ name: String, icon: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        if let icon {
+            hits[name] = icon
+            misses.remove(name)
+        } else {
+            misses.insert(name)
+            hits.removeValue(forKey: name)
+        }
     }
 }
 

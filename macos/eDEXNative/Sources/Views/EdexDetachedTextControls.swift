@@ -2,6 +2,22 @@ import AppKit
 import EdexRenderingSupport
 import SwiftUI
 
+private struct DetachedTextThemeToken: Equatable {
+    let terminalFont: String
+    let foregroundHex: String
+    let backgroundHex: String
+    let selectionHex: String
+    let fontSize: CGFloat
+
+    init(theme: NativeTheme, fontSize: CGFloat) {
+        terminalFont = theme.fonts.terminal
+        foregroundHex = theme.palette.terminalForeground.hexRGB
+        backgroundHex = theme.palette.terminalBackground.hexRGB
+        selectionHex = theme.palette.terminalSelection.hexRGB
+        self.fontSize = fontSize
+    }
+}
+
 struct EdexDetachedSearchField: NSViewRepresentable {
     @Binding var text: String
     @Binding var caret: Int
@@ -35,9 +51,14 @@ struct EdexDetachedSearchField: NSViewRepresentable {
             field.stringValue = text
         }
         field.placeholderString = placeholder
-        field.font = NSFont(name: theme.fonts.terminal, size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        field.textColor = nsColor(theme.palette.terminalForeground)
+
+        let token = DetachedTextThemeToken(theme: theme, fontSize: 13)
+        if context.coordinator.appliedThemeToken != token {
+            context.coordinator.appliedThemeToken = token
+            field.font = NSFont(name: theme.fonts.terminal, size: 13)
+                ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+            field.textColor = nsColor(theme.palette.terminalForeground)
+        }
 
         let isFocused = field.window != nil && field.window?.firstResponder === field.currentEditor()
         let currentCaret = field.currentEditor()?.selectedRange.location
@@ -61,6 +82,7 @@ struct EdexDetachedSearchField: NSViewRepresentable {
         var text: Binding<String>
         var caret: Binding<Int>
         var onSubmit: () -> Void
+        fileprivate var appliedThemeToken: DetachedTextThemeToken?
 
         init(text: Binding<String>, caret: Binding<Int>, onSubmit: @escaping () -> Void) {
             self.text = text
@@ -130,14 +152,19 @@ struct EdexDetachedTextView: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
-        textView.font = NSFont(name: theme.fonts.terminal, size: 12)
-            ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        textView.textColor = nsColor(theme.palette.terminalForeground)
-        textView.backgroundColor = nsColor(theme.palette.terminalBackground).withAlphaComponent(0.72)
-        textView.insertionPointColor = nsColor(theme.palette.terminalForeground)
-        textView.selectedTextAttributes = [
-            .backgroundColor: nsColor(theme.palette.terminalSelection)
-        ]
+
+        let token = DetachedTextThemeToken(theme: theme, fontSize: 12)
+        if context.coordinator.appliedThemeToken != token {
+            context.coordinator.appliedThemeToken = token
+            textView.font = NSFont(name: theme.fonts.terminal, size: 12)
+                ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+            textView.textColor = nsColor(theme.palette.terminalForeground)
+            textView.backgroundColor = nsColor(theme.palette.terminalBackground).withAlphaComponent(0.72)
+            textView.insertionPointColor = nsColor(theme.palette.terminalForeground)
+            textView.selectedTextAttributes = [
+                .backgroundColor: nsColor(theme.palette.terminalSelection)
+            ]
+        }
 
         let isFocused = textView.window != nil && textView.window?.firstResponder === textView
         let currentCaret = textView.selectedRange.location
@@ -158,6 +185,7 @@ struct EdexDetachedTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var caret: Binding<Int>
+        fileprivate var appliedThemeToken: DetachedTextThemeToken?
 
         init(text: Binding<String>, caret: Binding<Int>) {
             self.text = text

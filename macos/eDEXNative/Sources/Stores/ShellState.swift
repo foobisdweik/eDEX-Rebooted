@@ -162,6 +162,13 @@ final class ShellState: EdexActionHandler {
         set { keyboard.layout = newValue }
     }
 
+    /// Finding #3: the cached on-screen keyboard matrix for the current layout
+    /// (built once per layout via `KeyboardDescriptorIndex`), so the keyboard
+    /// panel no longer rebuilds it on every keystroke-driven re-render.
+    var keyboardDescriptorRows: [[KeyboardKeyDescriptor]] {
+        keyboard.descriptorIndex?.rows ?? []
+    }
+
     var keyboardStatus: String {
         get { keyboard.status }
         set { keyboard.status = newValue }
@@ -316,7 +323,12 @@ final class ShellState: EdexActionHandler {
             (client.uptimeSeconds(), client.battery())
         }.value
         uptimeSeconds = uptime
-        self.battery = battery
+        // Finding #5: battery is frequently identical between 3 s polls (stable
+        // charge / on AC); skip the assignment so the sysinfo panel isn't
+        // invalidated for unchanged data.
+        if self.battery != battery {
+            self.battery = battery
+        }
     }
 
     /// Pulls host hardware identity from the Rust core for the hardware-inspector
@@ -324,9 +336,15 @@ final class ShellState: EdexActionHandler {
     /// effectively static at runtime; the panel re-polls on the legacy 20s cadence.
     func refreshHardware() async {
         let client = self.client
-        hardware = await Task.detached(priority: .background) {
+        let latest = await Task.detached(priority: .background) {
             client.hardware()
         }.value
+        // Finding #5: hardware identity is static on this target but re-polled
+        // every 20 s; only assign when it actually differs so the panel isn't
+        // invalidated on every poll.
+        if hardware != latest {
+            hardware = latest
+        }
     }
 
     /// Pulls a fresh CPU snapshot for the cpuinfo panel, appends it to the
@@ -368,9 +386,20 @@ final class ShellState: EdexActionHandler {
             )
         }).value else { return }
 
-        topProcesses = snapshot.topProcesses
+        // Finding #5: @Observable notifies on every assignment regardless of
+        // equality, so guard against no-op writes. When the host is idle the
+        // top-process set and its rounded metrics are often identical between
+        // polls; skipping the write then avoids a needless panel/table
+        // invalidation. (Both Ffi row types are Equatable.)
+        let newTop = snapshot.topProcesses
+        if topProcesses != newTop {
+            topProcesses = newTop
+        }
         if includeProcessList {
-            processRows = snapshot.processList?.list ?? []
+            let newRows = snapshot.processList?.list ?? []
+            if processRows != newRows {
+                processRows = newRows
+            }
         }
     }
 
@@ -1317,8 +1346,7 @@ final class ShellState: EdexActionHandler {
             let combo = event.keyCombo
             let consumed = MainActor.assumeIsolated {
                 if let combo,
-                   let layout = self.keyboard.layout,
-                   let id = KeyboardPhysicalKeyMapper.descriptorID(for: combo, in: layout) {
+                   let id = self.keyboard.descriptorID(for: combo) {
                     self.keyboard.holdVisual(id: id)
                 }
                 return self.handleShortcutKeyCombo(combo)
@@ -1330,8 +1358,7 @@ final class ShellState: EdexActionHandler {
             let combo = event.keyCombo
             MainActor.assumeIsolated {
                 guard let combo,
-                      let layout = self.keyboard.layout,
-                      let id = KeyboardPhysicalKeyMapper.descriptorID(for: combo, in: layout)
+                      let id = self.keyboard.descriptorID(for: combo)
                 else { return }
                 self.keyboard.releaseVisual(id: id)
             }
@@ -1341,8 +1368,7 @@ final class ShellState: EdexActionHandler {
             guard let self else { return event }
             MainActor.assumeIsolated {
                 guard let physicalModifier = event.keyboardPhysicalModifier,
-                      let layout = self.keyboard.layout,
-                      let id = KeyboardPhysicalKeyMapper.descriptorID(for: physicalModifier, in: layout)
+                      let id = self.keyboard.descriptorID(for: physicalModifier)
                 else { return }
                 if event.isActivePhysicalModifier(physicalModifier) {
                     self.keyboard.holdVisual(id: id)

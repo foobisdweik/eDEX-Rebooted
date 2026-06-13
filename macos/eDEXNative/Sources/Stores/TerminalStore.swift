@@ -28,6 +28,7 @@ import SwiftTerm
 final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalViewDelegate {
     private let terminalClient: TerminalClient
     private var sessions: [TerminalSession]
+    private var viewIndexMap: [ObjectIdentifier: Int] = [:]
     private(set) var tabs = TerminalTabSet()
     private(set) var aliveTabs: Set<Int> = []
     private var started = false
@@ -53,6 +54,7 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
         terminalClient = TerminalClient(core: core)
         sessions = (0..<5).map { TerminalSession(index: $0) }
         for session in sessions {
+            viewIndexMap[ObjectIdentifier(session.view)] = session.index
             session.view.terminalDelegate = self
         }
     }
@@ -269,7 +271,9 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
     // MARK: - TerminalViewDelegate
 
     func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        guard let session = sessions.first(where: { $0.view === source }) else { return }
+        guard let index = viewIndexMap[ObjectIdentifier(source)],
+              sessions.indices.contains(index) else { return }
+        let session = sessions[index]
         // The shell has exited and shows the "press any key to restart" notice;
         // a physical keystroke into the focused view restarts it (mirrors the
         // on-screen path in sendInput) rather than vanishing against a dead PTY.
@@ -285,8 +289,10 @@ final class TerminalStore: TerminalSessionProviding, @preconcurrency TerminalVie
 
     func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
         guard newCols > 0, newRows > 0 else { return }
-        let session = sessions.first { $0.view === source }
-        guard let id = session?.ptyId else { return }
+        guard let index = viewIndexMap[ObjectIdentifier(source)],
+              sessions.indices.contains(index) else { return }
+        let id = sessions[index].ptyId
+        guard let id else { return }
         let cols = clampedDimension(newCols, default: TerminalSpawnRequest.defaultCols)
         let rows = clampedDimension(newRows, default: TerminalSpawnRequest.defaultRows)
         try? terminalClient.resizePty(id: id, cols: cols, rows: rows)

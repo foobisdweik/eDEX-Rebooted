@@ -6,10 +6,11 @@
 //! without an `invoke()` round-trip.
 
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
-use sysinfo::{Components, Disks, Networks, System};
+use sysinfo::{Components, Disks, Networks, Pid, ProcessStatus, System};
 
 static RAYON_POOL: Once = Once::new();
 
@@ -25,6 +26,7 @@ fn init_rayon_pool() {
 pub struct SysinfoService {
     sys_state: Mutex<SystemState>,
     temp_cache: Mutex<SnapshotCache<TempStats>>,
+    battery_cache: Mutex<SnapshotCache<BatteryInfo>>,
     disks: Mutex<LazyList<Disks>>,
     networks: Mutex<LazyList<Networks>>,
     components: Mutex<LazyList<Components>>,
@@ -44,6 +46,7 @@ impl SysinfoService {
         Self {
             sys_state: Mutex::new(SystemState::new(System::new())),
             temp_cache: Mutex::new(SnapshotCache::default()),
+            battery_cache: Mutex::new(SnapshotCache::default()),
             disks: Mutex::new(LazyList::new(Disks::new())),
             networks: Mutex::new(LazyList::new(Networks::new())),
             components: Mutex::new(LazyList::new(Components::new())),
@@ -217,12 +220,19 @@ impl SysinfoService {
                 .sys_state
                 .lock()
                 .map_err(|_| "sysinfo lock poisoned".to_string())?;
-            state.sys.refresh_cpu_all();
-            if state.processes_refreshed_at.is_none() {
-                let now = Instant::now();
-                state.refresh_processes_if_stale(now, Duration::ZERO);
-            }
-            let cpu = cpu_stats_from_sys(&state.sys);
+            let now = Instant::now();
+            let cpu = if let Some(cached) = state.cpu.read_fresh(now, CPU_SNAPSHOT_TTL) {
+                state.sys.refresh_cpu_usage();
+                cached
+            } else {
+                state.sys.refresh_cpu_all();
+                if state.processes_refreshed_at.is_none() {
+                    state.refresh_processes_if_stale(now, Duration::ZERO);
+                }
+                let cpu = cpu_stats_from_sys(&state.sys);
+                state.cpu.store(cpu.clone(), now);
+                cpu
+            };
             let current_load = load_stats_from_sys(&state.sys);
             (cpu, current_load, state.process_count)
         };
@@ -292,39 +302,24 @@ impl SysinfoService {
     }
 
     pub fn battery(&self) -> Result<BatteryInfo, String> {
-        if let Ok(manager) = battery::Manager::new() {
-            if let Ok(mut iter) = manager.batteries() {
-                if let Some(Ok(bat)) = iter.next() {
-                    let percent = (bat.state_of_charge().value * 100.0).round() as i64;
-                    let state = bat.state();
-                    let charging = matches!(state, battery::State::Charging);
-                    let ac = matches!(
-                        state,
-                        battery::State::Charging | battery::State::Full | battery::State::Unknown
-                    );
-
-                    return Ok(BatteryInfo {
-                        has_battery: true,
-                        cycle_count: bat.cycle_count().unwrap_or(0),
-                        is_charging: charging,
-                        designed_capacity: joules_to_wh(bat.energy_full_design().value as f64),
-                        max_capacity: joules_to_wh(bat.energy_full().value as f64),
-                        current_capacity: joules_to_wh(bat.energy().value as f64),
-                        voltage: bat.voltage().value as f64,
-                        capacity_unit: "Wh".to_string(),
-                        percent,
-                        time_remaining: bat.time_to_empty().map(|t| t.value as i64).unwrap_or(-1),
-                        ac_connected: ac,
-                        battery_type: "Battery".to_string(),
-                        model: bat.model().unwrap_or("").to_string(),
-                        manufacturer: bat.vendor().unwrap_or("").to_string(),
-                        serial: bat.serial_number().unwrap_or("").to_string(),
-                    });
-                }
+        let now = Instant::now();
+        {
+            let cache = self
+                .battery_cache
+                .lock()
+                .map_err(|_| "battery cache lock poisoned".to_string())?;
+            if let Some(info) = cache.read_fresh(now, BATTERY_SNAPSHOT_TTL) {
+                return Ok(info);
             }
         }
 
-        Ok(BatteryInfo::absent())
+        let info = read_battery_info();
+        let mut cache = self
+            .battery_cache
+            .lock()
+            .map_err(|_| "battery cache lock poisoned".to_string())?;
+        cache.store(info.clone(), now);
+        Ok(info)
     }
 
     pub fn network_interfaces(&self) -> Result<Vec<NetIface>, String> {
@@ -522,6 +517,7 @@ const PROCESS_SNAPSHOT_TTL: Duration = Duration::from_millis(1000);
 /// seconds-to-minutes scale, so we read at most once per 15 s and reuse the
 /// cached value — cutting ~60 reads/min to ~4 while keeping the gauge live.
 const TEMP_SNAPSHOT_TTL: Duration = Duration::from_millis(15_000);
+const BATTERY_SNAPSHOT_TTL: Duration = Duration::from_secs(10);
 
 struct SystemState {
     sys: System,
@@ -1026,16 +1022,40 @@ fn collect_process_rows(sys: &System) -> Vec<ProcessRow> {
                 0.0
             },
             started: chrono_like_iso(p.start_time()),
-            state: format!("{:?}", p.status()),
+            state: process_status_display(p.status()).into_owned(),
             user: p.user_id().map(|u| u.to_string()).unwrap_or_default(),
-            command: p
-                .cmd()
-                .iter()
-                .map(|s| s.to_string_lossy().to_string())
-                .collect::<Vec<_>>()
-                .join(" "),
+            command: join_cmd_parts(p.cmd()),
         })
         .collect()
+}
+
+fn process_status_display(status: ProcessStatus) -> Cow<'static, str> {
+    match status {
+        ProcessStatus::Idle => Cow::Borrowed("Idle"),
+        ProcessStatus::Run => Cow::Borrowed("Run"),
+        ProcessStatus::Sleep => Cow::Borrowed("Sleep"),
+        ProcessStatus::Stop => Cow::Borrowed("Stop"),
+        ProcessStatus::Zombie => Cow::Borrowed("Zombie"),
+        ProcessStatus::Tracing => Cow::Borrowed("Tracing"),
+        ProcessStatus::Dead => Cow::Borrowed("Dead"),
+        ProcessStatus::Wakekill => Cow::Borrowed("Wakekill"),
+        ProcessStatus::Waking => Cow::Borrowed("Waking"),
+        ProcessStatus::Parked => Cow::Borrowed("Parked"),
+        ProcessStatus::LockBlocked => Cow::Borrowed("LockBlocked"),
+        ProcessStatus::UninterruptibleDiskSleep => Cow::Borrowed("UninterruptibleDiskSleep"),
+        ProcessStatus::Unknown(code) => Cow::Owned(format!("Unknown({code})")),
+    }
+}
+
+fn join_cmd_parts(parts: &[std::ffi::OsString]) -> String {
+    let mut command = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        if index > 0 {
+            command.push(' ');
+        }
+        command.push_str(&part.to_string_lossy());
+    }
+    command
 }
 
 /// Build the ranked compact top-process rows from the last-refreshed process
@@ -1047,31 +1067,81 @@ fn top_rows_from_sys(
     top_limit: usize,
 ) -> Vec<ProcessTopRow> {
     let total_mem = sys.total_memory() as f64;
-    let rows = sys.processes().iter().map(|(pid, p)| ProcessTopRow {
-        pid: pid.as_u32(),
-        name: p.name().to_string_lossy().to_string(),
-        cpu: p.cpu_usage() as f64,
-        mem: if total_mem > 0.0 {
-            (p.memory() as f64) * 100.0 / total_mem
-        } else {
-            0.0
-        },
-    });
-    let mut top_candidates: Vec<ProcessTopRow> = if collapse_threads_by_name {
-        collapse_top_rows_by_name(rows.collect())
-    } else {
-        rows.collect()
-    };
+    if collapse_threads_by_name {
+        let rows = sys.processes().iter().map(|(pid, p)| ProcessTopRow {
+            pid: pid.as_u32(),
+            name: p.name().to_string_lossy().to_string(),
+            cpu: p.cpu_usage() as f64,
+            mem: process_mem_percent(p.memory(), total_mem),
+        });
+        let mut top_candidates = collapse_top_rows_by_name(rows.collect());
+        top_candidates.sort_by(cmp_top_rows_desc);
+        top_candidates.truncate(top_limit.max(1));
+        return top_candidates;
+    }
 
-    top_candidates.sort_by(|a, b| {
-        let score_a = a.cpu * 100.0 + a.mem;
-        let score_b = b.cpu * 100.0 + b.mem;
-        score_b
-            .partial_cmp(&score_a)
-            .unwrap_or(std::cmp::Ordering::Equal)
+    let candidates = sys.processes().iter().map(|(pid, p)| {
+        (
+            pid.as_u32(),
+            p.cpu_usage() as f64,
+            process_mem_percent(p.memory(), total_mem),
+        )
     });
-    top_candidates.truncate(top_limit.max(1));
-    top_candidates
+    select_top_scored_candidates(candidates.collect(), top_limit)
+        .into_iter()
+        .map(|(pid, cpu, mem)| {
+            let name = sys
+                .process(Pid::from_u32(pid))
+                .map(|p| p.name().to_string_lossy().to_string())
+                .unwrap_or_default();
+            ProcessTopRow {
+                pid,
+                name,
+                cpu,
+                mem,
+            }
+        })
+        .collect()
+}
+
+fn process_mem_percent(memory: u64, total_mem: f64) -> f64 {
+    if total_mem > 0.0 {
+        (memory as f64) * 100.0 / total_mem
+    } else {
+        0.0
+    }
+}
+
+fn top_row_score(cpu: f64, mem: f64) -> f64 {
+    cpu * 100.0 + mem
+}
+
+fn cmp_top_rows_desc(a: &ProcessTopRow, b: &ProcessTopRow) -> std::cmp::Ordering {
+    top_row_score(b.cpu, b.mem)
+        .partial_cmp(&top_row_score(a.cpu, a.mem))
+        .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+fn cmp_scored_candidates_desc(a: &(u32, f64, f64), b: &(u32, f64, f64)) -> std::cmp::Ordering {
+    top_row_score(b.1, b.2)
+        .partial_cmp(&top_row_score(a.1, a.2))
+        .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+/// Partial-sort helper for the uncollapsed TOPLIST path: keep the top
+/// `top_limit` (pid, cpu, mem) tuples by score without materializing names.
+fn select_top_scored_candidates(
+    mut candidates: Vec<(u32, f64, f64)>,
+    top_limit: usize,
+) -> Vec<(u32, f64, f64)> {
+    let limit = top_limit.max(1);
+    if candidates.len() > limit {
+        let nth = limit - 1;
+        candidates.select_nth_unstable_by(nth, cmp_scored_candidates_desc);
+        candidates.truncate(limit);
+    }
+    candidates.sort_by(cmp_scored_candidates_desc);
+    candidates
 }
 
 /// Build the full process-list payload (expanded modal) from the last-refreshed
@@ -1166,6 +1236,42 @@ fn joules_to_wh(joules: f64) -> f64 {
     joules / 3600.0
 }
 
+fn read_battery_info() -> BatteryInfo {
+    if let Ok(manager) = battery::Manager::new() {
+        if let Ok(mut iter) = manager.batteries() {
+            if let Some(Ok(bat)) = iter.next() {
+                let percent = (bat.state_of_charge().value * 100.0).round() as i64;
+                let state = bat.state();
+                let charging = matches!(state, battery::State::Charging);
+                let ac = matches!(
+                    state,
+                    battery::State::Charging | battery::State::Full | battery::State::Unknown
+                );
+
+                return BatteryInfo {
+                    has_battery: true,
+                    cycle_count: bat.cycle_count().unwrap_or(0),
+                    is_charging: charging,
+                    designed_capacity: joules_to_wh(bat.energy_full_design().value as f64),
+                    max_capacity: joules_to_wh(bat.energy_full().value as f64),
+                    current_capacity: joules_to_wh(bat.energy().value as f64),
+                    voltage: bat.voltage().value as f64,
+                    capacity_unit: "Wh".to_string(),
+                    percent,
+                    time_remaining: bat.time_to_empty().map(|t| t.value as i64).unwrap_or(-1),
+                    ac_connected: ac,
+                    battery_type: "Battery".to_string(),
+                    model: bat.model().unwrap_or("").to_string(),
+                    manufacturer: bat.vendor().unwrap_or("").to_string(),
+                    serial: bat.serial_number().unwrap_or("").to_string(),
+                };
+            }
+        }
+    }
+
+    BatteryInfo::absent()
+}
+
 fn days_to_date(days_from_epoch: i64) -> (i32, u32, u32) {
     let days = days_from_epoch + 719468;
     let era = (if days >= 0 { days } else { days - 146096 }) / 146097;
@@ -1208,6 +1314,82 @@ mod tests {
     // Finding #2/#3: the CPU panel polls 1 Hz but must NOT rebuild the process
     // table every tick. It seeds the process count exactly once (so the TASKS
     // footer isn't zero at launch), then never refreshes processes again.
+    #[test]
+    fn battery_reuses_cached_snapshot_within_ttl() {
+        let service = SysinfoService::new();
+        let first = service.battery().expect("first battery read");
+        let second = service.battery().expect("second battery read");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn select_top_scored_candidates_matches_full_sort() {
+        let candidates = vec![
+            (10, 1.0, 0.5),
+            (20, 50.0, 2.0),
+            (30, 5.0, 10.0),
+            (40, 0.1, 0.1),
+            (50, 25.0, 1.0),
+        ];
+        let partial = select_top_scored_candidates(candidates.clone(), 3);
+        let mut full = candidates;
+        full.sort_by(cmp_scored_candidates_desc);
+        full.truncate(3);
+        assert_eq!(partial, full);
+    }
+
+    #[test]
+    fn process_status_display_matches_debug_format() {
+        for status in [
+            ProcessStatus::Idle,
+            ProcessStatus::Run,
+            ProcessStatus::Sleep,
+            ProcessStatus::Stop,
+            ProcessStatus::Zombie,
+            ProcessStatus::Tracing,
+            ProcessStatus::Dead,
+            ProcessStatus::Wakekill,
+            ProcessStatus::Waking,
+            ProcessStatus::Parked,
+            ProcessStatus::LockBlocked,
+            ProcessStatus::UninterruptibleDiskSleep,
+            ProcessStatus::Unknown(42),
+        ] {
+            assert_eq!(
+                process_status_display(status).as_ref(),
+                format!("{status:?}")
+            );
+        }
+    }
+
+    #[test]
+    fn join_cmd_parts_builds_space_separated_command() {
+        use std::ffi::OsString;
+
+        assert_eq!(join_cmd_parts(&[]), "");
+        assert_eq!(join_cmd_parts(&[OsString::from("/bin/zsh")]), "/bin/zsh");
+        assert_eq!(
+            join_cmd_parts(&[
+                OsString::from("/bin/zsh"),
+                OsString::from("-l"),
+                OsString::from("-i"),
+            ]),
+            "/bin/zsh -l -i"
+        );
+    }
+
+    #[test]
+    fn cpu_snapshot_reuses_cached_cpu_identity_within_ttl() {
+        let service = SysinfoService::new();
+        let first = service.cpu_snapshot().expect("first cpu snapshot");
+        let second = service.cpu_snapshot().expect("second cpu snapshot");
+        assert_eq!(first.cpu, second.cpu);
+        assert!(
+            !second.current_load.cpus.is_empty(),
+            "per-core loads stay live"
+        );
+    }
+
     #[test]
     fn cpu_snapshot_seeds_process_count_once_then_never_refreshes() {
         let service = SysinfoService::new();

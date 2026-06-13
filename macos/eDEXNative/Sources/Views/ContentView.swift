@@ -88,11 +88,11 @@ struct ContentView: View {
             Spacer(minLength: 0)
             ForEach(side.placeholders, id: \.self) { label in
                 if label == "CLOCK" {
-                    clockPanel(vh: vh)
+                    ClockPanel(state: state, vh: vh)
                 } else if label == "SYSINFO" {
-                    sysinfoPanel(vh: vh)
+                    SysinfoPanel(state: state, vh: vh)
                 } else if label == "HARDWARE" {
-                    hardwarePanel(vh: vh)
+                    HardwarePanel(state: state, vh: vh)
                 } else if label == "CPU" {
                     // Finding #5: dedicated View struct → CPU samples (1 Hz)
                     // invalidate only this panel, not the whole ContentView.
@@ -179,6 +179,7 @@ struct ContentView: View {
     private func keyboard(_ metrics: KeyboardLayoutMetrics, vh: Double) -> some View {
         EdexKeyboardPanel(
             layout: state.keyboardLayout,
+            descriptorRows: state.keyboardDescriptorRows,
             modifiers: state.keyboardModifiers,
             pressedKeyIDs: state.pressedKeyIDs,
             isDetached: state.modalManager.isKeyboardDetached,
@@ -205,8 +206,6 @@ struct ContentView: View {
                 theme: state.theme,
                 vh: vh,
                 containerSize: size,
-                processRows: state.processRows,
-                processSort: state.processSort,
                 onFocus: { state.modalManager.focus(modal.id) },
                 onMove: { dx, dy in
                     state.moveModal(
@@ -218,7 +217,6 @@ struct ContentView: View {
                         existingModalRects: existingRects
                     )
                 },
-                onProcessSort: { field in state.processSort = state.processSort.toggled(field) },
                 onClose: { state.closeModal(modal.id) }
             )
             .zIndex(Double(modal.zIndex))
@@ -315,145 +313,6 @@ struct ContentView: View {
             fill: state.theme.terminalBackground.opacity(0.72),
             stroke: state.theme.accent
         )
-    }
-
-    private func clockPanel(vh: Double) -> some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let clock = EdexClockFormatter(clockHours: state.settingsSummary.clockHours).format(context.date)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("CLOCK")
-                    .font(.custom(state.theme.fonts.main, size: 12))
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    clockTimeText(clock.time)
-                    if let meridiem = clock.meridiem {
-                        Text(meridiem)
-                            .font(.custom(state.theme.fonts.main, size: 12))
-                            .foregroundStyle(state.theme.accent.opacity(0.72))
-                            .padding(.leading, 3)
-                    }
-                }
-                .font(.custom(state.theme.fonts.terminal, size: 22))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .augmentedSurface(
-                style: .panel(vh: vh),
-                fill: state.theme.terminalBackground.opacity(0.72),
-                stroke: state.theme.accent
-            )
-        }
-    }
-
-    private func clockTimeText(_ time: String) -> Text {
-        let components = time.split(separator: ":").map(String.init)
-        guard components.count == 3 else {
-            return Text(time).foregroundColor(state.theme.terminalForeground)
-        }
-
-        return Text(components[0]).foregroundColor(state.theme.terminalForeground)
-            + Text(":").foregroundColor(state.theme.accent.opacity(0.58))
-            + Text(components[1]).foregroundColor(state.theme.terminalForeground)
-            + Text(":").foregroundColor(state.theme.accent.opacity(0.58))
-            + Text(components[2]).foregroundColor(state.theme.terminalForeground)
-    }
-
-    private func sysinfoPanel(vh: Double) -> some View {
-        // 60s nudge catches the date rollover at midnight; uptime/battery come
-        // from ShellState, refreshed by the polling task below.
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let formatter = EdexSysinfoFormatter()
-            let date = formatter.date(context.date)
-            let uptime = formatter.uptime(seconds: state.uptimeSeconds)
-            let power = formatter.power(state.powerState)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("SYSINFO")
-                    .font(.custom(state.theme.fonts.main, size: 12))
-                HStack(alignment: .top, spacing: 8) {
-                    sysinfoCell(heading: date.year, value: Text(date.monthDay))
-                    sysinfoCell(heading: "UPTIME", value: uptimeText(uptime))
-                }
-                HStack(alignment: .top, spacing: 8) {
-                    sysinfoCell(heading: "TYPE", value: Text(formatter.systemType))
-                    sysinfoCell(heading: "POWER", value: Text(power))
-                }
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-            .augmentedSurface(
-                style: .panel(vh: vh),
-                fill: state.theme.terminalBackground.opacity(0.72),
-                stroke: state.theme.accent
-            )
-        }
-        .task {
-            // Battery cadence in sysinfo.class.js is 3s; uptime barely moves, so
-            // refreshing both on the same tick is faithful and cheap.
-            while !Task.isCancelled {
-                await state.refreshSysinfo()
-                try? await Task.sleep(for: .seconds(3))
-            }
-        }
-    }
-
-    private func sysinfoCell(heading: String, value: Text) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(heading)
-                .font(.custom(state.theme.fonts.main, size: 11))
-                .foregroundStyle(state.theme.accent.opacity(0.76))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            value
-                .font(.custom(state.theme.fonts.terminal, size: 14))
-                .foregroundStyle(state.theme.terminalForeground)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func uptimeText(_ value: EdexUptimeValue) -> Text {
-        Text("\(value.days)").foregroundColor(state.theme.terminalForeground)
-            + Text("d").foregroundColor(state.theme.accent.opacity(0.5))
-            + Text(value.hours).foregroundColor(state.theme.terminalForeground)
-            + Text(":").foregroundColor(state.theme.accent.opacity(0.5))
-            + Text(value.minutes).foregroundColor(state.theme.terminalForeground)
-    }
-
-    private func hardwarePanel(vh: Double) -> some View {
-        let info = state.hardware.map {
-            EdexHardwareFormatter().format(
-                manufacturer: $0.manufacturer,
-                model: $0.model,
-                chassisType: $0.chassisType
-            )
-        }
-
-        return VStack(alignment: .leading, spacing: 6) {
-            Text("HARDWARE")
-                .font(.custom(state.theme.fonts.main, size: 12))
-            sysinfoCell(heading: "MANUFACTURER", value: Text(info?.manufacturer ?? "NONE"))
-            sysinfoCell(heading: "MODEL", value: Text(info?.model ?? "NONE"))
-            sysinfoCell(heading: "CHASSIS", value: Text(info?.chassis ?? "NONE"))
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-        .augmentedSurface(
-            style: .panel(vh: vh),
-            fill: state.theme.terminalBackground.opacity(0.72),
-            stroke: state.theme.accent
-        )
-        .task {
-            // hardwareInspector.class.js re-polls every 20s; the data is static
-            // on this target, but match the cadence.
-            while !Task.isCancelled {
-                await state.refreshHardware()
-                try? await Task.sleep(for: .seconds(20))
-            }
-        }
     }
 
     private func statusRibbon(_ frame: LayoutRect, vh: Double) -> some View {
@@ -572,11 +431,8 @@ private struct EdexModalChrome: View {
     let theme: NativeTheme
     let vh: Double
     let containerSize: CGSize
-    let processRows: [FfiProcessRow]
-    let processSort: EdexProcessSort
     let onFocus: () -> Void
     let onMove: (_ dx: Double, _ dy: Double) -> Void
-    let onProcessSort: (EdexProcessSortField) -> Void
     let onClose: () -> Void
 
     @State private var lastDrag = CGSize.zero
@@ -657,12 +513,10 @@ private struct EdexModalChrome: View {
                 .lineLimit(12)
                 .textSelection(.enabled)
         case .processList:
-            EdexProcessListTable(
-                rows: processRows,
-                sort: processSort,
-                theme: theme,
-                onSort: onProcessSort
-            )
+            // Finding #2: read `processRows`/`processSort` only inside this
+            // child, so the 1 Hz toplist refresh invalidates the table alone
+            // and not `ContentView.body` (which used to receive the rows).
+            ProcessListModalContent(state: state, theme: theme)
         case .settingsEditor:
             EdexSettingsForm(state: state, theme: theme)
         case .shortcuts:
@@ -1346,6 +1200,23 @@ private struct EdexFuzzyFinderView: View {
     }
 }
 
+/// Finding #2: the only observer of `state.processRows`/`state.processSort`.
+/// Keeping these reads here (rather than in `ContentView`/`EdexModalChrome`)
+/// confines the 1 Hz toplist invalidation to the process table.
+private struct ProcessListModalContent: View {
+    @Bindable var state: ShellState
+    let theme: NativeTheme
+
+    var body: some View {
+        EdexProcessListTable(
+            rows: state.processRows,
+            sort: state.processSort,
+            theme: theme,
+            onSort: { field in state.processSort = state.processSort.toggled(field) }
+        )
+    }
+}
+
 private struct EdexProcessListTable: View {
     let rows: [FfiProcessRow]
     let sort: EdexProcessSort
@@ -1355,13 +1226,31 @@ private struct EdexProcessListTable: View {
     private let formatter = EdexToplistFormatter()
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        // Finding #4: map + parse + sort once per `rows`/`sort` change (here in
+        // `body`), not inside the per-second TimelineView closure. Ticks between
+        // toplist refreshes reuse `prepared`; only the runtime column recomputes
+        // from the already-parsed `startDate`.
+        let prepared = formatter.prepared(
+            rows.map {
+                EdexProcessRow(
+                    pid: $0.pid,
+                    name: $0.name,
+                    user: $0.user,
+                    cpu: $0.cpu,
+                    mem: $0.mem,
+                    state: $0.state,
+                    started: $0.started
+                )
+            },
+            sort: sort
+        )
+        return TimelineView(.periodic(from: .now, by: 1)) { context in
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
                     header
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(sortedRows(now: context.date), id: \.pid) { row in
+                            ForEach(prepared) { row in
                                 processRow(row, now: context.date)
                             }
                         }
@@ -1413,16 +1302,20 @@ private struct EdexProcessListTable: View {
         .buttonStyle(.plain)
     }
 
-    private func processRow(_ row: EdexProcessRow, now: Date) -> some View {
+    private func processRow(_ row: EdexPreparedProcessRow, now: Date) -> some View {
         HStack(spacing: 0) {
             cell("\(row.pid)", width: 58, alignment: .leading)
             cell(row.name, width: 160, alignment: .leading)
             cell(row.user, width: 90, alignment: .leading)
-            cell(formatter.percentText(row.cpu), width: 58, alignment: .trailing)
-            cell(formatter.percentText(row.mem), width: 72, alignment: .trailing)
+            cell(row.cpuText, width: 58, alignment: .trailing)
+            cell(row.memText, width: 72, alignment: .trailing)
             cell(row.state, width: 82, alignment: .center)
             cell(row.started, width: 154, alignment: .leading)
-            cell(formatter.runtimeText(started: row.started, now: now), width: 88, alignment: .leading)
+            cell(
+                row.startDate.map { formatter.runtimeText(started: $0, now: now) } ?? "00:00:00:00",
+                width: 88,
+                alignment: .leading
+            )
         }
         .padding(.vertical, 2)
         .background(theme.accent.opacity(0.035))
@@ -1436,24 +1329,6 @@ private struct EdexProcessListTable: View {
             .truncationMode(.tail)
             .frame(width: width, alignment: alignment)
             .padding(.horizontal, 3)
-    }
-
-    private func sortedRows(now: Date) -> [EdexProcessRow] {
-        formatter.sorted(
-            rows.map {
-                EdexProcessRow(
-                    pid: $0.pid,
-                    name: $0.name,
-                    user: $0.user,
-                    cpu: $0.cpu,
-                    mem: $0.mem,
-                    state: $0.state,
-                    started: $0.started
-                )
-            },
-            sort: sort,
-            now: now
-        )
     }
 
     private func headerTitle(_ field: EdexProcessSortField) -> String {

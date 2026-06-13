@@ -183,4 +183,37 @@ public final class KeyboardStore {
         heldKeyIDs.remove(id)
         pressedKeyIDs.remove(id)
     }
+
+    // Finding #3 (List 3): cache the per-layout descriptor index so the event
+    // monitor's per-keystroke lookups and the keyboard panel's render reuse one
+    // build instead of rebuilding the ~80-key matrix every time. Rebuilt when
+    // the layout value changes (same basename can reload edited JSON);
+    // `@ObservationIgnored` so the cache fill never triggers a view update.
+    @ObservationIgnored private var cachedDescriptorIndex: KeyboardDescriptorIndex?
+    @ObservationIgnored private var cachedDescriptorIndexLayout: NativeKeyboardLayout?
+
+    public var descriptorIndex: KeyboardDescriptorIndex? {
+        guard let layout else {
+            cachedDescriptorIndex = nil
+            cachedDescriptorIndexLayout = nil
+            return nil
+        }
+        if cachedDescriptorIndexLayout != layout || cachedDescriptorIndex == nil {
+            cachedDescriptorIndex = KeyboardDescriptorIndex(layout: layout)
+            cachedDescriptorIndexLayout = layout
+        }
+        return cachedDescriptorIndex
+    }
+
+    public func descriptorID(for combo: KeyCombo) -> String? {
+        descriptorIndex?.id(for: combo)
+    }
+
+    public func descriptorID(for modifier: KeyboardModifier) -> String? {
+        descriptorIndex?.id(for: modifier)
+    }
+
+    public func descriptorID(for physicalModifier: KeyboardPhysicalModifier) -> String? {
+        descriptorIndex?.id(for: physicalModifier)
+    }
 }

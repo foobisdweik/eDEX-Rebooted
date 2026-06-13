@@ -13,6 +13,43 @@ public struct NativeTheme: Sendable {
     public var terminalBackground: Color { palette.terminalBackground.color }
     public var terminalForeground: Color { palette.terminalForeground.color }
 
+    /// Semantic colors precomputed at theme load to avoid per-body `.opacity()` churn.
+    public let accent70: Color
+    public let accent72: Color
+    public let accent86: Color
+    public let accent48: Color
+    public let accent30: Color
+    public let accent20: Color
+    public let terminalBackground72: Color
+    public let terminalForeground52: Color
+    public let ramGridActive: Color
+    public let ramGridAvailable: Color
+    public let ramGridFree: Color
+
+    public init(
+        name: String,
+        source: String,
+        palette: NativeThemePalette,
+        fonts: NativeThemeFonts
+    ) {
+        self.name = name
+        self.source = source
+        self.palette = palette
+        self.fonts = fonts
+        let accentColor = palette.accent.color
+        self.accent70 = accentColor.opacity(0.7)
+        self.accent72 = accentColor.opacity(0.72)
+        self.accent86 = accentColor.opacity(0.86)
+        self.accent48 = accentColor.opacity(0.48)
+        self.accent30 = accentColor.opacity(0.3)
+        self.accent20 = accentColor.opacity(0.2)
+        self.terminalBackground72 = palette.terminalBackground.color.opacity(0.72)
+        self.terminalForeground52 = palette.terminalForeground.color.opacity(0.52)
+        self.ramGridActive = accentColor
+        self.ramGridAvailable = accentColor.opacity(0.45)
+        self.ramGridFree = accentColor.opacity(0.12)
+    }
+
     /// The legacy `theme.colors.light_black` secondary fill (used e.g. by the
     /// two-tone fsDisp folder glyphs). Themes spell the swatch `lightBlack`,
     /// `light_black`, or only ship `black`; panel background is the terminal

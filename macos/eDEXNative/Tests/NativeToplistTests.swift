@@ -70,4 +70,41 @@ final class NativeToplistTests: XCTestCase {
 
         XCTAssertEqual(formatter.runtimeText(started: started, now: now), "00:00:00:00")
     }
+
+    // Finding #4: `prepared` must order rows identically to `sorted` for every
+    // sort, and pre-format CPU/MEM the way the cells did.
+    private var preparedFixture: [EdexProcessRow] {
+        [
+            EdexProcessRow(pid: 1, name: "beta", user: "root", cpu: 12.5, mem: 3, state: "Sleep", started: "2026-06-02T10:00:00Z"),
+            EdexProcessRow(pid: 2, name: "alpha", user: "alice", cpu: 80, mem: 50, state: "Run", started: "2026-06-01T09:30:00Z"),
+            EdexProcessRow(pid: 3, name: "gamma", user: "bob", cpu: 0.1, mem: 99, state: "Idle", started: "2026-06-02T11:45:00Z"),
+            EdexProcessRow(pid: 4, name: "delta", user: "alice", cpu: 5, mem: 5, state: "Sleep", started: "bogus-date"),
+        ]
+    }
+
+    func testPreparedMatchesSortedOrderingForEverySort() {
+        let now = ISO8601DateFormatter().date(from: "2026-06-02T12:00:00Z")!
+        var sorts: [EdexProcessSort] = [.default]
+        for field in EdexProcessSortField.allCases {
+            sorts.append(.field(field, ascending: false))
+            sorts.append(.field(field, ascending: true))
+        }
+        for sort in sorts {
+            XCTAssertEqual(
+                formatter.prepared(preparedFixture, sort: sort, now: now).map(\.pid),
+                formatter.sorted(preparedFixture, sort: sort, now: now).map(\.pid),
+                "sort \(sort)"
+            )
+        }
+    }
+
+    func testPreparedPrecomputesTextAndDate() {
+        let prepared = formatter.prepared(preparedFixture, sort: .field(.pid, ascending: true))
+        XCTAssertEqual(prepared.map(\.pid), [1, 2, 3, 4])
+        XCTAssertEqual(prepared[0].cpuText, formatter.percentText(12.5))
+        XCTAssertEqual(prepared[0].memText, formatter.percentText(3))
+        XCTAssertNotNil(prepared[0].startDate)
+        // Unparseable `started` keeps a nil date (runtime cell falls back).
+        XCTAssertNil(prepared[3].startDate)
+    }
 }

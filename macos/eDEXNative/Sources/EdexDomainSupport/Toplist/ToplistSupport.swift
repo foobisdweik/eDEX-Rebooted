@@ -38,6 +38,43 @@ public struct EdexProcessRow: Equatable, Sendable, Identifiable {
     public var id: UInt32 { pid }
 }
 
+/// Finding #4 (List 3): a process row with its `started` date parsed once and
+/// its CPU/MEM percentages pre-formatted, so the table's per-second
+/// `TimelineView` ticks no longer re-parse ISO8601 strings (per comparison
+/// during a started/runtime sort, and per visible row for the runtime column).
+public struct EdexPreparedProcessRow: Equatable, Sendable, Identifiable {
+    public let pid: UInt32
+    public let name: String
+    public let user: String
+    public let cpuText: String
+    public let memText: String
+    public let state: String
+    public let started: String
+    public let startDate: Date?
+
+    public init(
+        pid: UInt32,
+        name: String,
+        user: String,
+        cpuText: String,
+        memText: String,
+        state: String,
+        started: String,
+        startDate: Date?
+    ) {
+        self.pid = pid
+        self.name = name
+        self.user = user
+        self.cpuText = cpuText
+        self.memText = memText
+        self.state = state
+        self.started = started
+        self.startDate = startDate
+    }
+
+    public var id: UInt32 { pid }
+}
+
 public enum EdexProcessSortField: String, CaseIterable, Equatable, Sendable {
     case pid = "PID"
     case name = "Name"
@@ -86,6 +123,75 @@ public struct EdexToplistFormatter: Sendable {
                 return compare(lhs, rhs, by: field, ascending: ascending, now: now)
             }
         }
+    }
+
+    /// Finding #4: parse every `started` once, sort, and pre-format CPU/MEM —
+    /// equivalent to `sorted(_:sort:now:)` followed by per-cell formatting, but
+    /// without re-parsing dates inside the sort comparator. `now` fixes the
+    /// runtime ordering at preparation time (runtime order is invariant as the
+    /// clock advances, so this matches the per-tick `sorted` ordering).
+    public func prepared(
+        _ rows: [EdexProcessRow],
+        sort: EdexProcessSort,
+        now: Date = Date()
+    ) -> [EdexPreparedProcessRow] {
+        let dated = rows.map { (row: $0, date: Self.date(from: $0.started)) }
+        let sorted = dated.sorted { lhs, rhs in
+            switch sort {
+            case .default:
+                return score(lhs.row) > score(rhs.row)
+            case let .field(field, ascending):
+                return comparePrepared(lhs, rhs, by: field, ascending: ascending, now: now)
+            }
+        }
+        return sorted.map { entry in
+            EdexPreparedProcessRow(
+                pid: entry.row.pid,
+                name: entry.row.name,
+                user: entry.row.user,
+                cpuText: percentText(entry.row.cpu),
+                memText: percentText(entry.row.mem),
+                state: entry.row.state,
+                started: entry.row.started,
+                startDate: entry.date
+            )
+        }
+    }
+
+    private func comparePrepared(
+        _ lhs: (row: EdexProcessRow, date: Date?),
+        _ rhs: (row: EdexProcessRow, date: Date?),
+        by field: EdexProcessSortField,
+        ascending: Bool,
+        now: Date
+    ) -> Bool {
+        switch field {
+        case .pid:
+            return ordered(Double(lhs.row.pid), Double(rhs.row.pid), ascending: ascending)
+        case .name:
+            return ordered(lhs.row.name, rhs.row.name, ascending: ascending)
+        case .user:
+            return ordered(lhs.row.user, rhs.row.user, ascending: ascending)
+        case .cpu:
+            return ordered(safe(lhs.row.cpu), safe(rhs.row.cpu), ascending: ascending)
+        case .memory:
+            return ordered(safe(lhs.row.mem), safe(rhs.row.mem), ascending: ascending)
+        case .state:
+            return ordered(lhs.row.state, rhs.row.state, ascending: ascending)
+        case .started:
+            return ordered(seconds(lhs.date), seconds(rhs.date), ascending: ascending)
+        case .runtime:
+            return ordered(runtime(lhs.date, now: now), runtime(rhs.date, now: now), ascending: ascending)
+        }
+    }
+
+    private func seconds(_ date: Date?) -> Double {
+        date?.timeIntervalSince1970 ?? 0
+    }
+
+    private func runtime(_ date: Date?, now: Date) -> Double {
+        guard let date else { return 0 }
+        return max(0, now.timeIntervalSince(date))
     }
 
     public func runtimeText(started: Date, now: Date = Date()) -> String {

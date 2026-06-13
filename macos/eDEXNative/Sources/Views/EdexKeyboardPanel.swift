@@ -4,6 +4,10 @@ import SwiftUI
 
 struct EdexKeyboardPanel: View {
     let layout: NativeKeyboardLayout?
+    /// Finding #3: the descriptor matrix cached on `KeyboardStore`, passed in so
+    /// the panel reuses one build per layout instead of calling
+    /// `macBookDescriptors(for:)` on every keystroke-driven re-render.
+    let descriptorRows: [[KeyboardKeyDescriptor]]
     let modifiers: KeyboardModifierState
     let pressedKeyIDs: Set<String>
     let isDetached: Bool
@@ -46,7 +50,7 @@ struct EdexKeyboardPanel: View {
     }
 
     private func keyboardBand(layout: NativeKeyboardLayout) -> some View {
-        let rows = KeyboardViewModel.macBookDescriptors(for: layout)
+        let rows = descriptorRows
         let numpadRows = KeyboardViewModel.numpadDescriptors()
         let rowCount = max(rows.count, numpadRows.count)
         return GeometryReader { proxy in
