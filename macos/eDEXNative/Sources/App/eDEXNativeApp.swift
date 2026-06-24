@@ -39,6 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if CommandLine.arguments.contains("--smoke-window") {
             print("eDEXNative window smoke: app launched; waiting for FFI bootstrap")
+            switch MetalLibraryLoader.loadDefaultLibrary() {
+            case .unavailable:
+                print("eDEXNative metallib smoke: no Metal device (headless); skipping load check")
+            case let .loaded(functionNames):
+                print("eDEXNative metallib smoke: default.metallib loaded; functions=\(functionNames)")
+            case let .failed(reason):
+                print("eDEXNative metallib smoke: FAILED to load default.metallib: \(reason)")
+            }
         }
 
         f11Monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

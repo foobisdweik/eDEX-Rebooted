@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.4
 import Foundation
 import PackageDescription
 
@@ -13,10 +13,10 @@ let generatedDirectory = "\(packageDirectory)/Generated"
 let package = Package(
     name: "eDEXNative",
     platforms: [
-        // Tahoe is the target for the migration. The current shell uses APIs
-        // that are available earlier, so keep the SwiftPM floor conservative
-        // while running the spike on current Apple-Silicon macOS.
-        .macOS(.v15)
+        // macOS 27 floor: the HDR/EDR GPU-rendering arc requires the Metal 4.1
+        // baseline and the macOS-27 EDR/Metal host APIs. `.v27` is the verified
+        // SupportedPlatform symbol in the Xcode 27 PackageDescription.
+        .macOS(.v27)
     ],
     products: [
         .executable(name: "eDEXNative", targets: ["eDEXNative"])
@@ -70,6 +70,10 @@ let package = Package(
                 "Generated",
                 "Sources/EdexDomainSupport",
                 "Sources/EdexRenderingSupport",
+                // `.metal` source is compiled offline (Scripts/build-shaders.sh)
+                // into the bundled `default.metallib`; excluded so SwiftPM does
+                // not attempt to compile it (no runtime shader compilation).
+                "Sources/Shaders/default.metal",
                 "Tests"
             ],
             sources: [
@@ -78,6 +82,9 @@ let package = Package(
                 "Sources/Stores",
                 "Sources/Support",
                 "Sources/Views"
+            ],
+            resources: [
+                .process("Sources/Shaders/default.metallib")
             ],
             swiftSettings: [
                 .unsafeFlags([

@@ -108,6 +108,35 @@ build_ffi_dylib() {
   run_in "$root/crates/edex-ffi" cargo build --release
 }
 
+# Xcode-27-beta linker workaround. Its `ld` rejects the standard 4-byte-aligned
+# `__LINKEDIT` string pool that linkers emit for the Rust dylib, failing every
+# Swift link with "mis-aligned LINKEDIT string pool". LLVM's lld reads the dylib
+# fine, so we link the Swift products with it (and it also handles XCTest's
+# @rpath re-export, which the older in-toolchain rust-lld does not). Requires a
+# full LLVM lld: `brew install lld`. Populates SWIFT_LINK_ARGS, consumed by the
+# swift build/test/run invocations. Set EDEX_NO_LLD=1 to drop this once a fixed
+# Xcode ld ships; override discovery with EDEX_LD64_LLD=/path/to/ld64.lld.
+SWIFT_LINK_ARGS=()
+setup_swift_linker() {
+  SWIFT_LINK_ARGS=()
+  [[ -n "${EDEX_NO_LLD:-}" ]] && return 0
+
+  local lld="" candidate
+  for candidate in \
+    "${EDEX_LD64_LLD:-}" \
+    "$(command -v ld64.lld 2>/dev/null || true)" \
+    /opt/homebrew/opt/lld/bin/ld64.lld \
+    /usr/local/opt/lld/bin/ld64.lld; do
+    if [[ -n "$candidate" && -x "$candidate" ]]; then lld="$candidate"; break; fi
+  done
+
+  if [[ -z "$lld" ]]; then
+    printf 'native-phase: ld64.lld not found (run `brew install lld`); using the default linker — the Xcode-27-beta link will fail. Set EDEX_NO_LLD=1 once Apple ships a fixed ld.\n' >&2
+    return 0
+  fi
+  SWIFT_LINK_ARGS=(-Xswiftc -use-ld="$lld")
+}
+
 # Files changed on this branch vs the base, INCLUDING uncommitted work. The
 # floor in `pr` runs before `git commit`, so committed-only diffing would miss
 # fresh edits and no-op. Returns non-zero (treat as "all") if the base ref or
@@ -155,7 +184,8 @@ cmd_precheck() {
   fi
   if grep -qw swift <<<"$areas"; then
     build_ffi_dylib
-    run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests
+    setup_swift_linker
+    run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests ${SWIFT_LINK_ARGS[@]+"${SWIFT_LINK_ARGS[@]}"}
   fi
 }
 
@@ -177,16 +207,18 @@ cmd_verify() {
   fi
   if grep -qw swift <<<"$areas"; then
     build_ffi_dylib
-    run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests
-    run_in "$root/macos/eDEXNative" "$(swift_display)" test
+    setup_swift_linker
+    run_in "$root/macos/eDEXNative" "$(swift_display)" build --build-tests ${SWIFT_LINK_ARGS[@]+"${SWIFT_LINK_ARGS[@]}"}
+    run_in "$root/macos/eDEXNative" "$(swift_display)" test ${SWIFT_LINK_ARGS[@]+"${SWIFT_LINK_ARGS[@]}"}
   fi
 }
 
 cmd_smoke() {
   build_ffi_dylib
+  setup_swift_linker
   local root
   root="$(repo_root)"
-  run_in "$root/macos/eDEXNative" "$(swift_display)" run eDEXNative --smoke-window
+  run_in "$root/macos/eDEXNative" "$(swift_display)" run ${SWIFT_LINK_ARGS[@]+"${SWIFT_LINK_ARGS[@]}"} eDEXNative --smoke-window
 }
 
 phase_files() {
