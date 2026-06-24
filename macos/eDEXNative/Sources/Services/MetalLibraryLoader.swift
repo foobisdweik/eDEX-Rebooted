@@ -26,7 +26,17 @@ enum MetalLibraryLoader {
         }
         do {
             let library = try device.makeDefaultLibrary(bundle: .module)
-            return .loaded(functionNames: library.functionNames)
+            let functionNames = library.functionNames
+            // Finding *a* default.metallib is not enough: a stale or wrong
+            // library would still load. Assert the offline-compiled placeholder
+            // function is actually present so the smoke check verifies the
+            // delivery path end to end.
+            guard functionNames.contains(placeholderFunctionName) else {
+                return .failed(
+                    reason: "default.metallib is missing \(placeholderFunctionName); found \(functionNames)"
+                )
+            }
+            return .loaded(functionNames: functionNames)
         } catch {
             return .failed(reason: String(describing: error))
         }

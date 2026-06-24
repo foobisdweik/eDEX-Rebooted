@@ -36,7 +36,15 @@ jobs:
       # lacks Xcode 27 (the signal to bump the runner label above).
       - name: Select Xcode 27
         run: |
-          sudo xcode-select -switch /Applications/Xcode_27.app
+          XCODE_APP=/Applications/Xcode_27.app
+          if [ ! -d "$XCODE_APP" ]; then
+            echo "::error::$XCODE_APP not found on this runner image."
+            echo "Available Xcode installs:"
+            ls -d /Applications/Xcode*.app 2>/dev/null || echo "  (none)"
+            echo "Bump the runner label / Xcode path above to match an available install."
+            exit 1
+          fi
+          sudo xcode-select -switch "$XCODE_APP"
           xcodebuild -version
           swift --version
       - name: Run the native gate

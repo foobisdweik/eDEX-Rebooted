@@ -45,7 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case let .loaded(functionNames):
                 print("eDEXNative metallib smoke: default.metallib loaded; functions=\(functionNames)")
             case let .failed(reason):
-                print("eDEXNative metallib smoke: FAILED to load default.metallib: \(reason)")
+                // Hard-fail the smoke run (non-zero exit) so a broken metallib
+                // delivery path cannot pass verification silently.
+                fatalError("eDEXNative metallib smoke: FAILED to load default.metallib: \(reason)")
             }
         }
 
