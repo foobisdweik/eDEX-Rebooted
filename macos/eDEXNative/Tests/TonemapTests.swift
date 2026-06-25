@@ -87,4 +87,30 @@ final class TonemapTests: XCTestCase {
         XCTAssertEqual(g, 0.05, accuracy: 1e-12)
         XCTAssertEqual(b, 0.05, accuracy: 1e-12)
     }
+
+    func testRgbDarkColorsDesaturateToFloorWithoutBlowup() {
+        // Regression: scaling from the floor-clamped luminance would send the scale
+        // to ~floor/luminance (huge) for near-black colors, boosting one channel to
+        // a saturated near-cap value. With the floor-free roll-off the scale stays
+        // ~1, so a near-black red collapses to the neutral floor, not a bright red.
+        let withFloor = Tonemap(headroom: 8.0, floor: 0.05)
+        let (r, g, b) = withFloor.map(red: 0.01, green: 0.0, blue: 0.0)
+        XCTAssertEqual(r, 0.05, accuracy: 1e-9) // would be ~0.235 under the old blow-up
+        XCTAssertEqual(g, 0.05, accuracy: 1e-9)
+        XCTAssertEqual(b, 0.05, accuracy: 1e-9)
+    }
+
+    func testFloorIsClampedIntoValidRange() {
+        // A floor above paper white / headroom must be clamped so it cannot break
+        // the [floor, headroom] range or lift SDR output past 1.0.
+        let sdr = Tonemap(headroom: 1.0, floor: 5.0)
+        XCTAssertLessThanOrEqual(sdr.floor, 1.0)
+        XCTAssertLessThanOrEqual(sdr.floor, sdr.headroom)
+        XCTAssertLessThanOrEqual(sdr.map(0.5), 1.0)
+
+        let hdr = Tonemap(headroom: 8.0, floor: 5.0)
+        XCTAssertEqual(hdr.floor, 1.0, accuracy: 1e-12) // clamped to paper white, not 5
+        // A sane floor is preserved unchanged.
+        XCTAssertEqual(Tonemap(headroom: 8.0, floor: 0.05).floor, 0.05, accuracy: 1e-12)
+    }
 }

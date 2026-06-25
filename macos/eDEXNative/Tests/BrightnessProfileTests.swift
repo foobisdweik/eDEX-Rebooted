@@ -53,6 +53,24 @@ final class BrightnessProfileTests: XCTestCase {
         XCTAssertEqual(decoded, BrightnessProfile.default)
     }
 
+    func testLuminanceFloorRatioIsClampedToPaperWhite() {
+        // A degenerate profile whose floor exceeds paper white must not produce a
+        // ratio > 1.0 (which would lift the tonemap floor above the knee).
+        let degenerate = BrightnessProfile(
+            id: "x",
+            displayName: "x",
+            referenceModeName: "x",
+            gamut: .displayP3,
+            paperWhiteNits: 203,
+            maxWindow100Nits: 1600,
+            maxWindow10Nits: 1600,
+            minLuminanceNits: 5000
+        )
+        XCTAssertEqual(degenerate.luminanceFloorRatio, 1.0, accuracy: 1e-12)
+        XCTAssertGreaterThanOrEqual(degenerate.luminanceFloorRatio, 0)
+        XCTAssertLessThanOrEqual(degenerate.luminanceFloorRatio, 1.0)
+    }
+
     func testNonFiniteAndNegativeInputsAreSanitized() {
         let degenerate = BrightnessProfile(
             id: "x",

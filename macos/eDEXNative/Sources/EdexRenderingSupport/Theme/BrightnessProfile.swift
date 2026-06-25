@@ -68,9 +68,12 @@ public struct BrightnessProfile: Equatable, Sendable, Identifiable, Codable {
         referenceHeadroom > 1.0 + 1e-9
     }
 
-    /// Luminance floor expressed paper-white-relative, for the tonemapper.
+    /// Luminance floor expressed paper-white-relative, for the tonemapper. Clamped
+    /// to `[0, 1]`: the floor is at or below paper white, so a degenerate profile
+    /// whose `minLuminanceNits` exceeds `paperWhiteNits` cannot lift the tonemap
+    /// floor past 1.0 and break the identity at the knee.
     public var luminanceFloorRatio: Double {
-        minLuminanceNits / paperWhiteNits
+        min(1.0, max(0.0, minLuminanceNits / paperWhiteNits))
     }
 
     /// The tonemapper this profile implies at its reference headroom. Spike B

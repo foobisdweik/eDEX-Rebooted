@@ -1,15 +1,20 @@
 import XCTest
-import Foundation
+@testable import EdexDomainSupport
 
-/// Verifies that the four Spike-A brightness settings keys are correctly handled
-/// by the JSON decoding path and that their canonical default values match the
-/// machine-profile specification (MacBookPro18,1 16-inch Liquid Retina XDR).
+/// Coverage for the Spike-A brightness settings keys at the layers the test target
+/// can actually reach:
+///   1. The JSON *decode shape* the app's `SettingsFile` relies on — exercised
+///      through a local `Decodable` mirror (the real `SettingsFile`/`SettingsSummary`
+///      live in the eDEXNative executable target, which tests can't import).
+///   2. Survival of the keys through the real settings-editor round-trip
+///      (`EdexSettingsDocument` parse → edit → serialize → reparse).
 ///
-/// The test target cannot import the eDEXNative executable, so JSON fidelity is
-/// exercised through a local Decodable mirror of the SettingsFile fields.
+/// The *canonical default values* (203 / 1600 / 0 / "liquid-retina-xdr-16") are
+/// asserted where they actually live — the Rust `default_settings()` test
+/// (`default_settings_includes_brightness_keys`) — not here.
 final class SettingsBrightnessTests: XCTestCase {
 
-    // MARK: - Local mirror (mirrors the SettingsFile fields added in EdexCoreClient)
+    // MARK: - Local mirror of the SettingsFile decode shape
 
     private struct BrightnessFields: Decodable {
         var brightnessProfileID: String?
@@ -18,29 +23,17 @@ final class SettingsBrightnessTests: XCTestCase {
         var luminanceFloorNits: Double?
     }
 
-    // MARK: - Default values
+    // MARK: - Decode shape
 
-    func testDefaultBrightnessProfileID() throws {
+    func testMissingBrightnessKeysDecodeAsNil() throws {
+        // Absent keys decode to nil so the app layer can apply its fallbacks; this
+        // is the only default-related behavior observable from the test target.
         let decoded = try JSONDecoder().decode(BrightnessFields.self, from: Data("{}".utf8))
-        XCTAssertEqual(decoded.brightnessProfileID ?? "liquid-retina-xdr-16", "liquid-retina-xdr-16")
+        XCTAssertNil(decoded.brightnessProfileID)
+        XCTAssertNil(decoded.paperWhiteNits)
+        XCTAssertNil(decoded.peakNits)
+        XCTAssertNil(decoded.luminanceFloorNits)
     }
-
-    func testDefaultPaperWhiteNits() throws {
-        let decoded = try JSONDecoder().decode(BrightnessFields.self, from: Data("{}".utf8))
-        XCTAssertEqual(decoded.paperWhiteNits ?? 203, 203)
-    }
-
-    func testDefaultPeakNits() throws {
-        let decoded = try JSONDecoder().decode(BrightnessFields.self, from: Data("{}".utf8))
-        XCTAssertEqual(decoded.peakNits ?? 1600, 1600)
-    }
-
-    func testDefaultLuminanceFloorNits() throws {
-        let decoded = try JSONDecoder().decode(BrightnessFields.self, from: Data("{}".utf8))
-        XCTAssertEqual(decoded.luminanceFloorNits ?? 0, 0)
-    }
-
-    // MARK: - Explicit value parse
 
     func testParsesAllFourBrightnessKeys() throws {
         let json = """
@@ -59,27 +52,29 @@ final class SettingsBrightnessTests: XCTestCase {
     }
 
     func testParsesNonDefaultValues() throws {
+        // Uses a real preset id (generic-sdr) so the fixture stays aligned with the
+        // BrightnessProfile preset catalog.
         let json = """
         {
-            "brightnessProfileID": "sdr-srgb",
+            "brightnessProfileID": "generic-sdr",
             "paperWhiteNits": 100,
             "peakNits": 400,
             "luminanceFloorNits": 0.005
         }
         """
         let decoded = try JSONDecoder().decode(BrightnessFields.self, from: Data(json.utf8))
-        XCTAssertEqual(decoded.brightnessProfileID, "sdr-srgb")
+        XCTAssertEqual(decoded.brightnessProfileID, "generic-sdr")
         XCTAssertEqual(decoded.paperWhiteNits ?? 0, 100, accuracy: 0.001)
         XCTAssertEqual(decoded.peakNits ?? 0, 400, accuracy: 0.001)
         XCTAssertEqual(decoded.luminanceFloorNits ?? 0, 0.005, accuracy: 0.0001)
     }
 
-    // MARK: - Round-trip / unknown-key losslessness
+    // MARK: - Editor round-trip (the app's real parse → edit → serialize path)
 
-    /// Unknown keys must survive a parse → re-serialize round-trip. This mirrors
-    /// the NativeSettingsEditorTests.testPreservesUnknownKeysOnSerialize pattern
-    /// (the reducedMotion precedent).
-    func testRoundTripPreservesUnknownKeysAlongsideBrightnessKeys() throws {
+    /// The brightness keys are free-form (not editor-surfaced), so they must survive
+    /// a real `EdexSettingsDocument` edit + reserialize alongside unrelated unknown
+    /// keys — mirrors `NativeSettingsEditorTests.testPreservesUnknownKeysOnSerialize`.
+    func testEditorRoundTripPreservesBrightnessAndUnknownKeys() throws {
         let json = """
         {
             "brightnessProfileID": "liquid-retina-xdr-16",
@@ -87,38 +82,22 @@ final class SettingsBrightnessTests: XCTestCase {
             "peakNits": 1600,
             "luminanceFloorNits": 0,
             "theme": "tron",
-            "experimentalFeatures": false,
             "unknownFutureKey": 42
         }
         """
-        let data = Data(json.utf8)
-        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        var doc = try EdexSettingsDocument(jsonString: json)
+        // A real editor edit of a surfaced key, to drive the actual edit path.
+        doc.setBool(true, for: .reducedMotion)
+        let reparsed = try EdexSettingsDocument(jsonString: try doc.jsonString())
 
-        // Brightness keys survive
-        XCTAssertEqual(dict["brightnessProfileID"] as? String, "liquid-retina-xdr-16")
-        XCTAssertEqual(dict["paperWhiteNits"] as? Double, 203)
-        XCTAssertEqual(dict["peakNits"] as? Double, 1600)
-        XCTAssertEqual(dict["luminanceFloorNits"] as? Double, 0)
-
-        // Unrelated known and unknown keys survive
-        XCTAssertEqual(dict["theme"] as? String, "tron")
-        XCTAssertEqual(dict["experimentalFeatures"] as? Bool, false)
-        XCTAssertEqual(dict["unknownFutureKey"] as? Int, 42)
-
-        // Re-serialize and re-parse
-        let reData = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
-        let reDict = try JSONSerialization.jsonObject(with: reData) as! [String: Any]
-        XCTAssertEqual(reDict["brightnessProfileID"] as? String, "liquid-retina-xdr-16")
-        XCTAssertEqual(reDict["unknownFutureKey"] as? Int, 42)
-    }
-
-    // MARK: - Numeric safety
-
-    /// peakNits and paperWhiteNits must be finite — guard the same way
-    /// RamwatcherSupport.safeInt guards Double→Int casts.
-    func testNonFinitePeakNitsIsNil() throws {
-        // JSON cannot represent Infinity/NaN directly; this tests the Swift guard.
-        let val: Double? = Double.infinity
-        XCTAssertFalse(val?.isFinite ?? false, "Non-finite peak nits must not pass as a valid setting")
+        XCTAssertEqual(reparsed.raw["brightnessProfileID"], .string("liquid-retina-xdr-16"))
+        XCTAssertEqual(reparsed.raw["paperWhiteNits"], .number(203))
+        XCTAssertEqual(reparsed.raw["peakNits"], .number(1600))
+        XCTAssertEqual(reparsed.raw["luminanceFloorNits"], .number(0))
+        // Unrelated known + unknown keys survive the round-trip.
+        XCTAssertEqual(reparsed.raw["theme"], .string("tron"))
+        XCTAssertEqual(reparsed.raw["unknownFutureKey"], .number(42))
+        // The edit was applied.
+        XCTAssertEqual(reparsed.raw["reducedMotion"], .bool(true))
     }
 }

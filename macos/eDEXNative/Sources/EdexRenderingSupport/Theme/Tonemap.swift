@@ -30,29 +30,43 @@ public struct Tonemap: Equatable, Sendable {
     public init(headroom: Double, floor: Double = 0) {
         // An SDR display has headroom 1.0; anything non-finite or below 1.0 is
         // treated as SDR rather than allowed to invert the roll-off math.
-        self.headroom = (headroom.isFinite && headroom > 1.0) ? headroom : 1.0
-        self.floor = (floor.isFinite && floor > 0) ? floor : 0
+        let resolvedHeadroom = (headroom.isFinite && headroom > 1.0) ? headroom : 1.0
+        self.headroom = resolvedHeadroom
+        // Floor is a paper-white-relative minimum, so it must sit in [0, 1] (at or
+        // below paper white). Clamping here keeps it from exceeding the headroom
+        // cap or lifting output above 1.0 — which would break the documented
+        // [floor, headroom] range and the SDR-parity identity at the knee.
+        if floor.isFinite, floor > 0 {
+            self.floor = min(floor, min(1.0, resolvedHeadroom))
+        } else {
+            self.floor = 0
+        }
     }
 
     /// Map a paper-white-relative authored value onto `[floor, headroom]`.
     /// Identity on `[0, 1]` whenever there is headroom (and entirely when
     /// `headroom == 1.0`); a hue-neutral soft roll-off compresses `(1, ∞)` into
     /// `(1, headroom]`, asymptotically approaching but never exceeding `headroom`.
-    public func map(_ value: Double) -> Double {
+    /// The roll-off curve alone — no floor lift, no peak clamp. Identity on `[0, 1]`
+    /// (and entirely when `headroom == 1.0`); a smooth, C1-continuous compression
+    /// above the knee (`f(1)=1`, `f'(1)=1`, `f(∞)→headroom`). Factored out so the
+    /// hue-preserving RGB path can derive its scale from the *un-floored* curve.
+    private func rolled(_ value: Double) -> Double {
         let v = value.isFinite ? max(0, value) : 0
-        let rolled: Double
         if headroom <= Self.knee + Self.epsilon {
             // SDR: identity within [0, 1], clamp HDR excursions to paper white.
-            rolled = min(v, Self.knee)
+            return min(v, Self.knee)
         } else if v <= Self.knee {
             // Below the knee the SDR range is untouched — the parity guarantee.
-            rolled = v
+            return v
         } else {
-            // Smooth, C1-continuous roll-off: f(1)=1, f'(1)=1, f(∞)→headroom.
             let excess = headroom - Self.knee
-            rolled = Self.knee + (v - Self.knee) / (1.0 + (v - Self.knee) / excess)
+            return Self.knee + (v - Self.knee) / (1.0 + (v - Self.knee) / excess)
         }
-        return min(max(rolled, floor), max(headroom, floor))
+    }
+
+    public func map(_ value: Double) -> Double {
+        min(max(rolled(value), floor), max(headroom, floor))
     }
 
     /// Hue-preserving map of an extended-linear paper-white-relative RGB triple:
@@ -64,12 +78,18 @@ public struct Tonemap: Equatable, Sendable {
         let b = blue.isFinite ? max(0, blue) : 0
         let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
         guard luminance > Self.epsilon else { return (floor, floor, floor) }
-        let scale = map(luminance) / luminance
+        // Derive the scale from the *un-floored* rolled luminance. Using the
+        // floor-clamped `map(luminance)` would send the scale to infinity as
+        // luminance → 0 (floor/luminance), boosting near-black colors to saturated
+        // near-cap values. The roll-off keeps the scale ≈ 1 for darks; the
+        // per-channel floor clamp below then desaturates them toward the neutral
+        // floor — continuous and hue-faithful.
+        let scale = rolled(luminance) / luminance
         let cap = max(headroom, floor)
         return (
-            min(max(r * scale, 0), cap),
-            min(max(g * scale, 0), cap),
-            min(max(b * scale, 0), cap)
+            min(max(r * scale, floor), cap),
+            min(max(g * scale, floor), cap),
+            min(max(b * scale, floor), cap)
         )
     }
 }
