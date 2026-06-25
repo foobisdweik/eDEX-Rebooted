@@ -41,7 +41,11 @@ struct EdexCoreClient {
             brightnessProfileID: decodedSettings.brightnessProfileID ?? "liquid-retina-xdr-16",
             paperWhiteNits: decodedSettings.paperWhiteNits ?? 203,
             peakNits: decodedSettings.peakNits ?? 1600,
-            luminanceFloorNits: decodedSettings.luminanceFloorNits ?? 0
+            luminanceFloorNits: decodedSettings.luminanceFloorNits ?? 0,
+            metalHostEnabled: decodedSettings.metalHostEnabled ?? false,
+            crtCurvature: decodedSettings.crtCurvature ?? false,
+            crtBloom: decodedSettings.crtBloom ?? false,
+            crtChromaticAberration: decodedSettings.crtChromaticAberration ?? false
         )
 
         let theme: NativeTheme
@@ -187,4 +191,8 @@ private struct SettingsFile: Decodable {
     var paperWhiteNits: Double?
     var peakNits: Double?
     var luminanceFloorNits: Double?
+    var metalHostEnabled: Bool?
+    var crtCurvature: Bool?
+    var crtBloom: Bool?
+    var crtChromaticAberration: Bool?
 }

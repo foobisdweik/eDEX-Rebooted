@@ -52,7 +52,16 @@ let package = Package(
         ),
         .target(
             name: "EdexRenderingSupport",
-            path: "Sources/EdexRenderingSupport"
+            path: "Sources/EdexRenderingSupport",
+            exclude: [
+                // `.metal` source is compiled offline (Scripts/build-shaders.sh)
+                // into the bundled `default.metallib`; excluded so SwiftPM does not
+                // attempt to compile it (no runtime shader compilation).
+                "Shaders/default.metal"
+            ],
+            resources: [
+                .process("Shaders/default.metallib")
+            ]
         ),
         .executableTarget(
             name: "eDEXNative",
@@ -70,10 +79,6 @@ let package = Package(
                 "Generated",
                 "Sources/EdexDomainSupport",
                 "Sources/EdexRenderingSupport",
-                // `.metal` source is compiled offline (Scripts/build-shaders.sh)
-                // into the bundled `default.metallib`; excluded so SwiftPM does
-                // not attempt to compile it (no runtime shader compilation).
-                "Sources/Shaders/default.metal",
                 "Tests"
             ],
             sources: [
@@ -82,9 +87,6 @@ let package = Package(
                 "Sources/Stores",
                 "Sources/Support",
                 "Sources/Views"
-            ],
-            resources: [
-                .process("Sources/Shaders/default.metallib")
             ],
             swiftSettings: [
                 .unsafeFlags([

@@ -23,6 +23,14 @@ final class ShellState: EdexActionHandler {
     var settingsSummary = SettingsSummary()
     var keepGeometry = true
     var theme = NativeTheme.fallback
+    /// Live EDR state resolved against the selected brightness profile (Spike B).
+    /// `.sdr` until the first probe; refreshed on screen-parameter changes and on
+    /// settings changes. The Metal host reads this to pick its surface + tonemap.
+    var displayHeadroom: DisplayHeadroom = .sdr
+    // `nonisolated(unsafe)`: read from the nonisolated `deinit` for observer
+    // teardown. Safe — written once on the MainActor during setup, read once at
+    // deallocation; no concurrent access.
+    @ObservationIgnored nonisolated(unsafe) private var screenParamsObserver: NSObjectProtocol?
     var uptimeSeconds: UInt64 = 0
     var battery: FfiBattery?
     var hardware: FfiHardware?
@@ -138,6 +146,14 @@ final class ShellState: EdexActionHandler {
             if self.stdoutCueGate.shouldPlay(at: Date(), passwordMode: self.keyboard.modifiers.passwordMode) {
                 self.playAudio(.stdout)
             }
+        }
+    }
+
+    deinit {
+        // Block-based NotificationCenter observers must be explicitly removed; the
+        // API does not guarantee auto-deregistration on dealloc.
+        if let token = screenParamsObserver {
+            NotificationCenter.default.removeObserver(token)
         }
     }
 
@@ -257,6 +273,7 @@ final class ShellState: EdexActionHandler {
             print("eDEXNative FFI OK userData=\(snapshot.paths.userData) settingsBytes=\(snapshot.settings.byteCount ?? 0) theme=\(snapshot.settings.theme) keepGeometry=\(snapshot.settings.keepGeometry)")
             await loadShortcuts()
             terminal.start(settings: settingsSummary, theme: theme)
+            startDisplayProbe()
             terminateIfSmokeWindow()
         } catch {
             statusText = "error — \(error.localizedDescription)"
@@ -328,6 +345,44 @@ final class ShellState: EdexActionHandler {
         // invalidated for unchanged data.
         if self.battery != battery {
             self.battery = battery
+        }
+    }
+
+    /// The `BrightnessProfile` the user has selected, looked up by the stable id
+    /// stored in `settings.json` (Spike A). Falls back to the out-of-box default
+    /// when the id is unknown.
+    ///
+    /// `brightnessProfileID` is read once at `bootstrap` (it is not in
+    /// `EdexSettingsKey`, so `applyLiveSettings` does not update it). A profile
+    /// change therefore takes effect on restart; only the *live* NSScreen half of
+    /// the headroom updates at runtime — which matches the Ultraplan decision that
+    /// paper-white / profile is a fixed, app-configured value.
+    private func resolvedBrightnessProfile() -> BrightnessProfile {
+        BrightnessProfile.preset(id: settingsSummary.brightnessProfileID) ?? .default
+    }
+
+    /// Re-reads the live display EDR triad and resolves it against the selected
+    /// profile. `NSScreen` reads are MainActor-bound and cheap, so — unlike the
+    /// FFI/IOKit reads in `refreshSysinfo()` — there is nothing to detach. Assigns
+    /// only on change so the Metal host isn't invalidated for an unchanged display.
+    func refreshDisplayHeadroom() {
+        let resolved = DisplayProbe.headroom(profile: resolvedBrightnessProfile())
+        if displayHeadroom != resolved {
+            displayHeadroom = resolved
+        }
+    }
+
+    /// Installs the screen-parameter observer (resolution / EDR-mode / display
+    /// hotplug changes) and performs the initial probe. Idempotent.
+    func startDisplayProbe() {
+        refreshDisplayHeadroom()
+        guard screenParamsObserver == nil else { return }
+        screenParamsObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshDisplayHeadroom() }
         }
     }
 
@@ -542,6 +597,8 @@ final class ShellState: EdexActionHandler {
         settingsSummary.nointro = document.bool(.nointro) ?? false
         settingsSummary.reducedMotion = document.bool(.reducedMotion) ?? false
         keepGeometry = settingsSummary.keepGeometry
+        // A profile / brightness change re-resolves live headroom for the host.
+        refreshDisplayHeadroom()
 
         let audioSettings = EdexAudioSettings(
             audio: document.bool(.audio) ?? true,
@@ -1538,4 +1595,11 @@ struct SettingsSummary: Sendable {
     var paperWhiteNits: Double = 203
     var peakNits: Double = 1600
     var luminanceFloorNits: Double = 0
+    /// Spike B feature flag: mount the Metal presentation host. Default off — the
+    /// substrate is inert until a user opts in via `settings.json`.
+    var metalHostEnabled = false
+    /// Spike C CRT effect flags. All default-off; shader interprets as UInt32 0/1.
+    var crtCurvature = false
+    var crtBloom = false
+    var crtChromaticAberration = false
 }

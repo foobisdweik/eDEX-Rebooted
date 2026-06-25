@@ -160,7 +160,25 @@ struct ContentView: View {
                 .id(state.terminal.activeTab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(state.theme.terminalBackground.opacity(0.92))
-                .overlay { EdexTerminalAesthetic(theme: state.theme, vh: vh) }
+                .overlay {
+                    if state.settingsSummary.metalHostEnabled {
+                        MetalHostView(
+                            theme: state.theme,
+                            vh: vh,
+                            headroom: state.displayHeadroom,
+                            crt: CRTSettings(
+                                curvature: state.settingsSummary.crtCurvature,
+                                bloom: state.settingsSummary.crtBloom,
+                                chromaticAberration: state.settingsSummary.crtChromaticAberration
+                            ),
+                            reducedMotion: state.settingsSummary.reducedMotion,
+                            isEnabled: true
+                        )
+                        .allowsHitTesting(false)
+                    } else {
+                        EdexTerminalAesthetic(theme: state.theme, vh: vh)
+                    }
+                }
         }
         .padding(8)
         .augmentedSurface(

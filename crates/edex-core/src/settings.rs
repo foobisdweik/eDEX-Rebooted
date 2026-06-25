@@ -87,7 +87,11 @@ pub fn default_settings() -> Value {
         "brightnessProfileID": "liquid-retina-xdr-16",
         "paperWhiteNits": 203,
         "peakNits": 1600,
-        "luminanceFloorNits": 0
+        "luminanceFloorNits": 0,
+        "metalHostEnabled": false,
+        "crtCurvature": false,
+        "crtBloom": false,
+        "crtChromaticAberration": false
     })
 }
 
@@ -341,6 +345,12 @@ mod tests {
         assert_eq!(settings["paperWhiteNits"], 203);
         assert_eq!(settings["peakNits"], 1600);
         assert_eq!(settings["luminanceFloorNits"], 0);
+        // Spike B substrate flag ships default-off.
+        assert_eq!(settings["metalHostEnabled"], false);
+        // Spike C CRT effect flags, all default-off.
+        assert_eq!(settings["crtCurvature"], false);
+        assert_eq!(settings["crtBloom"], false);
+        assert_eq!(settings["crtChromaticAberration"], false);
     }
 
     #[test]
