@@ -41,7 +41,8 @@ struct EdexCoreClient {
             brightnessProfileID: decodedSettings.brightnessProfileID ?? "liquid-retina-xdr-16",
             paperWhiteNits: decodedSettings.paperWhiteNits ?? 203,
             peakNits: decodedSettings.peakNits ?? 1600,
-            luminanceFloorNits: decodedSettings.luminanceFloorNits ?? 0
+            luminanceFloorNits: decodedSettings.luminanceFloorNits ?? 0,
+            metalHostEnabled: decodedSettings.metalHostEnabled ?? false
         )
 
         let theme: NativeTheme
@@ -187,4 +188,5 @@ private struct SettingsFile: Decodable {
     var paperWhiteNits: Double?
     var peakNits: Double?
     var luminanceFloorNits: Double?
+    var metalHostEnabled: Bool?
 }

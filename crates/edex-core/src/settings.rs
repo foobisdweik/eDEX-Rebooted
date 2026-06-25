@@ -87,7 +87,8 @@ pub fn default_settings() -> Value {
         "brightnessProfileID": "liquid-retina-xdr-16",
         "paperWhiteNits": 203,
         "peakNits": 1600,
-        "luminanceFloorNits": 0
+        "luminanceFloorNits": 0,
+        "metalHostEnabled": false
     })
 }
 
@@ -341,6 +342,8 @@ mod tests {
         assert_eq!(settings["paperWhiteNits"], 203);
         assert_eq!(settings["peakNits"], 1600);
         assert_eq!(settings["luminanceFloorNits"], 0);
+        // Spike B substrate flag ships default-off.
+        assert_eq!(settings["metalHostEnabled"], false);
     }
 
     #[test]

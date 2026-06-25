@@ -17,6 +17,18 @@ struct ContentView: View {
             )
 
             ZStack(alignment: .topLeading) {
+                // Spike B: Metal presentation substrate, default-off. Conditionally
+                // mounted so the off path allocates no Metal device/queue/layer at
+                // all; the bottom-most layer so it never alters the SDR composite.
+                if state.settingsSummary.metalHostEnabled {
+                    MetalHostView(
+                        headroom: state.displayHeadroom,
+                        reducedMotion: state.settingsSummary.reducedMotion,
+                        isEnabled: true
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .allowsHitTesting(false)
+                }
                 background(size: proxy.size)
                 column(layout.leftColumn, title: "SYSTEM", subtitle: "", side: .left, vh: layout.vh)
                 mainShell(layout.mainShell, vh: layout.vh)
