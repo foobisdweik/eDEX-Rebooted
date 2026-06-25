@@ -19,11 +19,11 @@ Active work follows **`docs/plans/Ultraplan.md`** — a Spike 0→D arc to (1) b
 
 ## Build / test / run
 
-`scripts/native-phase` is the single source of truth. The flow is **front-light, back-heavy**: a fast compile floor before the PR, the real gate runs as PR checks.
+`scripts/native-phase` is the single source of truth. Run the fast compile floor (`precheck`) while iterating and the full gate (`verify --full`) locally before shipping — there is no native CI to fall back on (GitHub runners lack Xcode 27), so local `verify --full` is the real gate.
 
 - `scripts/native-phase start <phase> <slug>` — fast-forwards the base (default `master`, override `NATIVE_PHASE_BASE`), cuts `codex/native-<slug>`, prints first-read files.
 - `scripts/native-phase precheck` — scope-aware **compile floor** (the only required pre-PR check; auto-run by `pr`). `swift build --build-tests` if Swift changed, `cargo check --tests` if `crates/` changed, no-op for docs.
-- `scripts/native-phase verify [--full]` — the **CI-safe full gate**: `cargo test`/`fmt --check`/`clippy -D warnings` + release-dylib build + `swift build --build-tests`/`swift test`. **CI runs `bash scripts/native-phase verify --full`**, so local `--full` and CI cannot drift. Optional locally.
+- `scripts/native-phase verify [--full]` — the **authoritative full gate**: `cargo test`/`fmt --check`/`clippy -D warnings` + release-dylib build + `swift build --build-tests`/`swift test`. There is **no GitHub CI for the native tree** — GitHub-hosted runners lack Xcode 27, so the macOS-27/Metal-4.1 gate can only run on an Apple-Silicon macOS-27 machine. **Run `verify --full` locally before shipping; it is the only thing that gates native changes.** (GitHub still runs CodeQL via `.github/workflows/codeql-analysis.yml`.)
 - `scripts/native-phase smoke` — local-only `swift run eDEXNative --smoke-window` (needs a window session; not in CI). The app loads the bundled `default.metallib`, prints FFI/window/metallib status, and self-terminates. Run after touching FFI/bootstrap/Metal.
 - `scripts/native-phase pr "<commit>" "<title>" "<summary>"` — the **only** ship command: runs `precheck`, stages (excluding `memory.md`), commits, pushes, opens the PR. Do not run the full gate by hand first.
 
@@ -79,5 +79,5 @@ Rust: `edex-core/src/{sysinfo,pty,settings,fs}.rs` (logic) → `edex-ffi/src/lib
 ## Workflow norms
 
 - Branch off `master` (the consolidated default/trunk; `main` was renamed to it). One spike = one `native-phase` branch/PR.
-- After a `pr`, work the review loop (~5 min): address gemini-code-assist, Cursor BugBot, and the Native CI status on merit — validate and push back with technical reasoning when a suggestion is wrong. A human merges; there is no branch protection.
+- Before a `pr`, run `scripts/native-phase verify --full` locally — it is the authoritative gate (no native CI exists; see above). After a `pr`, work the review loop (~5 min): address gemini-code-assist and Cursor BugBot on merit — validate and push back with technical reasoning when a suggestion is wrong. A human merges; there is no branch protection.
 - `Ultrareview.md` (anti-churn architecture addendum: target taxonomy, store split, compositor pattern) still applies. The retired Phase 0–11 conversion plan and the deleted `docs/plans/{QoL-improvements,anti-churn-strategem-2026-06-09}.md` are canonical deletions — consult git history, do not restore them.
