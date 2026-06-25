@@ -88,7 +88,10 @@ pub fn default_settings() -> Value {
         "paperWhiteNits": 203,
         "peakNits": 1600,
         "luminanceFloorNits": 0,
-        "metalHostEnabled": false
+        "metalHostEnabled": false,
+        "crtCurvature": false,
+        "crtBloom": false,
+        "crtChromaticAberration": false
     })
 }
 
@@ -344,6 +347,10 @@ mod tests {
         assert_eq!(settings["luminanceFloorNits"], 0);
         // Spike B substrate flag ships default-off.
         assert_eq!(settings["metalHostEnabled"], false);
+        // Spike C CRT effect flags, all default-off.
+        assert_eq!(settings["crtCurvature"], false);
+        assert_eq!(settings["crtBloom"], false);
+        assert_eq!(settings["crtChromaticAberration"], false);
     }
 
     #[test]

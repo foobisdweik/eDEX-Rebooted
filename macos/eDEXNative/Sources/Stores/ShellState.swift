@@ -1595,4 +1595,8 @@ struct SettingsSummary: Sendable {
     /// Spike B feature flag: mount the Metal presentation host. Default off — the
     /// substrate is inert until a user opts in via `settings.json`.
     var metalHostEnabled = false
+    /// Spike C CRT effect flags. All default-off; shader interprets as UInt32 0/1.
+    var crtCurvature = false
+    var crtBloom = false
+    var crtChromaticAberration = false
 }

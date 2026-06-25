@@ -6,15 +6,31 @@ import EdexRenderingSupport
 
 // MARK: - NSViewRepresentable wrapper
 
-/// CAMetalLayer-backed host for the Spike B Metal presentation substrate.
-/// Strict on-demand presentation: draws once per content change, never per vsync.
+/// CAMetalLayer-backed host for the GPU terminal aesthetic (Spike C, built on the
+/// Spike B substrate). Renders the scanline + accent-glow + CRT pass into a
+/// transparent overlay via `TerminalAestheticRenderer`. Strict on-demand
+/// presentation: draws once per content change, never per vsync — mirrors the
+/// `CpuGraphNSView` cadence (occlusion-gated, no free-running loop).
 struct MetalHostView: NSViewRepresentable {
+    let theme: NativeTheme
+    let vh: Double
     let headroom: DisplayHeadroom
+    let crt: CRTSettings
     let reducedMotion: Bool
     let isEnabled: Bool
 
-    init(headroom: DisplayHeadroom, reducedMotion: Bool, isEnabled: Bool) {
+    init(
+        theme: NativeTheme,
+        vh: Double,
+        headroom: DisplayHeadroom,
+        crt: CRTSettings,
+        reducedMotion: Bool,
+        isEnabled: Bool
+    ) {
+        self.theme = theme
+        self.vh = vh
         self.headroom = headroom
+        self.crt = crt
         self.reducedMotion = reducedMotion
         self.isEnabled = isEnabled
     }
@@ -24,7 +40,14 @@ struct MetalHostView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: MetalHostNSView, context: Context) {
-        view.apply(headroom: headroom, reducedMotion: reducedMotion, isEnabled: isEnabled)
+        view.apply(
+            theme: theme,
+            vh: vh,
+            headroom: headroom,
+            crt: crt,
+            reducedMotion: reducedMotion,
+            isEnabled: isEnabled
+        )
     }
 }
 
@@ -32,18 +55,23 @@ struct MetalHostView: NSViewRepresentable {
 
 @MainActor
 final class MetalHostNSView: NSView {
-    private var commandQueue: MTLCommandQueue?
+    private let device: MTLDevice?
+    private let commandQueue: MTLCommandQueue?
+    private var renderer: TerminalAestheticRenderer?
+    private var rendererFormat: MTLPixelFormat?
 
+    private var theme: NativeTheme = .fallback
+    private var vh: Double = 0
     private var headroom: DisplayHeadroom = .sdr
+    private var crt: CRTSettings = .off
     private var reducedMotion = false
     private var isEnabled = false
 
-    // True when a draw was deferred (occluded, zero drawable size, drawable unavailable).
-    // Cleared only after a successful buffer.commit(); re-fired by occlusionStateDidChange.
+    // A draw deferred because the surface was occluded / unsized / a transient GPU
+    // allocation failed. Cleared only after a successful commit.
     private var pendingDraw = false
-    // Coalesces the one-shot retry for transient GPU-allocation failures (drawable
-    // pool exhausted, command buffer/encoder unavailable) that happen while visible
-    // — those have no other wake-up trigger, so without this they could park forever.
+    // Coalesces the one-shot retry for transient GPU-allocation failures while
+    // visible (no other wake-up would re-fire them).
     private var retryScheduled = false
 
     deinit {
@@ -51,17 +79,16 @@ final class MetalHostNSView: NSView {
     }
 
     override init(frame: NSRect) {
+        let device = MTLCreateSystemDefaultDevice()
+        self.device = device
+        self.commandQueue = device?.makeCommandQueue()
         super.init(frame: frame)
-        wantsLayer = true  // triggers makeBackingLayer()
-
-        // Guard headless: view stays inert for the session if no GPU is available.
-        guard let dev = MTLCreateSystemDefaultDevice() else { return }
-        commandQueue = dev.makeCommandQueue()
-
-        guard let ml = layer as? CAMetalLayer else { return }
-        ml.device = dev
+        wantsLayer = true // triggers makeBackingLayer()
+        guard let device, let ml = layer as? CAMetalLayer else { return }
+        ml.device = device
         ml.framebufferOnly = true
-        configureLayerFormat(ml, headroom: .sdr)
+        ml.isOpaque = false // transparent overlay over the terminal beneath
+        configureLayerFormat(ml, supportsExtendedRange: false)
     }
 
     @available(*, unavailable)
@@ -74,13 +101,13 @@ final class MetalHostNSView: NSView {
         CAMetalLayer()
     }
 
-    // MARK: - Layer format
+    // MARK: - Layer format / renderer
 
-    private func configureLayerFormat(_ ml: CAMetalLayer, headroom: DisplayHeadroom) {
-        // EDR: extended-linear Display P3 in 16-bit float for surfaces that can exceed
-        // paper white. SDR fallback: standard Display P3 in 8-bit bgra — lower bandwidth
-        // and no EDR compositing overhead on panels that can't benefit from it.
-        if headroom.supportsExtendedRange {
+    private func configureLayerFormat(_ ml: CAMetalLayer, supportsExtendedRange: Bool) {
+        // EDR: extended-linear Display P3 in 16-bit float so the glow can bloom
+        // above paper white. SDR fallback: standard Display P3 in 8-bit bgra
+        // (lower bandwidth, no EDR compositing overhead on incapable panels).
+        if supportsExtendedRange {
             ml.wantsExtendedDynamicRangeContent = true
             ml.pixelFormat = .rgba16Float
             ml.colorspace = CGColorSpace(name: CGColorSpace.extendedLinearDisplayP3)
@@ -89,20 +116,52 @@ final class MetalHostNSView: NSView {
             ml.pixelFormat = .bgra8Unorm
             ml.colorspace = CGColorSpace(name: CGColorSpace.displayP3)
         }
+        ensureRenderer(for: ml.pixelFormat)
+    }
+
+    /// (Re)build the render pipeline only when the pixel format actually changes —
+    /// the pipeline is bound to one color format.
+    private func ensureRenderer(for format: MTLPixelFormat) {
+        guard let device else { return }
+        if rendererFormat == format, renderer != nil { return }
+        do {
+            renderer = try TerminalAestheticRenderer(device: device, pixelFormat: format)
+            rendererFormat = format
+        } catch {
+            renderer = nil
+            rendererFormat = nil
+            // No pipeline → the view stays inert rather than crashing. The metallib
+            // is validated end-to-end by the smoke check; this guards headless/edge.
+            NSLog("MetalHostView: renderer unavailable for \(format): \(error)")
+        }
     }
 
     // MARK: - Update seam (called from updateNSView on every SwiftUI diff pass)
 
-    func apply(headroom: DisplayHeadroom, reducedMotion: Bool, isEnabled: Bool) {
+    func apply(
+        theme: NativeTheme,
+        vh: Double,
+        headroom: DisplayHeadroom,
+        crt: CRTSettings,
+        reducedMotion: Bool,
+        isEnabled: Bool
+    ) {
         let formatChanged = headroom.supportsExtendedRange != self.headroom.supportsExtendedRange
-        let headroomChanged = headroom != self.headroom
+        let changed = vh != self.vh
+            || headroom != self.headroom
+            || crt != self.crt
+            || theme.name != self.theme.name
+            || reducedMotion != self.reducedMotion
         let justEnabled = isEnabled && !self.isEnabled
+
+        self.theme = theme
+        self.vh = vh
         self.headroom = headroom
+        self.crt = crt
         self.reducedMotion = reducedMotion
         self.isEnabled = isEnabled
 
         guard isEnabled else {
-            // Suppress any parked draw while the feature flag is off.
             pendingDraw = false
             return
         }
@@ -110,13 +169,13 @@ final class MetalHostNSView: NSView {
         if formatChanged, let ml = layer as? CAMetalLayer {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            configureLayerFormat(ml, headroom: headroom)
+            configureLayerFormat(ml, supportsExtendedRange: headroom.supportsExtendedRange)
             CATransaction.commit()
         }
-        // On-demand discipline: draw only when content actually changed (headroom /
-        // tonemap / pixel format) or the host just turned on — not on every SwiftUI
-        // diff pass, which fires at the unrelated telemetry-refresh cadence.
-        if headroomChanged || formatChanged || justEnabled {
+        // On-demand discipline: redraw only when content actually changed or the
+        // host just turned on — not on every SwiftUI diff pass (those fire at the
+        // unrelated telemetry-refresh cadence).
+        if changed || formatChanged || justEnabled {
             setNeedsDraw()
         }
     }
@@ -128,16 +187,13 @@ final class MetalHostNSView: NSView {
         resizeDrawableIfNeeded()
     }
 
-    /// Called when the view moves between screens or the backing store resolution changes.
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         resizeDrawableIfNeeded()
     }
 
-    /// Resize the drawable to the current bounds × backing scale, and redraw — but
-    /// only when the size actually changed. A redundant layout/backing pass (SwiftUI
-    /// fires these at the unrelated telemetry cadence) must not trigger a Metal
-    /// present, per the on-demand discipline.
+    /// Resize the drawable to bounds × backing scale and redraw — but only when the
+    /// size actually changed, so a redundant layout pass costs no Metal present.
     private func resizeDrawableIfNeeded() {
         guard let ml = layer as? CAMetalLayer else { return }
         let scale = window?.backingScaleFactor ?? 1.0
@@ -158,8 +214,6 @@ final class MetalHostNSView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // Always remove then re-add so the view tracks exactly its current window,
-        // including the move-between-windows case.
         NotificationCenter.default.removeObserver(
             self,
             name: NSWindow.didChangeOcclusionStateNotification,
@@ -172,7 +226,6 @@ final class MetalHostNSView: NSView {
                 name: NSWindow.didChangeOcclusionStateNotification,
                 object: win
             )
-            // Fire any draw that was parked before we had a window.
             setNeedsDraw()
         }
     }
@@ -191,58 +244,63 @@ final class MetalHostNSView: NSView {
 
     private func performDraw() {
         guard isEnabled else { return }
-        guard let queue = commandQueue else { return }  // nil when headless
-        guard let ml = layer as? CAMetalLayer else { return }
+        guard let renderer, let ml = layer as? CAMetalLayer else { return } // inert when headless
         guard ml.drawableSize.width > 0, ml.drawableSize.height > 0 else {
-            // Layout hasn't run yet; layout() will call setNeedsDraw() once bounds are known.
-            pendingDraw = true
+            pendingDraw = true // layout() will re-fire once bounds are known
             return
         }
         guard window?.occlusionState.contains(.visible) ?? false else {
-            // Window is occluded; occlusionStateDidChange() will re-fire when it becomes visible.
+            pendingDraw = true // occlusionStateDidChange() re-fires when visible
+            return
+        }
+        guard let commandQueue else {
             pendingDraw = true
             return
         }
-
-        // Reference fill: paper-white-relative (0.05, 0.05, 0.06) — a dark near-black with a
-        // slight blue shift matching the eDEX terminal background. At headroom 1.0 the tonemap
-        // is identity on [0, 1], so the output is unchanged → pixel-identical SDR clear
-        // (Spike B acceptance: SDR parity when headroom == 1.0).
-        let mapped = headroom.tonemap.map(red: 0.05, green: 0.05, blue: 0.06)
-
         guard let drawable = ml.nextDrawable() else {
-            // Drawable pool transiently exhausted; no external trigger will wake us
-            // (we're visible, sized, enabled), so schedule a bounded one-shot retry.
             pendingDraw = true
             scheduleRetryWhileVisible()
             return
         }
-
-        let passDesc = MTLRenderPassDescriptor()
-        passDesc.colorAttachments[0].texture = drawable.texture
-        passDesc.colorAttachments[0].loadAction = .clear
-        passDesc.colorAttachments[0].storeAction = .store
-        passDesc.colorAttachments[0].clearColor = MTLClearColor(
-            red: mapped.red, green: mapped.green, blue: mapped.blue, alpha: 1.0
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else {
+            pendingDraw = true
+            scheduleRetryWhileVisible()
+            return
+        }
+        renderer.encode(
+            uniforms: makeUniforms(drawableSize: ml.drawableSize),
+            into: drawable.texture,
+            commandBuffer: commandBuffer
         )
-
-        guard let buffer = queue.makeCommandBuffer(),
-              let encoder = buffer.makeRenderCommandEncoder(descriptor: passDesc) else {
-            pendingDraw = true
-            scheduleRetryWhileVisible()
-            return
-        }
-        encoder.endEncoding()
-        buffer.present(drawable)
-        buffer.commit()
-        // Clear only on successful commit so a transient failure is retried.
-        pendingDraw = false
+        commandBuffer.present(drawable)
+        commandBuffer.commit()
+        pendingDraw = false // cleared only on a successful commit
     }
 
-    /// One-shot, coalesced retry for transient GPU-allocation failures. Unlike the
-    /// occlusion/zero-size parks (which have their own wake-up events), an allocation
-    /// failure while visible would otherwise never retry. Bounded by `retryScheduled`
-    /// so repeated failures can't spin a tight loop — at most one retry per frame.
+    /// Build the per-frame uniforms from the current bounds, theme accent, live
+    /// headroom, and CRT toggles. Geometry comes from `TerminalAestheticMetrics`
+    /// (points); the uniforms init scales to the drawable's pixels.
+    private func makeUniforms(drawableSize: CGSize) -> TerminalAestheticUniforms {
+        let scale = window?.backingScaleFactor ?? 1.0
+        let metrics = TerminalAestheticMetrics(surfaceHeight: Double(bounds.height), vh: vh)
+        let accent = theme.palette.accent
+        return TerminalAestheticUniforms(
+            metrics: metrics,
+            surfaceWidthPx: Double(drawableSize.width),
+            surfaceHeightPx: Double(drawableSize.height),
+            contentScale: Double(scale),
+            accentLinear: (
+                r: TerminalAestheticUniforms.srgbToLinear(accent.red),
+                g: TerminalAestheticUniforms.srgbToLinear(accent.green),
+                b: TerminalAestheticUniforms.srgbToLinear(accent.blue)
+            ),
+            headroom: headroom,
+            crt: crt
+        )
+    }
+
+    /// One-shot, coalesced retry for transient GPU-allocation failures while
+    /// visible — they have no other wake-up event. Bounded by `retryScheduled`.
     private func scheduleRetryWhileVisible() {
         guard !retryScheduled else { return }
         retryScheduled = true

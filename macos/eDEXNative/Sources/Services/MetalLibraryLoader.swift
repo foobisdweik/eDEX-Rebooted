@@ -1,39 +1,39 @@
 import Foundation
 import Metal
+import EdexRenderingSupport
 
-/// Spike 0 plumbing: proves the precompiled-`.metallib` delivery path works end
-/// to end — the offline-built `default.metallib` is bundled as a package
-/// resource and loads via `makeDefaultLibrary(bundle:)` with no runtime shader
-/// compilation. It is otherwise inert; real shaders arrive in Spike C.
+/// Smoke-check plumbing: proves the precompiled-`.metallib` delivery path works
+/// end to end — the offline-built `default.metallib` (bundled with
+/// `EdexRenderingSupport`) loads via `makeDefaultLibrary(bundle:)` with no runtime
+/// shader compilation, and exposes the aesthetic shader's entry points (Spike C).
 enum MetalLibraryLoader {
-    /// The placeholder fragment function compiled into `default.metallib`.
-    /// Used only to confirm the loaded library exposes its functions.
-    static let placeholderFunctionName = "edexPlaceholderFragment"
+    /// The aesthetic fragment function compiled into `default.metallib`. Asserting
+    /// its presence confirms the loaded library is the real, current one.
+    static let requiredFunctionName = AestheticMetalLibrary.fragmentFunctionName
 
     enum LoadResult: Equatable {
         /// No Metal device (e.g. a headless CI VM). Not a failure — there is
-        /// nothing to load against, and Spike 0 must not gate CI on a GPU.
+        /// nothing to load against, and the smoke check must not gate on a GPU.
         case unavailable
         case loaded(functionNames: [String])
         case failed(reason: String)
     }
 
-    /// Loads the bundled `default.metallib` from the executable target's resource
+    /// Loads the bundled `default.metallib` from `EdexRenderingSupport`'s resource
     /// bundle. Never throws; callers inspect the `LoadResult`.
     static func loadDefaultLibrary() -> LoadResult {
         guard let device = MTLCreateSystemDefaultDevice() else {
             return .unavailable
         }
         do {
-            let library = try device.makeDefaultLibrary(bundle: .module)
+            let library = try AestheticMetalLibrary.makeLibrary(device: device)
             let functionNames = library.functionNames
-            // Finding *a* default.metallib is not enough: a stale or wrong
-            // library would still load. Assert the offline-compiled placeholder
-            // function is actually present so the smoke check verifies the
-            // delivery path end to end.
-            guard functionNames.contains(placeholderFunctionName) else {
+            // Finding *a* default.metallib is not enough: a stale or wrong library
+            // would still load. Assert the offline-compiled aesthetic fragment is
+            // actually present so the smoke check verifies the delivery path.
+            guard functionNames.contains(requiredFunctionName) else {
                 return .failed(
-                    reason: "default.metallib is missing \(placeholderFunctionName); found \(functionNames)"
+                    reason: "default.metallib is missing \(requiredFunctionName); found \(functionNames)"
                 )
             }
             return .loaded(functionNames: functionNames)

@@ -3,7 +3,8 @@
 #
 # DECIDED: shaders are precompiled to a `.metallib` offline and bundled as a
 # package resource — there is NO runtime shader compilation. This script is the
-# single source of truth for producing macos/eDEXNative/Sources/Shaders/default.metallib
+# single source of truth for producing
+# macos/eDEXNative/Sources/EdexRenderingSupport/Shaders/default.metallib
 # from the `.metal` sources in the same directory, pinned to the Metal 4.1
 # baseline (macOS 27 toolchain floor).
 #
@@ -12,7 +13,7 @@
 set -euo pipefail
 
 std="metal4.1"
-shaders_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../Sources/Shaders" && pwd)"
+shaders_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../Sources/EdexRenderingSupport/Shaders" && pwd)"
 out="${shaders_dir}/default.metallib"
 
 shopt -s nullglob

@@ -17,18 +17,6 @@ struct ContentView: View {
             )
 
             ZStack(alignment: .topLeading) {
-                // Spike B: Metal presentation substrate, default-off. Conditionally
-                // mounted so the off path allocates no Metal device/queue/layer at
-                // all; the bottom-most layer so it never alters the SDR composite.
-                if state.settingsSummary.metalHostEnabled {
-                    MetalHostView(
-                        headroom: state.displayHeadroom,
-                        reducedMotion: state.settingsSummary.reducedMotion,
-                        isEnabled: true
-                    )
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .allowsHitTesting(false)
-                }
                 background(size: proxy.size)
                 column(layout.leftColumn, title: "SYSTEM", subtitle: "", side: .left, vh: layout.vh)
                 mainShell(layout.mainShell, vh: layout.vh)
@@ -172,7 +160,24 @@ struct ContentView: View {
                 .id(state.terminal.activeTab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(state.theme.terminalBackground.opacity(0.92))
-                .overlay { EdexTerminalAesthetic(theme: state.theme, vh: vh) }
+                .overlay {
+                    if state.settingsSummary.metalHostEnabled {
+                        MetalHostView(
+                            theme: state.theme,
+                            vh: vh,
+                            headroom: state.displayHeadroom,
+                            crt: CRTSettings(
+                                curvature: state.settingsSummary.crtCurvature,
+                                bloom: state.settingsSummary.crtBloom,
+                                chromaticAberration: state.settingsSummary.crtChromaticAberration
+                            ),
+                            reducedMotion: state.settingsSummary.reducedMotion,
+                            isEnabled: true
+                        )
+                    } else {
+                        EdexTerminalAesthetic(theme: state.theme, vh: vh)
+                    }
+                }
         }
         .padding(8)
         .augmentedSurface(
