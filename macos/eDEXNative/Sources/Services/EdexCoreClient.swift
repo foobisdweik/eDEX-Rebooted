@@ -37,7 +37,11 @@ struct EdexCoreClient {
             fsListView: decodedSettings.fsListView ?? false,
             reducedMotion: decodedSettings.reducedMotion ?? false,
             audioSettings: (try? JSONDecoder().decode(EdexAudioSettings.self, from: settingsData)) ?? EdexAudioSettings(),
-            byteCount: settingsData.count
+            byteCount: settingsData.count,
+            brightnessProfileID: decodedSettings.brightnessProfileID ?? "liquid-retina-xdr-16",
+            paperWhiteNits: decodedSettings.paperWhiteNits ?? 203,
+            peakNits: decodedSettings.peakNits ?? 1600,
+            luminanceFloorNits: decodedSettings.luminanceFloorNits ?? 0
         )
 
         let theme: NativeTheme
@@ -179,4 +183,8 @@ private struct SettingsFile: Decodable {
     var hideDotfiles: Bool?
     var fsListView: Bool?
     var reducedMotion: Bool?
+    var brightnessProfileID: String?
+    var paperWhiteNits: Double?
+    var peakNits: Double?
+    var luminanceFloorNits: Double?
 }

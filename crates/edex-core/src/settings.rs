@@ -83,7 +83,11 @@ pub fn default_settings() -> Value {
         "experimentalNativeClock": false,
         "experimentalNativeSysinfo": false,
         "experimentalNativeHwInspector": false,
-        "experimentalNativeModal": false
+        "experimentalNativeModal": false,
+        "brightnessProfileID": "liquid-retina-xdr-16",
+        "paperWhiteNits": 203,
+        "peakNits": 1600,
+        "luminanceFloorNits": 0
     })
 }
 

@@ -1534,4 +1534,8 @@ struct SettingsSummary: Sendable {
     var reducedMotion = false
     var audioSettings = EdexAudioSettings()
     var byteCount: Int?
+    var brightnessProfileID = "liquid-retina-xdr-16"
+    var paperWhiteNits: Double = 203
+    var peakNits: Double = 1600
+    var luminanceFloorNits: Double = 0
 }
