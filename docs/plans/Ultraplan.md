@@ -162,13 +162,31 @@ element **only** on a measured win that preserves the on-demand cadence.
   `CAShapeLayer`+transform — regressing it reintroduces the ~46% WindowServer pin) and
   text (CoreText is already GPU-accelerated and correct).
 
-### Phase E — 4.1-era feature headroom (future, no spike)
+### Phase E — 4.1-era feature headroom (future)
 
-The floor unlocks 4.1-only features (cooperative tensors, FP8/block-scaling, etc.) but
-**this plan consumes none of them.** If a later effect wants one, it still needs a
-**runtime GPU-family capability check** (macOS 27 floor ≠ a given Apple-GPU-family
-feature). Gate per-feature; fail clearly with no silent semantic fallback. Noted only so
-ultraplan knows the floor-raise's stated upside is deferred, not used here.
+The floor unlocks 4.1-only features (cooperative tensors, FP8/block-scaling, etc.).
+Spikes A–D consume none of them; the concrete 4.1 adoption is deferred to Phase E.
+
+**Decision — Phase E will implement these three Metal 4.1 features:**
+1. **Acquire/release memory ordering** — directional `memory_order_acquire`/`release`
+   on barriers and atomics, for the weakest-correct producer/consumer synchronization
+   in any GPU-side state the render path grows (vs. paying full `seq_cst`), preserving
+   the on-demand idle-power discipline.
+2. **The texture-read family** — clamp-to-edge reads, integer offsets (`[-8, +7]`), and
+   `block_read`/`sparse_block_read` multipixel reads, the natural primitives for the
+   CRT resampling surface (chromatic-aberration per-channel offsets, branchless
+   curvature-edge clamping, neighbor-tap reads).
+3. **`interleave`/`deinterleave`** — the Morton-order (Z-order) bit functions in
+   `<metal_integer>`, for cache-coherent buffer-indexed scatter/gather where a measured
+   win exists (not for texture coordinates, which Apple-Silicon hardware already
+   tile-swizzles).
+
+Each still requires a **runtime GPU-family capability check** (macOS 27 floor ≠ a given
+Apple-GPU-family feature). Gate per-feature; fail clearly with no silent semantic
+fallback. Adopt each only behind that check and, where Phase E broadens render work, on
+a measured win (mirroring Spike D's discipline). The other 4.1 groups (placement `new`,
+RTZ float conversion, intersection `function_id`, packed FP4/FP8 numerics, multiplane
+tensors, expanded MPP matmul) remain unused unless a future effect justifies one.
 
 ---
 
