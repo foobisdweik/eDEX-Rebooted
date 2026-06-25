@@ -83,7 +83,11 @@ pub fn default_settings() -> Value {
         "experimentalNativeClock": false,
         "experimentalNativeSysinfo": false,
         "experimentalNativeHwInspector": false,
-        "experimentalNativeModal": false
+        "experimentalNativeModal": false,
+        "brightnessProfileID": "liquid-retina-xdr-16",
+        "paperWhiteNits": 203,
+        "peakNits": 1600,
+        "luminanceFloorNits": 0
     })
 }
 
@@ -322,10 +326,22 @@ pub fn get_displays() -> Vec<DisplayInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::{mirror_bundled_file, validate_basename};
+    use super::{default_settings, mirror_bundled_file, validate_basename};
     use std::fs;
     use std::path::PathBuf;
     use std::time::Duration;
+
+    #[test]
+    fn default_settings_includes_brightness_keys() {
+        // The canonical Spike-A brightness defaults match this build's target
+        // display (built-in Liquid Retina XDR). This is the real home for default
+        // coverage — the Swift test target cannot see default_settings().
+        let settings = default_settings();
+        assert_eq!(settings["brightnessProfileID"], "liquid-retina-xdr-16");
+        assert_eq!(settings["paperWhiteNits"], 203);
+        assert_eq!(settings["peakNits"], 1600);
+        assert_eq!(settings["luminanceFloorNits"], 0);
+    }
 
     #[test]
     fn mirror_bundled_file_skips_identical_bytes() {
