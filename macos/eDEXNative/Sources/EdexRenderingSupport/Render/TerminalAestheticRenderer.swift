@@ -99,7 +99,11 @@ public final class TerminalAestheticRenderer {
         commandBuffer.commit()
         commandBuffer.waitUntilCompleted()
 
-        let bytesPerRow = width * 4
+        // Match the texture's bytes-per-pixel to the configured format — an
+        // .rgba16Float (HDR) target is 8 bytes/px, not 4. Hardcoding 4 would let
+        // getBytes overrun the buffer on an extended-range renderer.
+        let bytesPerPixel = pixelFormat == .rgba16Float ? 8 : 4
+        let bytesPerRow = width * bytesPerPixel
         var bytes = [UInt8](repeating: 0, count: bytesPerRow * height)
         bytes.withUnsafeMutableBytes { raw in
             texture.getBytes(

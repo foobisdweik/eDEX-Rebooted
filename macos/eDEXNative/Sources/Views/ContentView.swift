@@ -174,6 +174,7 @@ struct ContentView: View {
                             reducedMotion: state.settingsSummary.reducedMotion,
                             isEnabled: true
                         )
+                        .allowsHitTesting(false)
                     } else {
                         EdexTerminalAesthetic(theme: state.theme, vh: vh)
                     }

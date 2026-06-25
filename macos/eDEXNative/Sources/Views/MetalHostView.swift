@@ -304,10 +304,18 @@ final class MetalHostNSView: NSView {
     private func scheduleRetryWhileVisible() {
         guard !retryScheduled else { return }
         retryScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 60.0) { @MainActor [weak self] in
             guard let self else { return }
             self.retryScheduled = false
             if self.pendingDraw { self.performDraw() }
         }
+    }
+
+    /// The aesthetic is a purely decorative overlay above the interactive SwiftTerm
+    /// view; it must be transparent to input so clicks, drag-to-select, and scroll
+    /// reach the terminal beneath (the legacy Canvas overlay used
+    /// `.allowsHitTesting(false)` — this is the AppKit-level equivalent).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }

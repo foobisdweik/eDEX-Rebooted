@@ -27,7 +27,10 @@ final class ShellState: EdexActionHandler {
     /// `.sdr` until the first probe; refreshed on screen-parameter changes and on
     /// settings changes. The Metal host reads this to pick its surface + tonemap.
     var displayHeadroom: DisplayHeadroom = .sdr
-    @ObservationIgnored private var screenParamsObserver: NSObjectProtocol?
+    // `nonisolated(unsafe)`: read from the nonisolated `deinit` for observer
+    // teardown. Safe — written once on the MainActor during setup, read once at
+    // deallocation; no concurrent access.
+    @ObservationIgnored nonisolated(unsafe) private var screenParamsObserver: NSObjectProtocol?
     var uptimeSeconds: UInt64 = 0
     var battery: FfiBattery?
     var hardware: FfiHardware?
