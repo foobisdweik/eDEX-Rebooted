@@ -26,3 +26,13 @@ harness = false
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }
+
+# macOS-27 dyld requires LC_SYMTAB.stroff (the __LINKEDIT string pool) to be
+# 8-byte aligned, or it refuses to dlopen the cdylib ("mis-aligned LINKEDIT
+# string pool"). Cargo's default release build strips the cdylib in a way that
+# lands stroff at offset%8==4; forcing strip="none" shifts the string pool onto
+# the 8-byte boundary dyld accepts. Verified: default -> mod8=4 (dlopen FAIL),
+# strip="none" -> mod8=0 (dlopen OK) on macOS 27.0. A CI check asserts the
+# alignment holds for every shipped Mach-O so future drift fails loudly.
+[profile.release]
+strip = "none"

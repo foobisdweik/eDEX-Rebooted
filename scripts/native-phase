@@ -106,6 +106,32 @@ build_ffi_dylib() {
   local root
   root="$(repo_root)"
   run_in "$root/crates/edex-ffi" cargo build --release
+  assert_linkedit_aligned "$root/crates/edex-ffi/target/release/libedex_ffi.dylib"
+}
+
+# macOS-27 dyld refuses to dlopen a Mach-O whose LC_SYMTAB string-pool offset
+# (stroff) is not 8-byte aligned, failing with "mis-aligned LINKEDIT string
+# pool". edex-ffi's release profile sets strip="none" to land stroff on the
+# 8-byte boundary; this guard fails the build loudly if that alignment ever
+# drifts (a toolchain bump or code change shifting the string pool) instead of
+# shipping a dylib dyld will reject at runtime. Copilot's PR-review suggestion.
+assert_linkedit_aligned() {
+  local image="$1" stroff
+  if [[ ! -f "$image" ]]; then
+    printf 'native-phase: %s not found for __LINKEDIT alignment check\n' "$image" >&2
+    return 1
+  fi
+  stroff="$(otool -l "$image" | awk '/cmd LC_SYMTAB/{f=1} f&&/stroff/{print $2; exit}')"
+  if [[ -z "$stroff" ]]; then
+    printf 'native-phase: could not read LC_SYMTAB stroff from %s\n' "$image" >&2
+    return 1
+  fi
+  if (( stroff % 8 != 0 )); then
+    printf 'native-phase: %s has a mis-aligned __LINKEDIT string pool (stroff=%s, mod8=%s); macOS-27 dyld will refuse to load it. The release strip="none" alignment fix has drifted.\n' \
+      "$image" "$stroff" "$(( stroff % 8 ))" >&2
+    return 1
+  fi
+  printf 'native-phase: __LINKEDIT string pool 8-byte aligned (stroff=%s): %s\n' "$stroff" "$image"
 }
 
 # Xcode-27-beta linker workaround. Its `ld` rejects the standard 4-byte-aligned
