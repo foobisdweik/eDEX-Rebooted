@@ -8,11 +8,12 @@
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{hash_map::Entry, HashMap};
-use std::sync::{Mutex, Once};
+use std::sync::{Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
 use sysinfo::{Components, Disks, Networks, Pid, ProcessStatus, System};
 
 static RAYON_POOL: Once = Once::new();
+static HARDWARE_MODEL: OnceLock<String> = OnceLock::new();
 
 /// Cap rayon's global pool before sysinfo's parallel process refresh runs.
 fn init_rayon_pool() {
@@ -479,7 +480,7 @@ impl SysinfoService {
     pub fn system(&self) -> SystemInfo {
         SystemInfo {
             manufacturer: "Apple".to_string(),
-            model: System::host_name().unwrap_or_default(),
+            model: hardware_model_identifier(),
             version: System::os_version().unwrap_or_default(),
             serial: String::new(),
             uuid: String::new(),
@@ -518,6 +519,55 @@ const PROCESS_SNAPSHOT_TTL: Duration = Duration::from_millis(1000);
 /// cached value — cutting ~60 reads/min to ~4 while keeping the gauge live.
 const TEMP_SNAPSHOT_TTL: Duration = Duration::from_millis(15_000);
 const BATTERY_SNAPSHOT_TTL: Duration = Duration::from_secs(10);
+
+fn hardware_model_identifier() -> String {
+    HARDWARE_MODEL
+        .get_or_init(read_hardware_model_identifier)
+        .clone()
+}
+
+#[cfg(target_os = "macos")]
+fn read_hardware_model_identifier() -> String {
+    let name = b"hw.model\0";
+    let mut len: libc::size_t = 0;
+    let size_rc = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr().cast(),
+            std::ptr::null_mut(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if size_rc != 0 || len == 0 {
+        return String::new();
+    }
+
+    let mut buf = vec![0u8; len];
+    let read_rc = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr().cast(),
+            buf.as_mut_ptr().cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if read_rc != 0 || len == 0 {
+        return String::new();
+    }
+
+    buf.truncate(len);
+    if matches!(buf.last(), Some(0)) {
+        buf.pop();
+    }
+    String::from_utf8_lossy(&buf).trim().to_string()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_hardware_model_identifier() -> String {
+    String::new()
+}
 
 struct SystemState {
     sys: System,
@@ -1358,6 +1408,22 @@ mod tests {
             assert_eq!(
                 process_status_display(status).as_ref(),
                 format!("{status:?}")
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn hardware_model_identifier_is_not_hostname() {
+        let model = hardware_model_identifier();
+        assert!(
+            !model.is_empty(),
+            "hardware model should resolve from hw.model"
+        );
+        if let Some(hostname) = System::host_name() {
+            assert_ne!(
+                model, hostname,
+                "hardware model should not regress to the hostname"
             );
         }
     }
