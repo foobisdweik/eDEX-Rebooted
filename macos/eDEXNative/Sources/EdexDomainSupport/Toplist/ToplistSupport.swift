@@ -108,7 +108,8 @@ public struct EdexToplistFormatter: Sendable {
     public func percentText(_ value: Double) -> String {
         guard value.isFinite else { return "0%" }
         let rounded = (value * 10).rounded() / 10
-        if rounded.rounded() == rounded, rounded >= Double(Int.min), rounded <= Double(Int.max) {
+        guard rounded.isFinite else { return "0%" }
+        if rounded.rounded() == rounded, rounded >= Double(Int.min), rounded < Double(Int.max) {
             return "\(Int(rounded))%"
         }
         return "\(rounded)%"
@@ -196,7 +197,7 @@ public struct EdexToplistFormatter: Sendable {
 
     public func runtimeText(started: Date, now: Date = Date()) -> String {
         let diff = now.timeIntervalSince(started)
-        guard diff.isFinite, diff >= Double(Int.min), diff <= Double(Int.max) else {
+        guard diff.isFinite, diff >= Double(Int.min), diff < Double(Int.max) else {
             return "00:00:00:00"
         }
         let totalSeconds = max(0, Int(diff))

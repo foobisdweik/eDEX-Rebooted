@@ -459,7 +459,7 @@ impl SysinfoService {
                     } else {
                         "disk".to_string()
                     },
-                    fs_type: format!("{:?}", d.file_system().to_string_lossy()),
+                    fs_type: d.file_system().to_string_lossy().to_string(),
                     mount: d.mount_point().to_string_lossy().to_string(),
                     size: d.total_space(),
                     physical: "SSD".to_string(),
@@ -1376,6 +1376,23 @@ mod tests {
             ]),
             "/bin/zsh -l -i"
         );
+    }
+
+    #[test]
+    fn block_devices_fs_type_is_not_debug_quoted() {
+        let service = SysinfoService::new();
+        let devices = service.block_devices().expect("block devices");
+
+        for device in devices {
+            if device.fs_type.is_empty() {
+                continue;
+            }
+            assert!(
+                !device.fs_type.starts_with('"') && !device.fs_type.ends_with('"'),
+                "fs_type should be plain text, not Debug output: {:?}",
+                device.fs_type
+            );
+        }
     }
 
     #[test]
