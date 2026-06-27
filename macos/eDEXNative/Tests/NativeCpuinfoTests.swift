@@ -49,6 +49,11 @@ final class NativeCpuinfoTests: XCTestCase {
         XCTAssertEqual(formatter.average(loads: [.infinity, -.infinity]), 0)
     }
 
+    func testAverageRejectsOutOfIntRangeLoads() {
+        XCTAssertEqual(formatter.average(loads: [.greatestFiniteMagnitude]), 0)
+        XCTAssertEqual(formatter.average(loads: [Double(Int.max)]), 0)
+    }
+
     // MARK: - Footer cell formatting
 
     func testTemperatureTextDropsTrailingZeroAndAddsUnit() {

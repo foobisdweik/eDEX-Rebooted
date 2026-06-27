@@ -14,6 +14,11 @@ final class NativeToplistTests: XCTestCase {
         XCTAssertEqual(formatter.percentText(.infinity), "0%")
     }
 
+    func testPercentTextHandlesOutOfIntRangeWithoutCrashing() {
+        XCTAssertEqual(formatter.percentText(Double(Int.max)), "\(Double(Int.max))%")
+        XCTAssertEqual(formatter.percentText(.greatestFiniteMagnitude), "0%")
+    }
+
     func testDefaultSortUsesLegacyCpuMemoryScoreDescending() {
         let rows = [
             EdexProcessRow(pid: 1, name: "mem", user: "u", cpu: 1, mem: 90, state: "Sleep", started: "2026-06-02T10:00:00Z"),
@@ -67,6 +72,13 @@ final class NativeToplistTests: XCTestCase {
     func testRuntimeTextReturnsZeroForFutureDates() {
         let started = ISO8601DateFormatter().date(from: "2026-06-03T08:09:10Z")!
         let now = ISO8601DateFormatter().date(from: "2026-06-02T10:11:13Z")!
+
+        XCTAssertEqual(formatter.runtimeText(started: started, now: now), "00:00:00:00")
+    }
+
+    func testRuntimeTextRejectsOutOfIntRangeInterval() {
+        let started = Date(timeIntervalSinceReferenceDate: 0)
+        let now = Date(timeIntervalSinceReferenceDate: Double(Int.max))
 
         XCTAssertEqual(formatter.runtimeText(started: started, now: now), "00:00:00:00")
     }
