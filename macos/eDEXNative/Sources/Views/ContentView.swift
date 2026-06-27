@@ -139,6 +139,7 @@ struct ContentView: View {
                                     stroke: state.theme.accent
                                 )
                         }
+                        .contentShape(Rectangle())
                         .buttonStyle(.plain)
 
                         if state.terminal.aliveTabs.contains(index - 1) {
@@ -150,6 +151,7 @@ struct ContentView: View {
                                     .padding(3)
                                     .foregroundStyle(selected ? state.theme.panelBackground : state.theme.accent.opacity(0.8))
                             }
+                            .contentShape(Rectangle())
                             .buttonStyle(.plain)
                             .help("Close shell \(index)")
                         }
@@ -801,6 +803,7 @@ private struct EdexSettingsForm: View {
                 .foregroundStyle(theme.accent)
                 .background(theme.accent.opacity(0.18))
         }
+        .contentShape(Rectangle())
         .buttonStyle(.plain)
     }
 
@@ -1035,6 +1038,7 @@ private struct EdexTextEditorView: View {
                         .foregroundStyle(theme.accent)
                         .background(theme.accent.opacity(0.18))
                 }
+                .contentShape(Rectangle())
                 .buttonStyle(.plain)
             }
         }
@@ -1082,6 +1086,7 @@ private struct EdexFuzzyFinderView: View {
                             } label: {
                                 resultRow(item, selected: index == state.fuzzySelection)
                             }
+                            .contentShape(Rectangle())
                             .buttonStyle(.plain)
                         } else {
                             emptyRow
@@ -1111,6 +1116,7 @@ private struct EdexFuzzyFinderView: View {
                         .foregroundStyle(theme.accent)
                         .background(theme.accent.opacity(0.18))
                 }
+                .contentShape(Rectangle())
                 .buttonStyle(.plain)
             }
         }
@@ -1317,6 +1323,7 @@ private struct EdexProcessListTable: View {
                 .frame(width: width, height: 24)
                 .background(theme.accent.opacity(0.72))
         }
+        .contentShape(Rectangle())
         .buttonStyle(.plain)
     }
 
@@ -1453,6 +1460,7 @@ private struct EdexFilesystemPanel: View {
                 .foregroundStyle(active ? theme.accent : theme.accent.opacity(0.35))
                 .frame(width: 20, height: 16)
         }
+        .contentShape(Rectangle())
         .buttonStyle(.plain)
     }
 
@@ -1480,6 +1488,7 @@ private struct EdexFilesystemPanel: View {
             ) {
                 ForEach(visibleItems) { item in
                     Button { state.activateFsItem(item) } label: { gridCell(item) }
+                        .contentShape(Rectangle())
                         .buttonStyle(.plain)
                 }
             }
@@ -1507,6 +1516,7 @@ private struct EdexFilesystemPanel: View {
             LazyVStack(spacing: 0) {
                 ForEach(visibleItems) { item in
                     Button { state.activateFsItem(item) } label: { listRow(item) }
+                        .contentShape(Rectangle())
                         .buttonStyle(.plain)
                 }
             }
@@ -1547,6 +1557,7 @@ private struct EdexFilesystemPanel: View {
             } label: {
                 barLabel(text: "EXIT DISPLAY", fill: 1.0)
             }
+            .contentShape(Rectangle())
             .buttonStyle(.plain)
         } else if let usage = state.fsDiskUsage {
             let pct = DiskUsageFormatter.percent(usage)

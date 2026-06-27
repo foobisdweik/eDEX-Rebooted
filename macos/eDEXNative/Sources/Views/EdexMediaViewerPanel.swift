@@ -208,6 +208,7 @@ struct EdexMediaViewerView: View {
         }
         .buttonStyle(.plain)
         .frame(width: 28, height: 28)
+        .contentShape(Rectangle())
     }
 
     /// Hashable key so the image (re)loads when either the path or the expanded

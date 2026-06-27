@@ -553,6 +553,7 @@ struct ToplistPanel: View {
                 stroke: state.theme.accent
             )
         }
+        .contentShape(Rectangle())
         .buttonStyle(.plain)
         .task {
             // Compact top-five table. Polled every 5s (Finding #3): this panel is
