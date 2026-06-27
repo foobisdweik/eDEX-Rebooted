@@ -102,6 +102,24 @@ final class TerminalAestheticUniformsTests: XCTestCase {
         XCTAssertEqual(u.accentB, 0.95, accuracy: 1e-6)
     }
 
+    func testNonFiniteUniformInputsCollapseToZeroAndDefaultScale() {
+        let u = makeUniforms(
+            surfaceW: .nan,
+            surfaceH: .infinity,
+            scale: .nan,
+            accentLinear: (r: .nan, g: .infinity, b: -.infinity)
+        )
+
+        XCTAssertEqual(u.surfaceWidthPx, 0)
+        XCTAssertEqual(u.surfaceHeightPx, 0)
+        XCTAssertEqual(u.scanlineSpacingPx, Float(stdMetrics.scanlineSpacing), accuracy: 0.001)
+        XCTAssertEqual(u.scanlineThicknessPx, Float(stdMetrics.scanlineThickness), accuracy: 0.001)
+        XCTAssertEqual(u.glowRadiusPx, Float(stdMetrics.glowRadius), accuracy: 0.001)
+        XCTAssertEqual(u.accentR, 0)
+        XCTAssertEqual(u.accentG, 0)
+        XCTAssertEqual(u.accentB, 0)
+    }
+
     // MARK: - CRT bool → UInt32 mapping
 
     func testCrtAllFalseProducesZeroFlags() {
@@ -116,6 +134,37 @@ final class TerminalAestheticUniformsTests: XCTestCase {
         XCTAssertEqual(u.crtCurvature, 1)
         XCTAssertEqual(u.crtBloom, 1)
         XCTAssertEqual(u.crtChromaticAberration, 1)
+    }
+
+    func testCrtSettingsClampNegativeAndNonFiniteAmounts() {
+        let crt = CRTSettings(
+            curvature: true,
+            bloom: true,
+            chromaticAberration: true,
+            curvatureAmount: -1,
+            bloomAmount: .nan,
+            chromaticAmount: .infinity
+        )
+
+        XCTAssertEqual(crt.curvatureAmount, 0)
+        XCTAssertEqual(crt.bloomAmount, 0)
+        XCTAssertEqual(crt.chromaticAmount, 0)
+    }
+
+    func testCrtAmountsAreCopiedAndChromaticOffsetScalesToPixels() {
+        let crt = CRTSettings(
+            curvature: true,
+            bloom: true,
+            chromaticAberration: true,
+            curvatureAmount: 0.25,
+            bloomAmount: 2.5,
+            chromaticAmount: 1.75
+        )
+        let u = makeUniforms(scale: 3.0, crt: crt)
+
+        XCTAssertEqual(u.crtCurvatureAmount, 0.25, accuracy: 1e-6)
+        XCTAssertEqual(u.crtBloomAmount, 2.5, accuracy: 1e-6)
+        XCTAssertEqual(u.crtChromaticAmount, 5.25, accuracy: 1e-6)
     }
 
     // MARK: - SDR parity (combined default-off intent)
