@@ -558,15 +558,17 @@ fn read_hardware_model_identifier() -> String {
     }
 
     buf.truncate(len);
-    if matches!(buf.last(), Some(0)) {
-        buf.pop();
-    }
-    String::from_utf8_lossy(&buf).trim().to_string()
+    string_from_sysctl_buffer(&buf)
 }
 
 #[cfg(not(target_os = "macos"))]
 fn read_hardware_model_identifier() -> String {
     String::new()
+}
+
+fn string_from_sysctl_buffer(buf: &[u8]) -> String {
+    let end = buf.iter().position(|byte| *byte == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).trim().to_string()
 }
 
 struct SystemState {
@@ -1426,6 +1428,11 @@ mod tests {
                 "hardware model should not regress to the hostname"
             );
         }
+    }
+
+    #[test]
+    fn sysctl_string_stops_at_first_null_byte() {
+        assert_eq!(string_from_sysctl_buffer(b"Mac15,9\0ignored"), "Mac15,9");
     }
 
     #[test]
