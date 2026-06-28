@@ -195,20 +195,22 @@ struct EdexMediaViewerView: View {
     @ViewBuilder
     private func controlButton(named: String, fallback: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            if let icon = FileIconProvider.shared.controlImage(named: named, theme: theme) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 18, height: 18)
-            } else {
-                Image(systemName: fallback)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(theme.accent)
+            Group {
+                if let icon = FileIconProvider.shared.controlImage(named: named, theme: theme) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 18, height: 18)
+                } else {
+                    Image(systemName: fallback)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(theme.accent)
+                }
             }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .frame(width: 28, height: 28)
-        .contentShape(Rectangle())
     }
 
     /// Hashable key so the image (re)loads when either the path or the expanded
