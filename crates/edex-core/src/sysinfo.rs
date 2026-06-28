@@ -8,11 +8,12 @@
 use serde::Serialize;
 use std::borrow::Cow;
 use std::collections::{hash_map::Entry, HashMap};
-use std::sync::{Mutex, Once};
+use std::sync::{Mutex, Once, OnceLock};
 use std::time::{Duration, Instant};
 use sysinfo::{Components, Disks, Networks, Pid, ProcessStatus, System};
 
 static RAYON_POOL: Once = Once::new();
+static HARDWARE_MODEL: OnceLock<String> = OnceLock::new();
 
 /// Cap rayon's global pool before sysinfo's parallel process refresh runs.
 fn init_rayon_pool() {
@@ -459,7 +460,7 @@ impl SysinfoService {
                     } else {
                         "disk".to_string()
                     },
-                    fs_type: format!("{:?}", d.file_system().to_string_lossy()),
+                    fs_type: d.file_system().to_string_lossy().to_string(),
                     mount: d.mount_point().to_string_lossy().to_string(),
                     size: d.total_space(),
                     physical: "SSD".to_string(),
@@ -479,7 +480,7 @@ impl SysinfoService {
     pub fn system(&self) -> SystemInfo {
         SystemInfo {
             manufacturer: "Apple".to_string(),
-            model: System::host_name().unwrap_or_default(),
+            model: hardware_model_identifier(),
             version: System::os_version().unwrap_or_default(),
             serial: String::new(),
             uuid: String::new(),
@@ -518,6 +519,62 @@ const PROCESS_SNAPSHOT_TTL: Duration = Duration::from_millis(1000);
 /// cached value — cutting ~60 reads/min to ~4 while keeping the gauge live.
 const TEMP_SNAPSHOT_TTL: Duration = Duration::from_millis(15_000);
 const BATTERY_SNAPSHOT_TTL: Duration = Duration::from_secs(10);
+
+fn hardware_model_identifier() -> String {
+    HARDWARE_MODEL
+        .get_or_init(read_hardware_model_identifier)
+        .clone()
+}
+
+#[cfg(target_os = "macos")]
+fn read_hardware_model_identifier() -> String {
+    let name = b"hw.model\0";
+    let mut len: libc::size_t = 0;
+    let size_rc = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr().cast(),
+            std::ptr::null_mut(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if size_rc != 0 || len == 0 {
+        return String::new();
+    }
+    // `hw.model` is a short identifier; cap the reported size so a corrupt
+    // sysctl response can't drive an unbounded allocation.
+    if len > 256 {
+        return String::new();
+    }
+
+    let mut buf = vec![0u8; len];
+    let read_rc = unsafe {
+        libc::sysctlbyname(
+            name.as_ptr().cast(),
+            buf.as_mut_ptr().cast(),
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if read_rc != 0 || len == 0 {
+        return String::new();
+    }
+
+    buf.truncate(len);
+    string_from_sysctl_buffer(&buf)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn read_hardware_model_identifier() -> String {
+    String::new()
+}
+
+fn string_from_sysctl_buffer(buf: &[u8]) -> String {
+    let end = buf.iter().position(|byte| *byte == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).trim().to_string()
+}
 
 struct SystemState {
     sys: System,
@@ -1362,6 +1419,27 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn hardware_model_identifier_is_not_hostname() {
+        let model = hardware_model_identifier();
+        assert!(
+            !model.is_empty(),
+            "hardware model should resolve from hw.model"
+        );
+        if let Some(hostname) = System::host_name() {
+            assert_ne!(
+                model, hostname,
+                "hardware model should not regress to the hostname"
+            );
+        }
+    }
+
+    #[test]
+    fn sysctl_string_stops_at_first_null_byte() {
+        assert_eq!(string_from_sysctl_buffer(b"Mac15,9\0ignored"), "Mac15,9");
+    }
+
     #[test]
     fn join_cmd_parts_builds_space_separated_command() {
         use std::ffi::OsString;
@@ -1376,6 +1454,23 @@ mod tests {
             ]),
             "/bin/zsh -l -i"
         );
+    }
+
+    #[test]
+    fn block_devices_fs_type_is_not_debug_quoted() {
+        let service = SysinfoService::new();
+        let devices = service.block_devices().expect("block devices");
+
+        for device in devices {
+            if device.fs_type.is_empty() {
+                continue;
+            }
+            assert!(
+                !device.fs_type.starts_with('"') && !device.fs_type.ends_with('"'),
+                "fs_type should be plain text, not Debug output: {:?}",
+                device.fs_type
+            );
+        }
     }
 
     #[test]

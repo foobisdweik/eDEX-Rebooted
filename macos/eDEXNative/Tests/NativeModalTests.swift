@@ -99,6 +99,48 @@ final class NativeModalTests: XCTestCase {
         XCTAssertEqual(manager.modal(id: second)?.offsetY, 0)
     }
 
+    func testModalLayoutSizeSanitizesNonFiniteAndNegativeDimensions() {
+        let size = ModalLayoutSize(width: -.infinity, height: .nan)
+
+        XCTAssertEqual(size.width, 0)
+        XCTAssertEqual(size.height, 0)
+    }
+
+    func testModalLayoutRectSanitizesNonFiniteOriginsAndDimensions() {
+        let rect = ModalLayoutRect(x: .nan, y: .infinity, width: -20, height: .greatestFiniteMagnitude)
+
+        XCTAssertEqual(rect.x, 0)
+        XCTAssertEqual(rect.y, 0)
+        XCTAssertEqual(rect.width, 0)
+        XCTAssertEqual(rect.height, .greatestFiniteMagnitude)
+    }
+
+    func testMoveIgnoresNonFiniteDeltas() throws {
+        let manager = EdexModalManager(idGenerator: EdexModalIdGenerator(seed: 35))
+        let id = manager.present(try .init(type: "info", title: "One", message: "First"))
+
+        manager.move(id, dx: 14, dy: 6)
+        manager.move(id, dx: .nan, dy: -.infinity)
+
+        XCTAssertEqual(manager.modal(id: id)?.offsetX, 14)
+        XCTAssertEqual(manager.modal(id: id)?.offsetY, 6)
+
+        let viewport = ModalLayoutRect(x: 0, y: 0, width: 800, height: 600)
+        manager.move(
+            id,
+            dx: .nan,
+            dy: -.infinity,
+            placement: .init(
+                viewport: viewport,
+                modalSize: ModalLayoutSize(width: 300, height: 160),
+                reserved: []
+            )
+        )
+
+        XCTAssertEqual(manager.modal(id: id)?.offsetX, 14)
+        XCTAssertEqual(manager.modal(id: id)?.offsetY, 6)
+    }
+
     func testModalPlacementKeepsRectInsideViewport() {
         let viewport = ModalLayoutRect(x: 0, y: 0, width: 800, height: 600)
         let proposed = ModalLayoutRect(x: 700, y: 540, width: 200, height: 120)
