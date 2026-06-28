@@ -542,6 +542,11 @@ fn read_hardware_model_identifier() -> String {
     if size_rc != 0 || len == 0 {
         return String::new();
     }
+    // `hw.model` is a short identifier; cap the reported size so a corrupt
+    // sysctl response can't drive an unbounded allocation.
+    if len > 256 {
+        return String::new();
+    }
 
     let mut buf = vec![0u8; len];
     let read_rc = unsafe {
