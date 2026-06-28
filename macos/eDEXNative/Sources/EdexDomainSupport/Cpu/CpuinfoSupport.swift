@@ -33,8 +33,7 @@ public struct EdexCpuinfoFormatter: Sendable {
         guard !finite.isEmpty else { return 0 }
         let mean = finite.reduce(0, +) / Double(finite.count)
         let rounded = mean.rounded()
-        guard rounded >= Double(Int.min), rounded < Double(Int.max) else { return 0 }
-        return Int(rounded)
+        return Int(exactly: rounded) ?? 0
     }
 
     /// TEMP cell: the number (integers without a decimal point) + `°C`.
