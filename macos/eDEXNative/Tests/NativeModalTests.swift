@@ -124,6 +124,21 @@ final class NativeModalTests: XCTestCase {
 
         XCTAssertEqual(manager.modal(id: id)?.offsetX, 14)
         XCTAssertEqual(manager.modal(id: id)?.offsetY, 6)
+
+        let viewport = ModalLayoutRect(x: 0, y: 0, width: 800, height: 600)
+        manager.move(
+            id,
+            dx: .nan,
+            dy: -.infinity,
+            placement: .init(
+                viewport: viewport,
+                modalSize: ModalLayoutSize(width: 300, height: 160),
+                reserved: []
+            )
+        )
+
+        XCTAssertEqual(manager.modal(id: id)?.offsetX, 14)
+        XCTAssertEqual(manager.modal(id: id)?.offsetY, 6)
     }
 
     func testModalPlacementKeepsRectInsideViewport() {

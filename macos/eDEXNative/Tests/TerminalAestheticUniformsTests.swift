@@ -118,6 +118,7 @@ final class TerminalAestheticUniformsTests: XCTestCase {
         XCTAssertEqual(u.accentR, 0)
         XCTAssertEqual(u.accentG, 0)
         XCTAssertEqual(u.accentB, 0)
+        XCTAssertEqual(u.crtChromaticAmount, 1.5, accuracy: 0.001)
     }
 
     // MARK: - CRT bool → UInt32 mapping
